@@ -6,7 +6,7 @@ dicts are allowed to cross a node boundary; everything is a model.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ----- Enums -----
