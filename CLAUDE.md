@@ -844,4 +844,22 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 
 ---
 
+## 18. Installed agent skills
+
+External skills installed via `npx skills add`. They provide general best
+practices; CLAUDE.md rules take precedence when they conflict.
+
+- `swiftui-pro`: consult for all SwiftUI work in ios/. Modern API usage,
+  deprecation avoidance, view performance.
+- `supabase-postgres-best-practices`: consult when writing migrations,
+  designing indexes, or configuring connection pooling.
+- `redis-core`: consult when designing Redis key schemas for run state
+  and WebSocket pub/sub.
+
+Precedence: CLAUDE.md §2 (LLM vs deterministic boundary), §14 (conventions),
+and §16 (defaults) override any external skill guidance. If a skill suggests
+something that conflicts with those sections, follow CLAUDE.md and note the
+conflict in your response.
+
 End of CLAUDE.md v2. If you are about to start coding and any section above feels ambiguous, stop and ask.
+

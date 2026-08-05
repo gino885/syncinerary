@@ -16,3 +16,5 @@ build/
 
 # Docker
 postgres_data/
+.agents/
+.DS_Store
