@@ -1,0 +1,847 @@
+# Syncinerary — Group Travel Agent OS — CLAUDE.md v2
+
+This file is the canonical build brief. Keep it at repo root so Claude Code auto-loads it. Read all of it before writing code, then follow the engineering order in Section 13 strictly.
+
+If something here is ambiguous, stop and ask. Do not infer behavior that is not specified. The point of this document is to remove drift, not invite improvisation.
+
+---
+
+## 1. What we are building, and why
+
+A group travel planning agent. The system gathers candidate places (attractions, food, lodging) from a balanced mix of sources, lets each group member swipe candidates with per-person hints, aggregates votes deterministically into a shortlist the group confirms, then runs a two-stage scheduler that decides which places go on which day and in what order, factoring weather, transit, fatigue, opening hours, and pinned anchors. When something disrupts the trip mid-execution, a rescue agent proposes a replan that the group must approve before it takes effect.
+
+This is also a portfolio piece targeting AI Engineer roles. The headline is not "it plans a trip"; it is:
+
+1. The LLM vs deterministic boundary is defensible.
+2. The agent fails safely (Feature 5).
+3. The agent does not act without group approval on consequential changes (Feature 4).
+4. Every change can be measured against an eval set in five minutes (Feature 2).
+
+Treat reliability and explainability as first-class product features, not afterthoughts.
+
+---
+
+## 2. The single most important architectural rule
+
+**LLM handles fuzzy and explanatory work. Deterministic code handles feasibility and final decisions.**
+
+| Job | Owner | Why |
+|---|---|---|
+| Discover, dedup, enrich candidates | LLM + tools | open-ended |
+| Generate per-traveler badges on each card | LLM (delegate, batched) | natural language reasoning about a profile |
+| Parse user free-text notes into structured metadata | LLM (delegate) | NLP |
+| Compute group consensus score | Deterministic function | must be reproducible and auditable |
+| Decide what enters the shortlist | Deterministic + human confirm | reproducibility + control |
+| Satisfy hard scheduling constraints | OR-Tools CP-SAT | feasibility must be guaranteed |
+| Weight soft preferences in the scheduler objective | LLM produces weights, solver uses them | trade-offs are subjective |
+| Choose final itinerary | OR-Tools | must be defensible |
+| Explain the itinerary in natural language | LLM | last step, never decides anything |
+
+**Forbidden:** any LLM call inside `aggregate.py`, `shortlist.py`, `solver/`, `harness/`. If tempted, put the LLM step before or after those modules, not inside.
+
+This rule is the single thing you must defend in interviews and code review. Do not break it.
+
+---
+
+## 3. The 6-step pipeline (user-facing flow, in order)
+
+```
+1. GATHER         Build a balanced candidate pool from 3 source types
+2. SWIPE          Each traveler swipes; delegate badges show per-person hints
+3. AGGREGATE      Deterministic consensus scoring across votes
+4. SHORTLIST      Group confirms a smaller list, marks must-go
+5. STAGE-1 DAYS   Solver decides: each shortlisted card -> day or not-placed
+6. STAGE-2 ROUTE  Solver decides: per-day order, times, transit segments
+7. EXPLAIN        LLM produces the itinerary narrative + wishlist-not-placed reasons
+```
+
+Step 7 numbering aside, this is six conceptual stages. Do not skip the shortlist confirmation; it is what gives users control and is a natural trace breakpoint.
+
+---
+
+## 4. Tech stack (decided, do not re-litigate)
+
+| Choice | Rationale (also: interview answer) |
+|---|---|
+| Python 3.12 + FastAPI (async) | Agent ecosystem (LangGraph, Phoenix, DeepEval, OR-Tools, vendor SDKs) is Python-native; async fits I/O-bound LLM calls; pydantic-native |
+| LangGraph | Stateful + replan loop + explicit control flow; LangChain is chain-only, CrewAI is role-play, AutoGen is conversational. Graph state machine fits |
+| OR-Tools CP-SAT | Hard constraints must be guaranteed feasible. Scheduling is a classic CSP. LLM cannot guarantee feasibility or audit |
+| Anthropic Claude via SDK | Model id from env var `SYNC_LLM_MODEL` (default `claude-opus-4-7`). Use `claude-haiku-4-5` for batch / cheap tasks via model router (add-on phase) |
+| PostgreSQL + pgvector | Trip / vote / itinerary versions are highly relational. Embedding volume small (hundreds per trip), pgvector is enough |
+| Redis | Run state, locks, WebSocket pub/sub. Short-lived high-write data does not belong in Postgres |
+| Phoenix (self-hosted) for traces | OTel-native, trace data portable. LangSmith would couple to vendor cloud |
+| OpenInference auto-instrumentation | Auto-instruments LangGraph node executions and Anthropic SDK calls into OTel spans. Raw `start_as_current_span` reserved for domain-level attributes only. Industry standard for AI observability in 2026 |
+| DeepEval | pytest-native CI eval. Ragas is RAG-specific, ours is broader |
+| pydantic everywhere | Required for Feature 5 tool validation. Pydantic schemas double as JSON schemas for LLM tool definitions |
+| SwiftUI iOS | per user choice. REST + WebSocket to backend |
+| Open-Meteo (weather) | Free, no key, 16-day forecast, Hokkaido covered |
+| Google Directions API (transit) | Free tier sufficient for demo and tests, strong Japan transit coverage |
+
+---
+
+## 5. Architecture diagram
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["iOS App (SwiftUI)"]
+        UI1[Trip Setup, Invite, Profile/Constraint Input]
+        UI2[Swipe Voting with per-person Badges and Note]
+        UI3[Shortlist Confirm + Must-go Marking]
+        UI4[Itinerary View + Wishlist Not-Placed]
+        UI5[Replan Approval: trace + diff]
+    end
+    subgraph API["FastAPI Gateway"]
+        GW[REST + WebSocket: auth, trip/vote/shortlist, push]
+    end
+    subgraph HARNESS["Reliability Harness (Feature 5)  -  wraps every LLM and tool call"]
+        H1[Tool schema validation + repair]
+        H2[Loop / no-progress detector]
+        H3[Step/Token budget circuit breaker]
+    end
+    subgraph ORCH["Agent Orchestration (LangGraph)"]
+        A1["Gather (LLM + tools)  - 3 sources: Backbone / Buzz / Personal"]
+        A2["Delegate Badge Generator (LLM, batch)  - per traveler, per card"]
+        A3["Note Parser (LLM)  - free text -> structured"]
+        A4[["Consensus Aggregator (DETERMINISTIC)"]]
+        A5[["Shortlist Builder (DETERMINISTIC, group-confirmed)"]]
+        A6[["Stage-1 Day Assignment Solver - OR-Tools (DETERMINISTIC)"]]
+        A7[["Stage-2 Intra-day Routing Solver - OR-Tools (DETERMINISTIC)"]]
+        A8["Soft-pref Weighting (LLM produces weights only)"]
+        A9["Itinerary Explainer (LLM)"]
+        A10["Rescue / Replan Agent (LLM + tools)  - reuses Stage-1+2"]
+    end
+    subgraph GATE["HITL Approval Gate (Feature 4)"]
+        G1[Replan proposal: trace + itinerary diff]
+        G2{Group approves?}
+        G3[Commit new itinerary version]
+        G4[Discard / keep current]
+    end
+    subgraph OBS["Observability + Eval rail (Features 2 + 4)"]
+        O1[OTel tracing -> Phoenix]
+        O2[Replan trace store]
+        O3[Eval harness: fixtures + disruption injector]
+        O4[Scorers: feasibility + DeepEval quality + harness health]
+        O5[Regression suite in CI]
+    end
+    subgraph DATA["Data Layer"]
+        D1[(PostgreSQL: trips, candidates, votes, badges, shortlist, itinerary versions, replan log)]
+        D2[(Redis: run state, locks, WS pub/sub)]
+        D3[(pgvector: enrichment)]
+    end
+    CLIENT <--> GW
+    GW <--> HARNESS
+    HARNESS --> ORCH
+    A1 --> A2
+    A2 --> UI2
+    UI2 --> A3
+    A3 --> A4 --> A5 --> UI3
+    UI3 --> A6 --> A7 --> A8 --> A9 --> UI4
+    A10 --> G1 --> G2
+    G2 -->|yes| G3 --> D1
+    G2 -->|no| G4
+    ORCH -. emits spans .-> O1
+    A10 -. replan trace .-> O2
+    O3 -. injects scenarios .-> HARNESS
+    O1 --> O4 --> O5
+    ORCH <--> DATA
+```
+
+---
+
+## 6. Repo structure
+
+```
+syncinerary/
+  api/                    FastAPI app, routers, websocket handlers
+  agents/                 LangGraph graph definition + nodes
+    graph.py              wires nodes into a LangGraph StateGraph
+    gather/
+      backbone.py         frequency-mined from itinerary articles
+      buzz.py             multi-source recency-weighted mining
+      personal.py         user-paste + profile-driven (limited)
+      dedup.py            cross-source entity resolution
+      enrich.py           geocode, hours, photos, fatigue_cost tagging
+    delegate/
+      badge.py            per-traveler badge generation (LLM, batched)
+      note_parser.py      free-text -> structured note metadata (LLM)
+    aggregate.py          DETERMINISTIC consensus scoring     <- no LLM
+    shortlist.py          DETERMINISTIC selection + must-go    <- no LLM
+    solver/
+      stage1_days.py      DETERMINISTIC OR-Tools day assignment
+      stage2_route.py     DETERMINISTIC OR-Tools VRP-TW per day
+      objective.py        weighted objective: dispersion, diversity, fatigue, etc
+    softpref.py           LLM produces objective weights and hints only
+    explain.py            LLM itinerary narrative + wishlist reasons
+    rescue.py             replan agent: trace + diff producer
+  harness/                Feature 5
+    wrapper.py            single entry point for LLM/tool calls
+    tool_guard.py         pydantic validation + repair loop
+    loop_detector.py      state-hash + tool-arg cycle detection
+    budget.py             step + token circuit breaker
+  obs/                    OTel setup, span helpers, trace schema
+  eval/                   Feature 2
+    fixtures/             trip + disruption scenarios as JSON
+    disruption.py         injectors for each trigger_type
+    scorers.py            feasibility + quality + harness metrics
+    runner.py             runs all, writes eval_result, diffs vs last run
+  diff/                   itinerary diff + trace-to-text renderer (shared by F4)
+  domain/                 pydantic models: TripState, CandidatePlace, Vote, Badge, Trace, etc
+  store/                  postgres + redis repositories, alembic migrations
+  tools/                  pluggable tool interface + implementations
+    places/               Google Places, OSM
+    transit/              Google Directions (with cache)
+    weather/              Open-Meteo
+    fetch/                Reddit, YouTube Data, Wikivoyage, Dcard, generic URL fetch, screenshot OCR
+  config/                 env defaults, model ids, thresholds
+  tests/                  unit + integration; eval/ is separate from these
+ios/                      SwiftUI app
+docker/                   compose files for postgres, redis, phoenix
+```
+
+---
+
+## 7. Data schema (Postgres)
+
+Only the non-obvious columns are commented.
+
+```
+trip(
+  id, destination, start_date, end_date,
+  days INT,                        -- derived but stored
+  status[setup|swiping|shortlisting|scheduling|active|disrupted],
+  created_by
+)
+
+traveler(
+  id, trip_id, name, home_city,
+  profile_json                     -- structured preferences (dietary, mobility, interests)
+)
+
+constraint(
+  id, trip_id,
+  traveler_id NULLABLE,            -- NULL = group-level
+  type,                            -- e.g. 'dietary', 'budget_daily', 'no_early_morning', 'must_be_at_place'
+  value_json,
+  priority INT,
+  kind[hard|soft]
+)
+
+candidate_place(
+  id, trip_id,
+  type[attraction|food|lodging],
+  name_canonical, name_original_lang,
+  lat, lng, address, area,
+  hours_by_weekday JSONB,          -- {mon: [[09,18]], tue: ..., ...}
+  price_tier INT,                  -- 1..4
+  duration_estimate_min INT,
+  dietary_tags TEXT[],             -- ['vegetarian', 'halal']
+  weather_dependent BOOL,
+  reservation_required BOOL,
+  fatigue_cost INT,                -- 1=low, 2=med, 3=high
+  category TEXT,                   -- for diversity bonus: 'temple', 'museum', 'cafe', 'hike'
+  sources JSONB,                   -- [{type:'backbone', score:0.75}, {type:'buzz', score:0.62}, {type:'personal', by:'traveler_id', via:'instagram_link'}]
+  enrichment JSONB,                -- photos, top reviews, why-loved summary
+  trending_signals JSONB,          -- mentions, recency_score, engagement
+  embedding vector(1536)           -- for dedup similarity
+)
+
+candidate_badge(
+  id, candidate_id, traveler_id,
+  badge_type[warning|confirm|neutral],
+  badge_text,                      -- short user-facing string
+  reasoning,                       -- why this badge (for trace)
+  generated_at
+)
+
+vote(
+  id, candidate_id, traveler_id,
+  signal[like|dislike|like_with_note|must_have],
+  note_text TEXT NULLABLE,
+  note_parsed JSONB NULLABLE       -- e.g. {self_handles_meal:true, alternative:'convenience_store'}
+)
+
+shortlist_state(
+  trip_id PRIMARY KEY,
+  selected_candidate_ids JSONB,    -- ordered
+  must_go_candidate_ids JSONB,
+  confirmed_by JSONB,              -- which travelers approved this shortlist
+  confirmed_at,
+  wishlist_excluded_ids JSONB      -- cards group voted up but did not make shortlist
+)
+
+itinerary_version(
+  id, trip_id,
+  version_no INT,
+  status[proposed|active|superseded|rejected],
+  created_by[agent|user],
+  parent_version_id NULLABLE,
+  created_at,
+  objective_breakdown JSONB        -- per-objective scores for trace
+)
+
+itinerary_node(
+  id, version_id, candidate_id,
+  day INT,
+  start_time, end_time,
+  fixed BOOL,
+  lock_reason TEXT,                -- 'user_pinned', 'reservation', 'check_in'
+  transit_from_prev_min INT,
+  transit_from_prev_mode TEXT,     -- 'walk', 'transit', 'taxi'
+  notes_for_travelers JSONB        -- e.g. {traveler_id_A: 'self-handles meal'}
+)
+
+wishlist_not_placed(
+  version_id, candidate_id,
+  reason_code,                     -- 'no_day_fit', 'budget', 'fatigue_overflow', 'closed_on_available_days'
+  reason_text
+)
+
+replan_event(
+  id, trip_id,
+  trigger_type[reservation_cancelled|transit_delay|overslept|place_closed|weather|other],
+  trigger_payload JSONB,
+  affected_node_ids JSONB,
+  trace_json JSONB,                -- structured trace, see Section 12
+  proposed_version_id NULLABLE,
+  status[pending|approved|rejected],
+  decided_by, decided_at
+)
+
+agent_run(
+  id, trip_id, kind,
+  status, step_count, token_cost,
+  trace_id                         -- OTel trace id, joinable to Phoenix
+)
+
+eval_scenario(
+  id, name,
+  fixture_json,                    -- trip + travelers + constraints + candidate set
+  disruption_json NULLABLE,
+  expected_json                    -- assertions: must_include, must_exclude, score thresholds
+)
+
+eval_result(
+  id, scenario_id, commit_sha,
+  scores_json, passed BOOL,
+  run_at
+)
+```
+
+**Immutability rule:** `itinerary_version` and `itinerary_node` are append-only. A replan never updates an existing version; it creates a new one and points `parent_version_id` at the old one. F4 diff and F2 replay both depend on this.
+
+---
+
+## 8. Gather strategy: three sources
+
+The candidate pool is built from three sources combined and deduplicated. **Default mix: 40% Backbone, 40% Buzz, 20% Personal.** Pool size defaults to `days * 7` (5-day trip => ~35 cards), configurable in the range `days * 5` to `days * 8`.
+
+### 8.1 Backbone (~40%)
+
+Locked-in, high-confidence candidates that ensure the trip covers what the destination is known for.
+
+**Method (no LLM free-association):**
+
+1. Fetch 10 to 20 full itinerary articles / vlog descriptions for the destination from legal sources: Reddit (r/JapanTravel and destination-specific subs), YouTube Data API descriptions, Wikivoyage.
+2. For each article, run an LLM in NER mode only to extract place mentions.
+3. Geocode each mention via Google Places. Drop unresolvable mentions.
+4. Cross-article dedup.
+5. Compute `backbone_score = (articles_mentioning / total_articles)`.
+6. Keep candidates with `backbone_score >= 0.30`.
+7. Enrich (hours, photos, weather_dependent, fatigue_cost, category).
+
+`sources[]` on a backbone candidate must include `{type:'backbone', score:<value>, articles_count:<n>}`.
+
+**Defense in interview:** Backbone selection is reproducible and explainable. We do not let the LLM hallucinate "must-see" places; we mine frequency from real travel content. The LLM only does NER. The 30% threshold is a configurable knob, not a vibes call.
+
+### 8.2 Buzz (~40%)
+
+What is currently being talked about. Avoids the trip feeling dated. Avoids niche noise.
+
+**Method:**
+
+1. Fetch from Reddit (last 6 months in destination subs), YouTube Data API (recent uploads above a view threshold), Dcard, optional Google Trends rising queries.
+2. LLM NER per item.
+3. Geocode + dedup.
+4. Cross-source mention count: **a candidate must appear in at least 3 sources** to be eligible. This single threshold kills the long tail.
+5. Score: `buzz_score = log(mentions + 1) * recency_decay * normalized_engagement`.
+6. Remove any candidate already in backbone.
+7. Take top-N to fill the buzz quota.
+
+`sources[]` includes `{type:'buzz', score:<value>, sources_count:<n>}`.
+
+### 8.3 Personal (~20%)
+
+Two sub-sources.
+
+**C1 User-paste:** Each traveler can paste links (Xiaohongshu, Instagram, TikTok, blogs, anything) or upload screenshots.
+- Link: fetch public metadata + body text. Do not log in. Do not bypass paywalls. Do not scrape platforms that block scrapers; respect ToS.
+- Screenshot: OCR + vision model entity extraction.
+- Geocode extracted place names. Drop unresolvable extractions.
+- Append to candidate pool with `sources[]` containing `{type:'personal', subtype:'user_paste', by:<traveler_id>, via:<platform>}`.
+
+**C2 Profile-driven:** From each traveler's `profile_json`, an LLM proposes a small number of candidates that match stated interests.
+- Hard cap: max 2 candidates per traveler per trip.
+- Mandatory sanity check: each candidate must pass geocoding via Google Places (real place) before entering the pool.
+- `sources[]` contains `{type:'personal', subtype:'profile_driven', by:<traveler_id>}`.
+
+### 8.4 Dedup with attribution
+
+A place mentioned by backbone + buzz + a user-paste must collapse to ONE candidate row whose `sources[]` retains all three entries.
+
+Dedup pipeline:
+1. Normalize names (translit, lowercase, strip suffixes).
+2. Geographic cluster: candidates within 50m collapse.
+3. Embedding similarity > 0.9 collapse (catches translation variants like "拉麵橫丁" vs "Ramen Yokocho" vs "さっぽろラーメン横丁").
+4. LLM-assisted entity resolution as fallback for borderline cases.
+
+When merging, keep the richest enrichment; union the `sources[]`.
+
+### 8.5 Card UI source badges
+
+Each card shows badges based on `sources[]`:
+- 📍 Classic (has backbone source)
+- 🔥 Trending (has buzz source)
+- ❤️ Yours (has personal source from current viewer)
+- 👥 Saved by group (has personal source from another traveler)
+
+These badges are separate from delegate badges (Section 9). Source badges are about provenance; delegate badges are about per-person fit.
+
+### 8.6 Three card types and how they enter the flow
+
+| Type | Goes into swipe? | Pre-filter | Notes |
+|---|---|---|---|
+| Attraction | Yes | None | Standard |
+| Food | Yes | Filter out candidates that violate any hard dietary constraint of any traveler before showing them in swipe | Avoids most noise in food cards |
+| Lodging | **No** | N/A | Solver-driven. After shortlist confirmation, solver picks top 3 lodging options by area/budget/dates and shows a comparison; group picks one |
+
+Transit is never a candidate. It is derived during Stage-2 routing (Section 11).
+
+---
+
+## 9. Delegate badges + voting
+
+### 9.1 Badge generation
+
+For each card x each traveler, run a delegate LLM that produces ONE of:
+- A `warning` badge if the candidate triggers any of the traveler's hard or high-priority soft constraints.
+- A `confirm` badge if the candidate strongly matches a stated interest.
+- **No badge** if neither (default; do not show empty badges).
+
+Badge generation is **batched** before the user starts swiping, not on demand. Use the cheap model (Haiku-class via `SYNC_CHEAP_MODEL`) since this is high-volume and low-stakes per call. Budget the total cost via the harness.
+
+A badge has two strings:
+- `badge_text`: short, shown on the card (e.g. "Seafood-heavy, you marked vegetarian").
+- `reasoning`: longer, stored for trace and viewable on tap.
+
+**Delegate is not a decision-maker.** It does not vote, does not negotiate, does not exclude cards. It only annotates.
+
+### 9.2 Voting UI: three buttons
+
+Each card supports:
+- 👎 Dislike — `signal=dislike`. Counts against consensus.
+- 👍 Like — `signal=like`.
+- 📝 Like with note — `signal=like_with_note`. Opens a text input. User types free text (e.g. "I can grab a convenience store meal").
+
+There is also a long-press shortcut for `signal=must_have` (stronger than like). Reserve sparingly.
+
+### 9.3 Note parsing
+
+When a `like_with_note` is submitted, a delegate LLM (cheap model) parses the free text into structured `note_parsed` JSON. Recognized schemas:
+
+- `{self_handles_meal: bool, alternative: string}`
+- `{requires_short_visit: bool, max_minutes: int}`
+- `{conditional_on: 'weather_good'|'time_of_day'|'group_consensus', ...}`
+- Fallback: `{raw: string}` if no schema fits.
+
+`note_parsed` flows downstream:
+- Aggregator: `like_with_note` weighs the same as `like` for ranking. Conditions do not reduce weight.
+- Solver: reads `note_parsed` for the relevant node and may add `notes_for_travelers` on the itinerary node.
+- Explainer: surfaces the note in the narrative ("Traveler A will grab a convenience store meal here").
+
+---
+
+## 10. Aggregate + shortlist + must-go + wishlist
+
+### 10.1 Aggregate
+
+For each candidate, compute a single deterministic group score:
+
+```
+votes_pos       = count(like) + count(like_with_note)
+votes_neg       = count(dislike)
+votes_must      = count(must_have)
+votes_total     = number of travelers
+
+acceptance      = (votes_pos - votes_neg * dislike_weight) / votes_total
+must_have_bonus = votes_must * must_have_weight
+score           = acceptance + must_have_bonus
+```
+
+Default constants (in `config/aggregate.py`):
+- `dislike_weight = 1.5`
+- `must_have_weight = 0.3`
+
+### 10.2 Shortlist builder
+
+After voting closes, build a candidate shortlist:
+
+```
+target_size = days * slots_per_day            # default slots_per_day = 6
+sort all candidates by score desc
+take top target_size
+```
+
+Group sees this shortlist on a confirmation screen and may:
+- Remove any card from the shortlist (drops back to wishlist).
+- Add back any card from the just-below-threshold list.
+- **Mark up to N cards as "must-go"** (default N = `days`). Must-go cards become hard pins for the Stage-1 solver.
+
+Confirmation requires acknowledgment from at least 50% of travelers (configurable). On confirm, write `shortlist_state` and proceed to Stage-1.
+
+### 10.3 Wishlist not-placed
+
+Cards that made the shortlist but the solver could not place are surfaced alongside the final itinerary in `wishlist_not_placed` with a `reason_code`. The Explainer turns these into human-readable lines ("Otaru Music Box Museum did not fit because Day 4 was already at the fatigue cap").
+
+This is a key UX feature: it answers "why did my favorite not get included?" up front, which prevents a class of user frustration and is a natural trace surface.
+
+---
+
+## 11. Two-stage solver
+
+### 11.1 Stage 1 — Day Assignment
+
+**Decision variables:** for each shortlisted candidate, `day in {0, 1, ..., days-1, NOT_PLACED}`.
+
+**Hard constraints:**
+- Must-go candidates must have `day != NOT_PLACED`.
+- User-pinned anchors: assigned to their pinned day.
+- Open-day constraint: candidate must be open on the assigned day (uses `hours_by_weekday` + day-of-week of the trip dates).
+- Activity date constraints: candidates with a specific date (events) pinned.
+- Daily fatigue budget: `sum(fatigue_cost) <= daily_fatigue_budget` per day (default 8).
+- Daily walking budget: rough heuristic in Stage 1 (default 90 min/day), refined in Stage 2.
+- Lodging anchor: if a lodging is selected for the trip, each day starts and ends within its area unless explicitly multi-base.
+
+**Soft objective (weighted sum; weights from `softpref.py`):**
+- Geographic clustering: minimize sum of pairwise distances within a day.
+- Diversity: avoid placing too many candidates of the same `category` on one day.
+- Weather match: prefer outdoor on dry days, indoor on rainy days (uses Open-Meteo forecast).
+- Vote score: prefer placing high-score candidates over low-score ones (NOT_PLACED has a penalty proportional to the candidate's vote score).
+- Conditional preferences from `note_parsed`: e.g. respect "only if weather is good".
+
+### 11.2 Stage 2 — Intra-day Routing
+
+Run independently for each day. Input: the candidates assigned to that day in Stage 1, plus any anchors.
+
+**Decision variables:** order of visit + start_time/end_time per candidate.
+
+**Hard constraints:**
+- Opening hours per candidate.
+- Reservation anchors (must be visited within reservation window).
+- Lodging anchors (start of day, end of day).
+- Transit time: cannot start a visit before `prev_end_time + transit_minutes(prev, this)`.
+- Total day duration cap (default 12 hours active).
+
+**Soft objective:**
+- Minimize total transit time.
+- Prefer morning slots for crowd-sensitive places when LLM has flagged them (heuristic from reviews; not a hard constraint, see Section 15 on why crowds are not in hard constraints).
+- Match meal categories to meal times.
+
+**Transit lookup:**
+- Pre-fetch all pairwise transit times among the day's candidates via Google Directions API.
+- Cache aggressively: cache key is `(origin_place_id, dest_place_id, mode, departure_window)`.
+- For a `days=5, shortlist=30` trip with 6 candidates per day, lookups are O(n^2) per day = 36 calls per day = ~180 calls per trip. Well within free tier.
+
+### 11.3 Independent replan property
+
+Because Stage 2 runs per-day, F4 can replan a single day without touching the rest of the trip. This is a deliberate design choice.
+
+---
+
+## 12. The three core features
+
+### 12.1 Feature 5 — Reliability harness (foundational, ships in Prototype)
+
+Every LLM call and every tool call in the codebase goes through `harness/wrapper.py`. There are no exceptions. PRs that bypass it must be rejected in review.
+
+The wrapper provides:
+
+1. **Tool schema validation + repair** (`tool_guard.py`)
+   - Validates tool input arguments against the tool's pydantic schema before execution.
+   - On validation failure, re-prompts the model once with the validation error appended to the conversation, asking for corrected arguments.
+   - Repair attempt cap: 2. Then raises `ToolCallUnrecoverable`.
+   - All attempts logged to the span.
+
+2. **Loop / no-progress detection** (`loop_detector.py`)
+   - Maintains a rolling window of state hashes (over the LangGraph state slice that matters for the current node).
+   - If the same state hash appears 3 times within a window of N steps, raise `NoProgress`.
+   - If the same tool is called with equivalent arguments 3 times within a window, raise `ToolCycle`.
+
+3. **Step + token budget circuit breaker** (`budget.py`)
+   - Per-run caps from env: `SYNC_MAX_STEPS`, `SYNC_MAX_TOKENS_USD`.
+   - On exceed, raise `BudgetExceeded`. Persist the partial trace.
+
+**Acceptance criteria for F5:**
+- Test: a tool stub raises a validation error on first call but accepts on second; the harness must repair and succeed within attempt cap.
+- Test: a stubbed agent enters a 2-step cycle; loop detector must raise `NoProgress` before the step cap.
+- Test: token budget set tiny; run aborts with `BudgetExceeded` and a partial trace exists in storage.
+- Audit: no agent or tool module imports the LLM SDK directly. Grep CI check enforces this.
+
+### 12.2 Feature 4 — Replan with explainable trace + HITL approval gate
+
+Triggered when a disruption is reported (manually via API for now; real-time ingestion is add-on phase).
+
+`rescue.py` must:
+
+1. Identify all `itinerary_node` rows affected by the trigger.
+2. For each affected node, classify as `fixed` (reservation, paid ticket, flight, check-in) or `movable`.
+3. For movable nodes, query for alternatives via the gather tool stack, scoped to: nearby (area), open at the needed time, satisfying the same hard constraints, with vote score from the original pool if available.
+4. Re-run Stage-1 (for the affected day only) + Stage-2 (for that day) producing a candidate `itinerary_version` with `status='proposed'` and `parent_version_id` set.
+5. Emit a structured trace JSON:
+
+```json
+{
+  "trigger": {"type": "reservation_cancelled", "node_id": "...", "at": "..."},
+  "affected_nodes": [{"node_id": "...", "candidate_id": "...", "classification": "movable"}],
+  "alternatives_considered": [
+    {"candidate_id": "...", "score": 0.72, "rejected_reason": "violates fatigue cap"},
+    {"candidate_id": "...", "score": 0.65, "chosen": true, "reason": "lowest transit + within budget"}
+  ],
+  "downstream_changes": [{"node_id": "...", "old_time": "...", "new_time": "..."}]
+}
+```
+
+6. Push the proposal to the group via WebSocket. **Never auto-commit.**
+7. On approve: set proposed `active`, the prior version `superseded`. On reject: keep current; mark proposed `rejected`.
+8. Every decision recorded in `replan_event` with `decided_by`, `decided_at`.
+
+**The diff:** `diff/itinerary_diff.py` returns `{added, removed, moved, time_changed}` between two versions. iOS renders this.
+
+**Acceptance criteria for F4:**
+- Marking a disruption creates a proposed version + pending replan_event; active version unchanged.
+- Trace lists at least one quantified reason (transit, fatigue, or budget) on the chosen alternative.
+- Approve transitions versions; reject does not; both logged.
+- Diff endpoint returns added/removed/moved/time-changed for any two versions.
+- Replan a 5-day trip in under 10 seconds (excluding API latency to external tools).
+
+### 12.3 Feature 2 — Eval harness (built last, but is the interview headline)
+
+Closes the trace -> eval -> fix loop. Should answer "did this change make the agent better or worse" within 5 minutes of running.
+
+**Structure:**
+
+`eval/fixtures/` — at minimum 10 fixtures:
+- `clean_5day_hokkaido.json` — baseline
+- `vegetarian_conflict.json` — at least one hard dietary conflict
+- `budget_tight.json` — daily budget bites
+- `weather_storm_day3.json` — outdoor-heavy day 3 with rain forecast
+- 5 disruption fixtures, one per `trigger_type` in F4
+- `group_split.json` — two factions with opposing preferences
+
+`eval/disruption.py` — injectors for each `trigger_type`.
+
+`eval/scorers.py` — three families:
+
+| Family | Examples | Pass/Fail or scored |
+|---|---|---|
+| Feasibility (deterministic) | No hard constraint violated; all reservations honored; transit fits; fatigue under cap | Pass/Fail; any failure fails the eval |
+| Quality (DeepEval + custom) | Explanation faithfulness vs chosen itinerary; consensus fairness (worst-off traveler satisfaction); coverage of must-go | Scored, regression-tracked |
+| Harness health | No run exceeded budget; no unrecovered tool-call failure; no `NoProgress` raised on benign fixtures | Pass/Fail |
+
+`eval/runner.py` — runs all fixtures, writes `eval_result` rows tagged with git commit SHA, prints per-fixture scores and an aggregate diff vs the previous commit's run.
+
+**Acceptance criteria for F2:**
+- `python -m eval.runner` runs all fixtures and prints scores + diff vs last commit.
+- A deliberately bad change (e.g. disabling the fatigue cap) shows a measurable regression in the output.
+- CI fails the PR if any feasibility scorer regresses.
+- 5-minute end-to-end runtime for the full eval suite on a developer laptop.
+
+---
+
+## 13. Engineering order: Prototype → Production → Add-on
+
+Strict ordering. Do not skip ahead. Each milestone has acceptance gates (Section 12 + this section).
+
+### Phase A — Prototype (M0 to M2)
+
+Goal: one end-to-end trip plans through all 6 pipeline stages with simplified components. Demo-able even if rough.
+
+**M0. Scaffold and observability skeleton**
+- Repo structure as Section 6.
+- docker-compose for Postgres + pgvector, Redis, Phoenix.
+- All pydantic domain models in `domain/`.
+- Empty LangGraph graph that emits OTel spans visible in Phoenix.
+- iOS app skeleton (placeholder screens, networking layer).
+- **Done when:** an empty graph run produces a trace in Phoenix; iOS connects to backend health endpoint.
+
+**M1. Thin vertical slice**
+- Gather: ONE source only. Use Wikivoyage + a hardcoded JSON fixture for the destination's candidates. Skip backbone/buzz/personal split for now.
+- Swipe: two buttons (like/dislike only). No badges yet.
+- Aggregate: deterministic acceptance score (Section 10.1, ignoring must_have).
+- Shortlist: simple top-N, no confirmation screen yet; auto-proceeds.
+- Solver: a single-stage OR-Tools that uses only hours + transit (via Google Directions). Skip weather, fatigue, diversity, dispersion for now.
+- Explain: short LLM narrative.
+- iOS: trip create, swipe, itinerary view. No replan, no shortlist screen, no badges.
+- **Done when:** one user can create a Hokkaido 5-day trip, swipe ~30 candidates, get an itinerary back end-to-end.
+
+**M2. Feature 5 — Reliability harness**
+- Wrap every existing LLM/tool call in `harness/wrapper.py`.
+- Implement `tool_guard`, `loop_detector`, `budget`.
+- Add the grep CI check for direct SDK imports.
+- **Done when:** F5 acceptance criteria met. M1 still works through the harness.
+
+### Phase B — Production (成品) (M3 to M7)
+
+Goal: ship the real product including the three interview-headline features.
+
+**M3. Full gather strategy**
+- Implement backbone mining (Reddit + YouTube + Wikivoyage NER + frequency).
+- Implement buzz scoring (multi-source recency + 3-source threshold).
+- Implement personal: user-paste (links + screenshot OCR) and profile-driven (limited to cap).
+- Implement cross-source dedup with attribution.
+- Card UI source badges (📍 🔥 ❤️ 👥).
+- Lodging path: solver-driven top 3 + group picks (not swipe).
+- Food pre-filter on hard dietary constraints before showing in swipe.
+- **Done when:** Hokkaido test trip produces a balanced 40/40/20 pool with correct attribution; dedup test passes (same place from 3 sources collapses to one card with all three source entries).
+
+**M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
+- Batched badge generation per traveler per card (cheap model).
+- Three-button swipe UI in iOS (like / dislike / like_with_note).
+- Long-press for must_have signal.
+- Note parser LLM + structured `note_parsed`.
+- Shortlist confirmation screen with must-go marking.
+- Wishlist-excluded tracking.
+- **Done when:** a multi-traveler test trip shows different badges per traveler on the same card; a `like_with_note` produces correct `note_parsed`; shortlist confirmation cycle works including must-go marking and quorum.
+
+**M5. Full two-stage solver**
+- Stage 1: day assignment with all constraints (weather via Open-Meteo, fatigue, diversity, dispersion, user-pinned, must-go).
+- Stage 2: intra-day routing with transit cache.
+- `softpref.py` produces objective weights.
+- Explainer narrative + wishlist-not-placed reasons.
+- **Done when:** the same shortlist plans differently under three different weather scenarios (sunny / rainy / mixed); user-pinned anchors honored; wishlist surfaces with quantified reasons.
+
+**M6. Feature 4 — Replan + HITL approval gate**
+- Disruption marking endpoint per `trigger_type`.
+- Rescue agent.
+- Trace JSON + diff renderer.
+- WebSocket push for proposals.
+- iOS approval screen with diff visualization.
+- **Done when:** F4 acceptance criteria met for all 5 trigger types.
+
+**M7. Feature 2 — Eval harness**
+- 10 fixtures.
+- Disruption injectors.
+- Three scorer families.
+- Runner + CI integration.
+- **Done when:** F2 acceptance criteria met; CI runs eval on every PR; a deliberately bad change shows measurable regression in CI output.
+
+### Phase C — Add-on (M8+)
+
+Optional features to demonstrate additional senior signals. Pick based on interview prep priorities. Recommended order if doing more than one: M8, M9, M10.
+
+**M8. Prompt versioning**
+- Extract all prompts into `prompts/` with version numbers.
+- Every LLM call logs which prompt version it used (in the span).
+- A/B test infrastructure for prompt changes.
+- Interview value: high. Common question and easy to demo.
+
+**M9. Streaming**
+- Stream the explainer narrative to iOS. Big UX win, common interview question.
+
+**M10. Model router**
+- Cheap model (Haiku-class) for badge generation, NER, note parsing.
+- Expensive model for explainer, rescue.
+- Router in `harness/wrapper.py` decides based on task tag.
+- Note: M4 already nominally uses the cheap model env var; M10 makes the routing rigorous and tracked.
+
+**M11. Enhanced profile-driven gather (C2 expansion)**
+- Increase cap, add stronger sanity checks, vision-based interest detection from user photos.
+
+**M12. Cross-trip personalization memory**
+- A traveler's preference profile improves across trips.
+
+**M13. Real-time disruption ingestion**
+- Wire in a transit API for live delays. Trigger F4 automatically.
+
+**M14. Safety / PII guardrail layer**
+- Output filter in the harness for PII leakage. Governance demo material.
+
+---
+
+## 14. Conventions + definition of done
+
+- Every tool input and output is a pydantic model. No untyped dicts crossing a node boundary in the LangGraph state.
+- Every LLM and tool call goes through `harness/wrapper.py`. CI check enforces this.
+- LangGraph node execution spans and Anthropic SDK call spans are auto-instrumented via OpenInference. Manual `tracer.start_as_current_span` is reserved for domain-level spans (cross-node phases, trip-scoped operations) that add attributes not derivable from auto-instrumentation. Spans carry `trip_id`, `run_id`, `model_id`, `prompt_version` (when M8 lands), and the result tag.
+- LangGraph nodes receive the typed state and return a partial dict for the graph to merge in. Never mutate the input state in place: in-place mutation breaks LangGraph's checkpointer serialization for pydantic-BaseModel state.
+- FastAPI startup and shutdown use the `lifespan` async context manager. Do not use `@app.on_event`, deprecated in FastAPI 0.100+.
+- No LLM inside `aggregate.py`, `shortlist.py`, `solver/`, `harness/`.
+- `itinerary_version` is append-only.
+- Prose in docs, commits, code comments: no em dashes. Use commas, colons, parens, or restructure.
+- A feature is "done" only when every acceptance criterion has a passing test.
+- All commits include a one-line rationale for non-obvious decisions ("chose CP-SAT over LP because ...").
+
+---
+
+## 15. Out of scope
+
+Do not build these without explicit instruction; if needed, surface in a discussion before writing code.
+
+- Real booking or payment execution.
+- Real-time third-party place APIs in production traffic (tool interface is pluggable; use Google Places + fixtures, no scraping of Xiaohongshu/IG/TikTok at any point).
+- Popular Times / crowd estimation as a hard solver constraint. Reason: data sources are unreliable and silently biased. The system instead uses LLM-extracted heuristic flags from reviews ("crowds often mentioned") as soft hints to Stage 2 only.
+- Multi-trip personalization memory across trips (deferred to M12).
+- Mobile push notifications beyond the in-app WebSocket.
+- Auth providers beyond a stub identity service.
+- LLM-driven natural language input as a primary entry point. The product is structured input + swipe, not "chat with your travel agent."
+
+---
+
+## 16. Decisions I committed to (override list)
+
+These defaults were set without explicit confirmation. If any are wrong, change them here BEFORE coding starts. After M2 they become structural and harder to change.
+
+| Default | Value | Where it lives |
+|---|---|---|
+| Source mix | 40% backbone / 40% buzz / 20% personal | `config/gather.py` |
+| Candidate pool size | `days * 7` (acceptable range: `days * 5` to `days * 8`) | `config/gather.py` |
+| Backbone frequency threshold | 30% of source articles | `config/gather.py` |
+| Backbone source articles count | 10 to 20 per destination | `config/gather.py` |
+| Buzz min source count | 3 | `config/gather.py` |
+| C2 profile-driven cap | 2 candidates per traveler | `config/gather.py` |
+| Pipeline philosophy | "Backbone IS the template" (no pre-built itinerary) | architectural, Section 8.1 |
+| Slots per day for shortlist target | 6 | `config/aggregate.py` |
+| Must-go cap | `days` cards | `config/aggregate.py` |
+| Dislike weight in aggregator | 1.5x | `config/aggregate.py` |
+| Must-have weight in aggregator | 0.3 | `config/aggregate.py` |
+| Shortlist confirm quorum | 50% of travelers | `config/aggregate.py` |
+| Daily fatigue budget | 8 (low=1/med=2/high=3) | `config/solver.py` |
+| Walking minutes per day | 90 | `config/solver.py` |
+| Day duration cap | 12 hours active | `config/solver.py` |
+| LLM default model | `claude-opus-4-7` | env `SYNC_LLM_MODEL` |
+| LLM cheap model | `claude-haiku-4-5` | env `SYNC_CHEAP_MODEL` |
+| Repair attempt cap | 2 | `config/harness.py` |
+| Loop hash repeat threshold | 3 | `config/harness.py` |
+| Weather source | Open-Meteo | `tools/weather/` |
+| Transit source | Google Directions API | `tools/transit/` |
+
+---
+
+## 17. Glossary
+
+- **Backbone:** candidates frequency-mined from full itinerary articles; the "should not miss" set.
+- **Buzz:** candidates currently trending across multiple sources.
+- **Personal:** candidates from user paste (C1) or driven by the traveler's profile (C2).
+- **Delegate:** a per-traveler LLM context that produces badges and parses notes for THAT traveler only. Does not negotiate. Does not vote. Does not decide.
+- **Shortlist:** the group-confirmed subset of candidates that proceeds to scheduling.
+- **Must-go:** a shortlist-stage hard pin. Solver must place this card.
+- **Stage 1:** day assignment.
+- **Stage 2:** intra-day order, times, and transit.
+- **Anchor:** a node the solver cannot move (reservation, check-in, user-pinned).
+- **Wishlist not-placed:** shortlisted cards the solver could not fit, surfaced with reasons.
+- **Trace:** structured JSON record of decisions an agent made; persisted for replan (F4) and eval (F2).
+- **Source badge:** the 📍 🔥 ❤️ 👥 icons on a card indicating provenance (backbone / buzz / your personal / group personal). Separate from delegate badge.
+- **Delegate badge:** the per-person warning or confirm chip on a card.
+
+---
+
+End of CLAUDE.md v2. If you are about to start coding and any section above feels ambiguous, stop and ask.
