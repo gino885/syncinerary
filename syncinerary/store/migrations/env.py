@@ -16,11 +16,11 @@ Two things here are not boilerplate:
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
 from syncinerary.config import settings
 from syncinerary.store.tables import Base
 
@@ -43,9 +43,7 @@ LANGGRAPH_TABLES = {
 
 
 def include_object(object_, name, type_, reflected, compare_to) -> bool:
-    if type_ == "table" and name in LANGGRAPH_TABLES:
-        return False
-    return True
+    return not (type_ == "table" and name in LANGGRAPH_TABLES)
 
 
 def run_migrations_offline() -> None:

@@ -56,5 +56,12 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["syncinerary*"]
 
+[tool.ruff]
+line-length = 100
+# Revision files are rendered from alembic's script.py.mako, so reformatting
+# them just means the next `alembic revision` reintroduces the same findings.
+# env.py is ours and stays linted.
+exclude = ["syncinerary/store/migrations/versions"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
