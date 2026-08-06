@@ -13,6 +13,20 @@ class TripRepository(BaseRepository[tables.Trip, Trip]):
     table = tables.Trip
     model = Trip
 
+    async def set_created_by(self, trip_id: UUID, traveler_id: UUID) -> Trip | None:
+        """Set the creator after the traveler row exists.
+
+        Two statements rather than one because trip.created_by points at a
+        traveler and traveler.trip_id points back: neither row can be written
+        with the other's id already in hand.
+        """
+        row = await self.session.get(self.table, trip_id)
+        if row is None:
+            return None
+        row.created_by = traveler_id
+        await self.session.flush()
+        return self.to_model(row)
+
     async def set_status(self, trip_id: UUID, status: TripStatus) -> Trip | None:
         """Advance the trip through setup -> swiping -> ... (CLAUDE.md §7).
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from syncinerary.store.db import make_engine
@@ -49,3 +50,28 @@ async def session(engine: AsyncEngine) -> AsyncSession:
             # warns about a transaction deassociated from its connection.
             if trans.is_active:
                 await trans.rollback()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(session: AsyncSession) -> AsyncClient:
+    """HTTP client against the real app, sharing the test's transaction.
+
+    The db_session dependency is overridden rather than letting the app open
+    its own, so request writes land in the transaction the session fixture
+    rolls back. Lifespan is not run: it would start tracing and a second
+    engine, neither of which a route test needs.
+    """
+    from syncinerary.api.deps import db_session
+    from syncinerary.api.main import app
+
+    async def _override_session():
+        yield session
+
+    app.dependency_overrides[db_session] = _override_session
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as http:
+            yield http
+    finally:
+        app.dependency_overrides.clear()
