@@ -277,3 +277,6 @@ class TripState(BaseModel):
     candidate_scores: list[CandidateScore] = Field(default_factory=list)
     shortlist: ShortlistState | None = None
     current_itinerary: ItineraryVersion | None = None
+    # Written by the explainer, the last stage (§3). Purely descriptive: it is
+    # produced from an itinerary that is already decided and feeds nothing.
+    narrative: str | None = None
