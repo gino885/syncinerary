@@ -241,6 +241,25 @@ class EvalResult(BaseModel):
     run_at: datetime = Field(default_factory=_utcnow)
 
 
+class CandidateScore(BaseModel):
+    """One candidate's group consensus score (CLAUDE.md §10.1).
+
+    The whole breakdown is carried, not just `score`. §2 puts consensus
+    scoring on the deterministic side precisely because it has to be
+    reproducible and auditable, and "auditable" means being able to see why a
+    card ranked where it did without rerunning anything.
+    """
+
+    candidate_id: UUID
+    votes_pos: int
+    votes_neg: int
+    votes_must: int
+    votes_total: int
+    acceptance: float
+    must_have_bonus: float
+    score: float
+
+
 # ----- Working state for the LangGraph -----
 
 class TripState(BaseModel):
@@ -255,5 +274,6 @@ class TripState(BaseModel):
     candidates: list[CandidatePlace] = Field(default_factory=list)
     votes: list[Vote] = Field(default_factory=list)
     badges: list[CandidateBadge] = Field(default_factory=list)
+    candidate_scores: list[CandidateScore] = Field(default_factory=list)
     shortlist: ShortlistState | None = None
     current_itinerary: ItineraryVersion | None = None
