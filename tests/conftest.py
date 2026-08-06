@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from syncinerary.store.db import make_engine
 
@@ -26,3 +26,22 @@ async def engine() -> AsyncEngine:
         pytest.skip(f"Postgres not reachable, skipping DB test: {exc}")
     yield eng
     await eng.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def session(engine: AsyncEngine) -> AsyncSession:
+    """A session inside a transaction that is always rolled back.
+
+    Repository code under test calls flush(), never commit(), so wrapping the
+    whole test in one outer transaction and rolling it back leaves the
+    database exactly as it was found. That keeps the suite order-independent
+    without truncating tables between tests.
+    """
+    async with engine.connect() as conn:
+        trans = await conn.begin()
+        db = AsyncSession(bind=conn, expire_on_commit=False)
+        try:
+            yield db
+        finally:
+            await db.close()
+            await trans.rollback()
