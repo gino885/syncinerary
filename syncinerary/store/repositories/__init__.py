@@ -14,6 +14,12 @@ from syncinerary.store.repositories.itinerary import (
     ShortlistStateRepository,
     WishlistNotPlacedRepository,
 )
+from syncinerary.store.repositories.ops import (
+    AgentRunRepository,
+    EvalResultRepository,
+    EvalScenarioRepository,
+    ReplanEventRepository,
+)
 from syncinerary.store.repositories.trip import (
     ConstraintRepository,
     TravelerRepository,
@@ -21,12 +27,16 @@ from syncinerary.store.repositories.trip import (
 )
 
 __all__ = [
+    "AgentRunRepository",
     "BaseRepository",
     "CandidateBadgeRepository",
     "CandidatePlaceRepository",
     "ConstraintRepository",
+    "EvalResultRepository",
+    "EvalScenarioRepository",
     "ItineraryNodeRepository",
     "ItineraryVersionRepository",
+    "ReplanEventRepository",
     "ShortlistStateRepository",
     "TravelerRepository",
     "TripRepository",
