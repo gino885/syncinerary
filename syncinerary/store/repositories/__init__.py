@@ -8,6 +8,12 @@ from syncinerary.store.repositories.candidate import (
     CandidatePlaceRepository,
     VoteRepository,
 )
+from syncinerary.store.repositories.itinerary import (
+    ItineraryNodeRepository,
+    ItineraryVersionRepository,
+    ShortlistStateRepository,
+    WishlistNotPlacedRepository,
+)
 from syncinerary.store.repositories.trip import (
     ConstraintRepository,
     TravelerRepository,
@@ -19,7 +25,11 @@ __all__ = [
     "CandidateBadgeRepository",
     "CandidatePlaceRepository",
     "ConstraintRepository",
+    "ItineraryNodeRepository",
+    "ItineraryVersionRepository",
+    "ShortlistStateRepository",
     "TravelerRepository",
     "TripRepository",
     "VoteRepository",
+    "WishlistNotPlacedRepository",
 ]

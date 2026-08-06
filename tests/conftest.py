@@ -44,4 +44,8 @@ async def session(engine: AsyncEngine) -> AsyncSession:
             yield db
         finally:
             await db.close()
-            await trans.rollback()
+            # A test that provoked an IntegrityError has already had the
+            # transaction rolled back underneath it, so rolling back again
+            # warns about a transaction deassociated from its connection.
+            if trans.is_active:
+                await trans.rollback()
