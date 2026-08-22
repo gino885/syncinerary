@@ -10,6 +10,7 @@ from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -20,11 +21,69 @@ from syncinerary.agents.gather.fixture import gather_node
 from syncinerary.agents.shortlist import shortlist_node
 from syncinerary.agents.solver.stage2_route import solver_node
 from syncinerary.config import settings
-from syncinerary.domain.models import TripState
+from syncinerary.domain.models import (
+    AgentRun,
+    BadgeType,
+    CandidateBadge,
+    CandidatePlace,
+    CandidateScore,
+    CandidateType,
+    Constraint,
+    ConstraintKind,
+    EvalResult,
+    EvalScenario,
+    ItineraryNode,
+    ItineraryStatus,
+    ItineraryVersion,
+    ReplanEvent,
+    ReplanStatus,
+    ReplanTrigger,
+    ShortlistState,
+    Source,
+    Traveler,
+    Trip,
+    TripState,
+    TripStatus,
+    Vote,
+    VoteSignal,
+    WishlistNotPlaced,
+)
 from syncinerary.obs.tracing import get_tracer
 
 _checkpoint_pool: AsyncConnectionPool | None = None
 _graph: Any | None = None
+
+# Checkpoints deserialize constructors, so allow only our typed state models.
+# The asyncpg UUID entry reads checkpoints written before repository values
+# were normalized to stdlib UUID; new checkpoints no longer write that type.
+CHECKPOINT_TYPES = (
+    ("asyncpg.pgproto.pgproto", "UUID"),
+    AgentRun,
+    BadgeType,
+    CandidateBadge,
+    CandidatePlace,
+    CandidateScore,
+    CandidateType,
+    Constraint,
+    ConstraintKind,
+    EvalResult,
+    EvalScenario,
+    ItineraryNode,
+    ItineraryStatus,
+    ItineraryVersion,
+    ReplanEvent,
+    ReplanStatus,
+    ReplanTrigger,
+    ShortlistState,
+    Source,
+    Traveler,
+    Trip,
+    TripState,
+    TripStatus,
+    Vote,
+    VoteSignal,
+    WishlistNotPlaced,
+)
 
 
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
@@ -71,7 +130,10 @@ async def init_graph():
         },
     )
     await pool.open(wait=True)
-    saver = AsyncPostgresSaver(pool)
+    saver = AsyncPostgresSaver(
+        pool,
+        serde=JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES),
+    )
     try:
         await saver.setup()
     except Exception:

@@ -61,8 +61,24 @@ class BaseRepository[RowT: Base, ModelT: BaseModel]:
     def to_model(cls, row: RowT) -> ModelT:
         """Row -> domain model. pydantic coerces the JSONB scalars back, so a
         uuid that went into JSONB as a string returns as a UUID."""
-        data = {field: getattr(row, cls._column_for(field)) for field in cls.model.model_fields}
+        data = {
+            field: cls._normalize_driver_value(getattr(row, cls._column_for(field)))
+            for field in cls.model.model_fields
+        }
         return cls.model.model_validate(data)  # type: ignore[return-value]
+
+    @staticmethod
+    def _normalize_driver_value(value: Any) -> Any:
+        """Do not let asyncpg's UUID subclass escape into graph state.
+
+        LangGraph checkpoints reconstruct stored Python types. Persisting an
+        asyncpg-internal class would couple durable state to a driver detail;
+        a standard UUID carries the same value and is in LangGraph's safe
+        built-in allowlist.
+        """
+        if isinstance(value, UUID) and type(value) is not UUID:
+            return UUID(str(value))
+        return value
 
     # ----- CRUD -----
 
