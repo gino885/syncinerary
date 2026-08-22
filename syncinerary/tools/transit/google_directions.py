@@ -22,6 +22,7 @@ from syncinerary.tools.transit.models import (
     TransitMatrix,
     TransitMode,
     TransitRequest,
+    TransitUnavailable,
     choose_mode,
 )
 
@@ -200,14 +201,35 @@ class GoogleDirectionsClient:
             else:
                 results[index] = _duration(lookups[index], int(cached), cache_hit=True)
 
+        unavailable: list[TransitUnavailable] = []
         if missing_indexes:
             fetched = await asyncio.gather(
-                *(self._fetch(lookups[index]) for index in missing_indexes)
+                *(self._fetch(lookups[index]) for index in missing_indexes),
+                return_exceptions=True,
             )
             pipe = self._redis.pipeline(transaction=False)
-            for index, seconds in zip(missing_indexes, fetched, strict=True):
+            for index, outcome in zip(missing_indexes, fetched, strict=True):
+                if isinstance(outcome, DirectionsRouteUnavailable):
+                    lookup = lookups[index]
+                    unavailable.append(
+                        TransitUnavailable(
+                            origin=lookup.origin,
+                            destination=lookup.destination,
+                            mode=lookup.mode,
+                            departure_window=lookup.departure_window,
+                            status=outcome.status,
+                            detail=outcome.detail,
+                        )
+                    )
+                    continue
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                seconds = outcome
                 results[index] = _duration(lookups[index], seconds, cache_hit=False)
                 pipe.set(keys[index], seconds, ex=TRANSIT_CACHE_TTL_SECONDS)
             await pipe.execute()
 
-        return TransitMatrix(legs=[leg for leg in results if leg is not None])
+        return TransitMatrix(
+            legs=[leg for leg in results if leg is not None],
+            unavailable=unavailable,
+        )

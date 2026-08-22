@@ -251,3 +251,33 @@ async def test_pairwise_prefetch_uses_both_selected_modes():
         TransitMode.WALKING,
         TransitMode.TRANSIT,
     }
+
+
+async def test_pairwise_prefetch_reports_zero_results_without_losing_other_legs():
+    calls: list[httpx.Request] = []
+    redis = FakeRedis()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(200, json={"status": "ZERO_RESULTS", "routes": []})
+        return httpx.Response(
+            200,
+            json={
+                "status": "OK",
+                "routes": [{"legs": [{"duration": {"value": 600}}]}],
+            },
+        )
+
+    locations = [_location(43.0605, 141.3469), _location(43.0626, 141.3536)]
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = GoogleDirectionsClient(
+            api_key="test-key", redis=redis, http_client=http  # type: ignore[arg-type]
+        )
+        matrix = await client.prefetch_pairwise(
+            PairwiseTransitRequest(locations=locations, departure_window="morning")
+        )
+
+    assert len(matrix.legs) == 1
+    assert len(matrix.unavailable) == 1
+    assert matrix.unavailable[0].status == "ZERO_RESULTS"

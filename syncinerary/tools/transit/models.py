@@ -74,8 +74,18 @@ class PairwiseTransitRequest(BaseModel):
     walking_cutoff_km: float = Field(default=NEARBY_WALKING_KM, gt=0)
 
 
+class TransitUnavailable(BaseModel):
+    origin: TransitLocation
+    destination: TransitLocation
+    mode: TransitMode
+    departure_window: str
+    status: str
+    detail: str | None = None
+
+
 class TransitMatrix(BaseModel):
     legs: list[TransitDuration]
+    unavailable: list[TransitUnavailable] = Field(default_factory=list)
 
 
 def haversine_km(origin: TransitLocation, destination: TransitLocation) -> float:

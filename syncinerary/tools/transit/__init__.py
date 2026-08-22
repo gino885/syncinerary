@@ -16,6 +16,7 @@ from syncinerary.tools.transit.models import (
     TransitMatrix,
     TransitMode,
     TransitRequest,
+    TransitUnavailable,
     choose_mode,
     haversine_km,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "TransitMatrix",
     "TransitMode",
     "TransitRequest",
+    "TransitUnavailable",
     "choose_mode",
     "haversine_km",
     "parse_duration_seconds",

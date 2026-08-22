@@ -21,14 +21,17 @@ from fastapi import FastAPI
 from syncinerary.api.routers import trips
 from syncinerary.obs.tracing import init_tracing
 from syncinerary.store.db import dispose_engine, init_engine
+from syncinerary.store.redis import dispose_redis, init_redis
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_tracing()
     init_engine()
+    init_redis()
     yield
     # Return pooled connections. Spans flush via BatchSpanProcessor.
+    await dispose_redis()
     await dispose_engine()
 
 
