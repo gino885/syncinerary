@@ -444,8 +444,9 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                 shortlist.selected_candidate_ids
             )
 
+        options = SolverOptions(day_start=state.day_start, day_end=state.day_end)
         async with _make_transit_client() as transit_client:
-            result = await solve_routes(state, candidates, transit_client)
+            result = await solve_routes(state, candidates, transit_client, options=options)
 
         async with session_scope() as session:
             versions = ItineraryVersionRepository(session)

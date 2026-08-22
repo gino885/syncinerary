@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -277,6 +279,11 @@ class TripState(BaseModel):
     candidate_scores: list[CandidateScore] = Field(default_factory=list)
     shortlist: ShortlistState | None = None
     current_itinerary: ItineraryVersion | None = None
+    # M1 defaults to an 08:00 to 20:00 active window. These are graph state,
+    # not trip persistence fields, so POST /plan can override them without a
+    # schema migration. A later settings screen can expose the same inputs.
+    day_start: time = time(DEFAULT_DAY_START_HOUR)
+    day_end: time = time(DEFAULT_DAY_END_HOUR)
     # Written by the explainer, the last stage (§3). Purely descriptive: it is
     # produced from an itinerary that is already decided and feeds nothing.
     narrative: str | None = None

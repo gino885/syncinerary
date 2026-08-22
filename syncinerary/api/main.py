@@ -7,9 +7,11 @@ M1 surface (CLAUDE.md §13 Phase A):
 - GET  /trips/{id}/candidates         The swipe deck (lodging excluded, §8.6).
 - POST /trips/{id}/votes              One swipe: like or dislike.
 - GET  /trips/{id}/votes/progress     How far through the deck a traveler is.
+- POST /trips/{id}/gather             Run to the swipe interrupt.
+- POST /trips/{id}/plan               Resume through solver and explainer.
+- GET  /trips/{id}/itinerary          Read the active planned version.
 
-Planning endpoints arrive with the graph wiring in M1-9; replan and the
-websocket land in M6.
+Replan and the websocket land in M6.
 
 Uses the `lifespan` async context manager, not `@app.on_event`, which is
 deprecated in FastAPI 0.100+ (CLAUDE.md §14).
@@ -18,6 +20,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from syncinerary.agents.graph import dispose_graph, init_graph
 from syncinerary.api.routers import trips
 from syncinerary.obs.tracing import init_tracing
 from syncinerary.store.db import dispose_engine, init_engine
@@ -29,8 +32,10 @@ async def lifespan(app: FastAPI):
     init_tracing()
     init_engine()
     init_redis()
+    await init_graph()
     yield
     # Return pooled connections. Spans flush via BatchSpanProcessor.
+    await dispose_graph()
     await dispose_redis()
     await dispose_engine()
 

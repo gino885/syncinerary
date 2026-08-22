@@ -8,14 +8,24 @@ iOS app decodes.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 from enum import Enum
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from syncinerary.domain.models import CandidatePlace, CandidateType, Trip, TripStatus, Vote
+from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
+from syncinerary.domain.models import (
+    CandidatePlace,
+    CandidateType,
+    ItineraryNode,
+    ItineraryStatus,
+    Trip,
+    TripStatus,
+    Vote,
+    WishlistNotPlaced,
+)
 
 
 class TripCreateRequest(BaseModel):
@@ -141,6 +151,89 @@ class VoteProgressOut(BaseModel):
     total_candidates: int
     voted: int
     remaining: int
+
+
+class GatherResponse(BaseModel):
+    deck_size: int
+
+
+class PlanRequest(BaseModel):
+    """Optional daily bounds for the user-adjustable planning window."""
+
+    day_start: time = time(DEFAULT_DAY_START_HOUR)
+    day_end: time = time(DEFAULT_DAY_END_HOUR)
+
+    @model_validator(mode="after")
+    def _check_window(self) -> PlanRequest:
+        start = self.day_start.hour * 60 + self.day_start.minute
+        end = self.day_end.hour * 60 + self.day_end.minute
+        if end <= start:
+            raise ValueError("day_end must be after day_start")
+        return self
+
+
+class PlanResponse(BaseModel):
+    version_id: UUID
+    version_no: int
+    placed_stops: int
+    narrative: str | None
+
+
+class ItineraryStopOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    area: str | None
+    start_time: time
+    end_time: time
+    transit_from_prev_min: int
+    transit_from_prev_mode: str | None
+
+    @classmethod
+    def of(cls, node: ItineraryNode, candidate: CandidatePlace | None) -> ItineraryStopOut:
+        return cls(
+            candidate_id=node.candidate_id,
+            name=candidate.name_canonical if candidate else "Unknown place",
+            area=candidate.area if candidate else None,
+            start_time=node.start_time,
+            end_time=node.end_time,
+            transit_from_prev_min=node.transit_from_prev_min,
+            transit_from_prev_mode=node.transit_from_prev_mode,
+        )
+
+
+class ItineraryDayOut(BaseModel):
+    day: int
+    date: date
+    stops: list[ItineraryStopOut]
+
+
+class WishlistNotPlacedOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    reason_code: str
+    reason_text: str
+
+    @classmethod
+    def of(
+        cls,
+        item: WishlistNotPlaced,
+        candidate: CandidatePlace | None,
+    ) -> WishlistNotPlacedOut:
+        return cls(
+            candidate_id=item.candidate_id,
+            name=candidate.name_canonical if candidate else "Unknown place",
+            reason_code=item.reason_code,
+            reason_text=item.reason_text,
+        )
+
+
+class ItineraryOut(BaseModel):
+    version_id: UUID
+    version_no: int
+    status: ItineraryStatus
+    days: list[ItineraryDayOut]
+    narrative: str | None
+    wishlist_not_placed: list[WishlistNotPlacedOut]
 
 
 class ErrorOut(BaseModel):

@@ -5,26 +5,39 @@ Shortlist confirmation (M4), badges (M4) and replan (M6) are not here.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
+from syncinerary.agents.graph import get_graph, graph_config
 from syncinerary.api.deps import Session
 from syncinerary.api.schemas import (
     CandidateCardOut,
+    GatherResponse,
+    ItineraryDayOut,
+    ItineraryOut,
+    ItineraryStopOut,
+    PlanRequest,
+    PlanResponse,
     TripCreatedResponse,
     TripCreateRequest,
     TripOut,
     VoteOut,
     VoteProgressOut,
     VoteRequest,
+    WishlistNotPlacedOut,
 )
-from syncinerary.domain.models import Traveler, Trip, TripStatus, Vote, VoteSignal
+from syncinerary.domain.models import Traveler, Trip, TripState, TripStatus, Vote, VoteSignal
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
+    ConstraintRepository,
+    ItineraryNodeRepository,
+    ItineraryVersionRepository,
     TravelerRepository,
     TripRepository,
     VoteRepository,
+    WishlistNotPlacedRepository,
 )
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -148,4 +161,113 @@ async def vote_progress(
         total_candidates=len(deck),
         voted=voted,
         remaining=len(deck) - voted,
+    )
+
+
+@router.post("/{trip_id}/gather")
+async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
+    """Run the graph to its swipe interrupt and return the deck size."""
+    trip = await _load_trip(session, trip_id)
+    graph = get_graph()
+    config = graph_config(trip_id)
+    snapshot = await graph.aget_state(config)
+
+    if not snapshot.values:
+        travelers = await TravelerRepository(session).list_for_trip(trip_id)
+        constraints = await ConstraintRepository(session).list_for_trip(trip_id)
+        await graph.ainvoke(
+            TripState(trip=trip, travelers=travelers, constraints=constraints),
+            config,
+        )
+
+    deck = await CandidatePlaceRepository(session).list_swipeable(trip_id)
+    await TripRepository(session).set_status(trip_id, TripStatus.SWIPING)
+    return GatherResponse(deck_size=len(deck))
+
+
+@router.post("/{trip_id}/plan")
+async def plan_trip(
+    trip_id: UUID,
+    payload: PlanRequest,
+    session: Session,
+) -> PlanResponse:
+    """Resume after swiping and run through the explainer."""
+    await _load_trip(session, trip_id)
+    graph = get_graph()
+    config = graph_config(trip_id)
+    snapshot = await graph.aget_state(config)
+    if not snapshot.values:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Gather must run before planning",
+        )
+
+    if snapshot.next:
+        await graph.aupdate_state(
+            config,
+            {"day_start": payload.day_start, "day_end": payload.day_end},
+        )
+        result = await graph.ainvoke(None, config)
+        state = TripState.model_validate(result)
+    else:
+        state = TripState.model_validate(snapshot.values)
+
+    version = state.current_itinerary
+    if version is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Planner produced no version")
+
+    nodes = await ItineraryNodeRepository(session).list_for_version(version.id)
+    await TripRepository(session).set_status(trip_id, TripStatus.ACTIVE)
+    return PlanResponse(
+        version_id=version.id,
+        version_no=version.version_no,
+        placed_stops=len(nodes),
+        narrative=state.narrative,
+    )
+
+
+@router.get("/{trip_id}/itinerary")
+async def get_itinerary(trip_id: UUID, session: Session) -> ItineraryOut:
+    trip = await _load_trip(session, trip_id)
+    versions = ItineraryVersionRepository(session)
+    version = await versions.get_active(trip_id) or await versions.get_latest(trip_id)
+    if version is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No itinerary has been planned")
+
+    nodes = await ItineraryNodeRepository(session).list_for_version(version.id)
+    wishlist = await WishlistNotPlacedRepository(session).list_for_version(version.id)
+    candidate_ids = [node.candidate_id for node in nodes] + [
+        item.candidate_id for item in wishlist
+    ]
+    candidates = await CandidatePlaceRepository(session).list_by_ids(candidate_ids)
+    by_id = {candidate.id: candidate for candidate in candidates}
+
+    nodes_by_day: dict[int, list[ItineraryStopOut]] = {}
+    for node in nodes:
+        nodes_by_day.setdefault(node.day, []).append(
+            ItineraryStopOut.of(node, by_id.get(node.candidate_id))
+        )
+
+    narrative = None
+    snapshot = await get_graph().aget_state(graph_config(trip_id))
+    if snapshot.values:
+        narrative = TripState.model_validate(snapshot.values).narrative
+
+    return ItineraryOut(
+        version_id=version.id,
+        version_no=version.version_no,
+        status=version.status,
+        days=[
+            ItineraryDayOut(
+                day=day,
+                date=trip.start_date + timedelta(days=day),
+                stops=nodes_by_day.get(day, []),
+            )
+            for day in range(trip.days)
+        ],
+        narrative=narrative,
+        wishlist_not_placed=[
+            WishlistNotPlacedOut.of(item, by_id.get(item.candidate_id))
+            for item in wishlist
+        ],
     )
