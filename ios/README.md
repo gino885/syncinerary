@@ -1,6 +1,6 @@
 # Syncinerary iOS (SwiftUI)
 
-## M0 setup
+## Local setup
 
 The .xcodeproj is not committed; create it locally so the build settings match
 your machine.
@@ -14,21 +14,20 @@ your machine.
    files already present in `Syncinerary/`.
 3. Drag `Network/APIClient.swift` into the Xcode project (Copy items: off,
    Create groups).
-4. In `Info.plist`, add an `App Transport Security Settings` entry with
+4. Drag the `Models/`, `Navigation/`, `Design/`, and `Features/` folders into
+   the Xcode project (Copy items: off, Create groups).
+5. In `Info.plist`, add an `App Transport Security Settings` entry with
    `Allow Arbitrary Loads = YES` so the simulator can hit `http://localhost`.
-5. Build and run on the iOS Simulator. The app should show:
-   ```
-   Backend: ok (M0)
-   ```
+6. Start the backend with `.venv/bin/uvicorn syncinerary.api.main:app --reload`.
+7. Build and run on the iOS Simulator.
 
-## M0 acceptance gate for iOS
+## M1 acceptance gate for iOS
 
 - App launches without crash.
-- It hits `GET http://localhost:8000/health`.
-- It renders the response.
-
-Real trip / swipe / shortlist / itinerary / replan screens land from M1 onward
-(see `CLAUDE.md` §13).
+- TripCreate creates a Hokkaido trip and gathers its swipe deck.
+- Swipe records like/dislike votes and builds the itinerary when complete.
+- ItineraryView renders each day, transit legs, the narrative, and any
+  wishlist-not-placed reasons.
 
 ## Physical device note
 
