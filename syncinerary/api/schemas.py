@@ -10,17 +10,22 @@ from __future__ import annotations
 
 from datetime import date, time
 from enum import Enum
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
 from syncinerary.domain.models import (
+    AttachmentInputType,
+    AttachmentStatus,
     CandidatePlace,
     CandidateType,
     ItineraryNode,
     ItineraryStatus,
+    SocialPlatform,
+    SourceAttachment,
+    Traveler,
     Trip,
     TripStatus,
     Vote,
@@ -75,6 +80,52 @@ class TripCreatedResponse(BaseModel):
     traveler_id: UUID
 
 
+class AttachmentLinkRequest(BaseModel):
+    traveler_id: UUID
+    url: str = Field(min_length=1, max_length=2048)
+    place_name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
+    ] | None = None
+
+
+class AttachmentContributorOut(BaseModel):
+    id: UUID
+    name: str
+
+
+class SourceAttachmentOut(BaseModel):
+    id: UUID
+    platform: SocialPlatform
+    input_type: AttachmentInputType
+    status: AttachmentStatus
+    original_url: str | None
+    canonical_url: str | None
+    has_screenshot: bool
+    submitted_place_name: str | None
+    candidate_id: UUID | None
+    contributor: AttachmentContributorOut
+
+    @classmethod
+    def of(
+        cls,
+        attachment: SourceAttachment,
+        traveler: Traveler,
+    ) -> SourceAttachmentOut:
+        return cls(
+            id=attachment.id,
+            platform=attachment.platform,
+            input_type=attachment.input_type,
+            status=attachment.status,
+            original_url=attachment.original_url,
+            canonical_url=attachment.canonical_url,
+            has_screenshot=attachment.screenshot_storage_key is not None,
+            submitted_place_name=attachment.metadata.get("submitted_place_name"),
+            candidate_id=attachment.metadata.get("candidate_id"),
+            contributor=AttachmentContributorOut(id=traveler.id, name=traveler.name),
+        )
+
+
 class CandidateCardOut(BaseModel):
     """One swipe card. A subset of CandidatePlace: enrichment, sources and
     trending signals are not part of the M1 card."""
@@ -108,6 +159,20 @@ class CandidateCardOut(BaseModel):
             duration_estimate_min=candidate.duration_estimate_min,
             dietary_tags=candidate.dietary_tags,
         )
+
+
+class CandidatePhotoAttributionOut(BaseModel):
+    display_name: str
+    uri: str | None = None
+    photo_uri: str | None = None
+
+
+class CandidatePhotoOut(BaseModel):
+    provider: str = "google_places"
+    photo_url: str
+    width_px: int | None = None
+    height_px: int | None = None
+    attributions: list[CandidatePhotoAttributionOut] = Field(default_factory=list)
 
 
 class SwipeSignal(str, Enum):
