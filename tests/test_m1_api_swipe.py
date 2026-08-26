@@ -40,7 +40,7 @@ async def _trip_with_deck(client, session, monkeypatch) -> dict:
 async def test_health_reports_the_milestone(client):
     response = await client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "milestone": "M1"}
+    assert response.json() == {"status": "ok", "milestone": "M2"}
 
 
 # ----- trip creation -----

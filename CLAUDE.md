@@ -825,6 +825,10 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 | Day duration cap | 12 hours active | `config/solver.py` |
 | LLM default model | `claude-opus-4-7` | env `SYNC_LLM_MODEL` |
 | LLM cheap model | `claude-haiku-4-5` | env `SYNC_CHEAP_MODEL` |
+| LLM standard input price | $5 per million tokens | env `SYNC_LLM_INPUT_USD_PER_MILLION` |
+| LLM standard output price | $25 per million tokens | env `SYNC_LLM_OUTPUT_USD_PER_MILLION` |
+| Harness step cap | 50 external calls per run | env `SYNC_MAX_STEPS` |
+| Harness model-cost cap | $2 per run | env `SYNC_MAX_TOKENS_USD` |
 | Repair attempt cap | 2 | `config/harness.py` |
 | Loop hash repeat threshold | 3 | `config/harness.py` |
 | Weather source | Open-Meteo | `tools/weather/` |
@@ -852,7 +856,7 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 
 ## 18. Installed agent skills
 
-External skills installed via `npx skills add`. They provide general best
+External skills installed for this project. They provide general best
 practices; CLAUDE.md rules take precedence when they conflict.
 
 - `swiftui-pro`: consult for all SwiftUI work in ios/. Modern API usage,
@@ -861,6 +865,18 @@ practices; CLAUDE.md rules take precedence when they conflict.
   designing indexes, or configuring connection pooling.
 - `redis-core`: consult when designing Redis key schemas for run state
   and WebSocket pub/sub.
+- `langgraph-fundamentals`: consult for all LangGraph state, node, edge,
+  routing, streaming, and error-handling work.
+- `langgraph-persistence`: consult for checkpointer setup, thread IDs,
+  checkpoint history, and persistent graph state.
+- `langgraph-human-in-the-loop`: consult for graph interrupts, resume
+  semantics, approval flows, and idempotency around interrupt boundaries.
+- `deepeval`: consult when implementing M7 eval datasets, pytest eval suites,
+  metrics, or the run-inspect-iterate evaluation loop.
+- `test-driven-development`: use for behavior changes and bug fixes, with the
+  repository's pytest commands and acceptance criteria taking precedence.
+- `code-review-and-quality`: use before merging changes to review correctness,
+  architecture, security, performance, tests, and verification evidence.
 
 Precedence: CLAUDE.md §2 (LLM vs deterministic boundary), §14 (conventions),
 and §16 (defaults) override any external skill guidance. If a skill suggests
@@ -868,4 +884,3 @@ something that conflicts with those sections, follow CLAUDE.md and note the
 conflict in your response.
 
 End of CLAUDE.md v2. If you are about to start coding and any section above feels ambiguous, stop and ask.
-

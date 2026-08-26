@@ -1,74 +1,81 @@
 # Syncinerary
 
-Group Travel Agent OS. See `CLAUDE.md` for the full design brief.
+Group Travel Agent OS. The canonical build brief is in `CLAUDE.md`.
 
-This repo is currently at **M0 (Scaffold)**. See `CLAUDE.md` §13 for the milestone map.
+The repository is currently at **M2: Reliability Harness**. The M1 vertical
+slice plans a Hokkaido trip end to end, and M2 puts every existing LLM and
+external tool call behind one reliability boundary.
 
-## What M0 includes
+## What works
 
-- Docker compose: Postgres (with pgvector), Redis, Phoenix
-- FastAPI app with `/health` and `/m0/noop` endpoints
-- Empty LangGraph that emits an OTel span to Phoenix
-- All pydantic domain models from `CLAUDE.md` §7
-- Centralized config with defaults from `CLAUDE.md` §16
-- iOS scaffold (SwiftUI) that calls `/health`
+- Create a trip, gather the Hokkaido candidate fixture, and swipe Like or
+  Dislike.
+- Deterministically aggregate votes and select the shortlist.
+- Build a day-by-day route using Google walking and public transit durations.
+- Generate the final itinerary narrative with Anthropic.
+- Run the three-screen SwiftUI flow in the iPhone Simulator.
+- Validate and repair typed tool arguments within a fixed attempt cap.
+- Detect repeated state and equivalent tool-call cycles.
+- Stop runs that exceed step or model-cost budgets while preserving an
+  `agent_run` record with partial counters and a Phoenix trace ID.
 
-## M0 acceptance gate (run this to verify)
+## Local setup
+
+Python 3.12 is required. Use the repository virtual environment rather than a
+global interpreter.
 
 ```bash
-# 1. Copy env template
+uv venv --python 3.12
+uv pip install -e '.[dev]'
 cp .env.example .env
-# ANTHROPIC_API_KEY is not strictly needed for M0 (no LLM calls)
-
-# 2. Bring up infra
-docker compose up -d
-docker compose ps              # all three services should be healthy
-
-# 3. Install Python deps
-pip install -e ".[dev]"
-
-# 4. Run the API
-uvicorn syncinerary.api.main:app --reload
-
-# 5. Health check
-curl http://localhost:8000/health
-# -> {"status":"ok","milestone":"M0"}
-
-# 6. Run the no-op graph (this emits a span to Phoenix)
-curl -X POST http://localhost:8000/m0/noop \
-  -H "Content-Type: application/json" \
-  -d '{"destination":"Hokkaido","start_date":"2026-05-21","end_date":"2026-05-26"}'
-
-# 7. Open Phoenix and look for the "noop_node" span
-open http://localhost:6006
-
-# 8. Run smoke test
-pytest tests/test_m0_smoke.py
 ```
 
-## M0 done when
+Set `GOOGLE_MAPS_API_KEY` and `ANTHROPIC_API_KEY` in `.env`, then start the
+infrastructure and apply migrations:
 
-- All three docker services healthy.
-- `curl /health` returns ok.
-- `curl /m0/noop` returns ok AND a `noop_node` span is visible in Phoenix.
-- `pytest tests/test_m0_smoke.py` passes.
-- iOS app launches and shows "Backend: ok (M0)".
+```bash
+docker compose up -d
+.venv/bin/alembic upgrade head
+```
 
-## Next: M1
+Run the API:
 
-Thin vertical slice. See `CLAUDE.md` §13 Phase A → M1.
+```bash
+.venv/bin/uvicorn syncinerary.api.main:app --reload
+```
+
+The health endpoint is `http://localhost:8000/health`. Phoenix is available at
+`http://localhost:6006`.
+
+## Verification
+
+```bash
+.venv/bin/python -m pytest tests/ -q
+.venv/bin/ruff check syncinerary tests
+```
+
+The GitHub workflow runs the same backend suite with Postgres and Redis. It
+also rejects direct Anthropic, OpenAI, or LangChain provider imports from
+`syncinerary/agents` and `syncinerary/tools`.
+
+For the iOS setup and Simulator command, see `ios/README.md`.
 
 ## Layout
 
-```
+```text
 syncinerary/
-├── agents/graph.py         # M0: no-op LangGraph; real nodes from M1+
-├── api/main.py             # FastAPI app (M0: /health, /m0/noop)
-├── config/                 # Defaults from CLAUDE.md §16
-├── domain/models.py        # Pydantic models from CLAUDE.md §7
-├── obs/tracing.py          # OTel → Phoenix exporter
-├── store/db.py             # Async SQLAlchemy engine
-└── (harness, delegate, solver, eval, tools)  # Empty for M0; populated in M2+
-ios/                        # SwiftUI scaffold (see ios/README.md)
-docker/postgres-init.sql    # Enables pgvector extension
+├── agents/              # LangGraph nodes and deterministic solver
+├── api/                 # FastAPI routes and wire schemas
+├── config/              # Environment-backed and domain defaults
+├── domain/              # Pydantic state and persistence models
+├── harness/             # M2 validation, loop, and budget boundary
+├── obs/                 # OpenTelemetry and Phoenix integration
+├── store/               # SQLAlchemy tables, repositories, and migrations
+└── tools/               # Typed external integrations
+ios/                     # SwiftUI app and API contract regression test
+tests/                   # M0 through M2 acceptance and regression tests
 ```
+
+The next milestone is M3, the full gather strategy with automatic discovery,
+traveler links and screenshots, contributor provenance, source attribution,
+and permitted card images.
