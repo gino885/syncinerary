@@ -49,3 +49,4 @@ def test_github_ci_has_the_direct_sdk_import_guard():
     assert "Reject direct LLM SDK imports" in contents
     assert "rg -n" in contents
     assert "syncinerary/agents syncinerary/tools" in contents
+    assert "branches: [main]" not in contents
