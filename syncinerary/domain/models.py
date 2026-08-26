@@ -7,6 +7,7 @@ dicts are allowed to cross a node boundary; everything is a model.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -222,7 +223,7 @@ class AgentRun(BaseModel):
     kind: str
     status: str
     step_count: int = 0
-    token_cost: float = 0.0
+    token_cost: Decimal = Decimal(0)
     trace_id: str | None = None  # OTel trace id, joinable to Phoenix
 
 

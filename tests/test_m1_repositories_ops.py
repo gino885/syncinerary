@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from syncinerary.domain.models import (
     AgentRun,
@@ -119,10 +120,14 @@ async def test_agent_run_counters_accumulate(session):
         AgentRun(trip_id=trip.id, kind="plan", status="running", trace_id="abc123")
     )
 
-    await repo.record_progress(run.id, step_count=7, token_cost=0.0412)
+    await repo.record_progress(
+        run.id,
+        step_count=7,
+        token_cost=Decimal("0.0412"),
+    )
     mid = await repo.get(run.id)
     assert mid.step_count == 7
-    assert mid.token_cost == 0.0412
+    assert mid.token_cost == Decimal("0.041200")
     assert mid.status == "running"
 
     await repo.record_progress(run.id, status="budget_exceeded", step_count=12)
@@ -130,7 +135,7 @@ async def test_agent_run_counters_accumulate(session):
     assert end.status == "budget_exceeded"
     assert end.step_count == 12
     # Not passed this time, so it must not be reset.
-    assert end.token_cost == 0.0412
+    assert end.token_cost == Decimal("0.041200")
 
 
 async def test_agent_run_trace_id_joins_to_phoenix(session):

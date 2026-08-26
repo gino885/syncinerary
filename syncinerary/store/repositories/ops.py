@@ -8,6 +8,7 @@ agent_run is written before M2.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
 
@@ -72,7 +73,7 @@ class AgentRunRepository(BaseRepository[tables.AgentRun, AgentRun]):
         *,
         status: str | None = None,
         step_count: int | None = None,
-        token_cost: float | None = None,
+        token_cost: Decimal | None = None,
     ) -> AgentRun | None:
         """Update the live counters a run accumulates.
 
