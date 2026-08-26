@@ -29,6 +29,7 @@ from syncinerary.api.schemas import (
     WishlistNotPlacedOut,
 )
 from syncinerary.domain.models import Traveler, Trip, TripState, TripStatus, Vote, VoteSignal
+from syncinerary.harness import tracked_run
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
     ConstraintRepository,
@@ -207,7 +208,8 @@ async def plan_trip(
             config,
             {"day_start": payload.day_start, "day_end": payload.day_end},
         )
-        result = await graph.ainvoke(None, config)
+        async with tracked_run(trip_id=trip_id, kind="plan"):
+            result = await graph.ainvoke(None, config)
         state = TripState.model_validate(result)
     else:
         state = TripState.model_validate(snapshot.values)

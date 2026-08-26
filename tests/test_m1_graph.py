@@ -14,6 +14,8 @@ from syncinerary.agents.gather import fixture as gather_module
 from syncinerary.agents.graph import dispose_graph, graph_config, init_graph
 from syncinerary.agents.solver import stage2_route as solver_module
 from syncinerary.domain.models import TripState
+from syncinerary.harness import wrapper as harness_wrapper_module
+from syncinerary.store.repositories import AgentRunRepository
 from syncinerary.tools.transit import (
     PairwiseTransitRequest,
     TransitDuration,
@@ -51,6 +53,7 @@ class StubMessages:
         return SimpleNamespace(
             stop_reason="end_turn",
             content=[SimpleNamespace(type="text", text="A tested Hokkaido itinerary.")],
+            usage=SimpleNamespace(input_tokens=12, output_tokens=6),
         )
 
 
@@ -65,6 +68,7 @@ def _use_test_session(monkeypatch, session) -> None:
         shortlist_module,
         solver_module,
         explain_module,
+        harness_wrapper_module,
     ):
         monkeypatch.setattr(module, "session_scope", test_scope)
 
@@ -160,6 +164,13 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
             for day in itinerary["days"]
             for stop in day["stops"]
         )
+
+        runs = await AgentRunRepository(session).list_for_trip(trip_id)
+        assert len(runs) == 1
+        assert runs[0].kind == "plan"
+        assert runs[0].status == "ok"
+        # Two day-level transit tool calls plus the explainer LLM call.
+        assert runs[0].step_count == 3
 
         # A completed thread returns the same version instead of appending one.
         planned_again = await client.post(

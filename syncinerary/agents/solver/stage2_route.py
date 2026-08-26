@@ -36,6 +36,7 @@ from syncinerary.domain.models import (
     TripState,
     WishlistNotPlaced,
 )
+from syncinerary.harness import ToolDefinition, run_tool
 from syncinerary.obs.tracing import get_tracer
 from syncinerary.store.db import session_scope
 from syncinerary.store.repositories import (
@@ -401,15 +402,28 @@ async def solve_routes(
             for candidate in bucket
             if _open_windows(candidate, trip_date, options)
         ]
-        matrix = await transit_provider.prefetch_pairwise(
-            PairwiseTransitRequest(
-                locations=[_location(candidate) for candidate in routable],
-                departure_window=(
-                    f"{trip_date.isoformat()}-{options.day_start.strftime('%H%M')}"
-                ),
-                departure_at=departure_at,
-            )
+        transit_request = PairwiseTransitRequest(
+            locations=[_location(candidate) for candidate in routable],
+            departure_window=(
+                f"{trip_date.isoformat()}-{options.day_start.strftime('%H%M')}"
+            ),
+            departure_at=departure_at,
         )
+        matrix = await run_tool(
+            ToolDefinition(
+                name="transit.prefetch_pairwise",
+                input_model=PairwiseTransitRequest,
+                output_model=TransitMatrix,
+                handler=transit_provider.prefetch_pairwise,
+            ),
+            transit_request,
+            state={
+                "node": "solver",
+                "day": day,
+                "candidate_ids": [str(candidate.id) for candidate in bucket],
+            },
+        )
+        assert isinstance(matrix, TransitMatrix)
         routes.append(
             solve_day(
                 bucket,
