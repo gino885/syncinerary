@@ -78,6 +78,23 @@ class ReplanStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class SocialPlatform(str, Enum):
+    INSTAGRAM = "instagram"
+    TIKTOK = "tiktok"
+    REDNOTE = "rednote"
+
+
+class AttachmentInputType(str, Enum):
+    LINK = "link"
+    SCREENSHOT = "screenshot"
+
+
+class AttachmentStatus(str, Enum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
 # ----- Core entities (mirror Postgres schema in CLAUDE.md §7) -----
 
 class Trip(BaseModel):
@@ -97,6 +114,24 @@ class Traveler(BaseModel):
     name: str
     home_city: str | None = None
     profile: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceAttachment(BaseModel):
+    """A traveler-provided source waiting to become candidate evidence."""
+
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    traveler_id: UUID
+    platform: SocialPlatform
+    input_type: AttachmentInputType
+    status: AttachmentStatus = AttachmentStatus.PENDING
+    original_url: str | None = None
+    canonical_url: str | None = None
+    platform_id: str | None = None
+    screenshot_storage_key: str | None = None
+    extracted_text: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class Constraint(BaseModel):
