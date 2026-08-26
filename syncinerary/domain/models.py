@@ -6,16 +6,18 @@ dicts are allowed to cross a node boundary; everything is a model.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
+
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ----- Enums -----
@@ -241,6 +243,25 @@ class EvalResult(BaseModel):
     run_at: datetime = Field(default_factory=_utcnow)
 
 
+class CandidateScore(BaseModel):
+    """One candidate's group consensus score (CLAUDE.md §10.1).
+
+    The whole breakdown is carried, not just `score`. §2 puts consensus
+    scoring on the deterministic side precisely because it has to be
+    reproducible and auditable, and "auditable" means being able to see why a
+    card ranked where it did without rerunning anything.
+    """
+
+    candidate_id: UUID
+    votes_pos: int
+    votes_neg: int
+    votes_must: int
+    votes_total: int
+    acceptance: float
+    must_have_bonus: float
+    score: float
+
+
 # ----- Working state for the LangGraph -----
 
 class TripState(BaseModel):
@@ -255,5 +276,14 @@ class TripState(BaseModel):
     candidates: list[CandidatePlace] = Field(default_factory=list)
     votes: list[Vote] = Field(default_factory=list)
     badges: list[CandidateBadge] = Field(default_factory=list)
+    candidate_scores: list[CandidateScore] = Field(default_factory=list)
     shortlist: ShortlistState | None = None
     current_itinerary: ItineraryVersion | None = None
+    # M1 defaults to an 08:00 to 20:00 active window. These are graph state,
+    # not trip persistence fields, so POST /plan can override them without a
+    # schema migration. A later settings screen can expose the same inputs.
+    day_start: time = time(DEFAULT_DAY_START_HOUR)
+    day_end: time = time(DEFAULT_DAY_END_HOUR)
+    # Written by the explainer, the last stage (§3). Purely descriptive: it is
+    # produced from an itinerary that is already decided and feeds nothing.
+    narrative: str | None = None

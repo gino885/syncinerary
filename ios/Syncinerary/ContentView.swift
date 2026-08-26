@@ -1,33 +1,28 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var status: String = "Checking backend..."
+    @State private var path: [AppRoute] = []
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Syncinerary")
-                .font(.largeTitle)
-                .bold()
-            Text("M0 Scaffold")
-                .foregroundStyle(.secondary)
-            Text(status)
-                .padding()
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .padding()
-        .task {
-            await checkBackend()
+        NavigationStack(path: $path) {
+            TripCreateView(onCreated: showSwipe)
+                .navigationDestination(for: AppRoute.self) { route in
+                    switch route {
+                    case let .swipe(session):
+                        SwipeView(session: session, onPlanned: showItinerary)
+                    case let .itinerary(tripID):
+                        ItineraryView(tripID: tripID)
+                    }
+                }
         }
     }
 
-    private func checkBackend() async {
-        do {
-            let result = try await APIClient.shared.health()
-            status = "Backend: \(result.status) (\(result.milestone))"
-        } catch {
-            status = "Backend unreachable: \(error.localizedDescription)"
-        }
+    private func showSwipe(_ session: TripSession) {
+        path.append(.swipe(session))
+    }
+
+    private func showItinerary(_ tripID: UUID) {
+        path.append(.itinerary(tripID))
     }
 }
 

@@ -1,6 +1,9 @@
 [project]
 name = "syncinerary"
-version = "0.1.0-M0"
+# PEP 440 local version segment. "0.1.0-M1" (what M0 shipped) is NOT a valid
+# version and made `pip install -e .` fail outright, so the milestone marker
+# moves into the local segment where PEP 440 allows it.
+version = "0.1.0+m1"
 description = "Group Travel Agent OS"
 requires-python = ">=3.12"
 
@@ -11,9 +14,21 @@ dependencies = [
   "pydantic-settings>=2.6",
   "sqlalchemy>=2.0",
   "asyncpg>=0.30",
+  # SQLAlchemy's async layer bridges to sync DBAPI code through greenlet.
+  # It is an implicit dependency, pinned explicitly so a resolver change
+  # cannot silently drop it and break every await on a session.
+  "greenlet>=3.1",
+  "alembic>=1.14",
   "pgvector>=0.3",
   "redis>=5.2",
+  "ortools>=9.11",
   "langgraph>=0.2.50",
+  # Checkpointer backing interrupt_after=["gather"] (the human swipe break).
+  # Note: this package speaks psycopg3, NOT the asyncpg driver the store
+  # layer uses. Two pools against the same database is the package's own
+  # design, not an accident.
+  "langgraph-checkpoint-postgres>=2.0",
+  "psycopg[binary,pool]>=3.2",
   "langchain-anthropic>=0.3",
   "anthropic>=0.40",
   "opentelemetry-api>=1.27",
@@ -40,6 +55,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["syncinerary*"]
+
+[tool.ruff]
+line-length = 100
+# Revision files are rendered from alembic's script.py.mako, so reformatting
+# them just means the next `alembic revision` reintroduces the same findings.
+# env.py is ours and stays linted.
+exclude = ["syncinerary/store/migrations/versions"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

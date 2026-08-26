@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://syncinerary:syncinerary@localhost:5432/syncinerary"
     redis_url: str = "redis://localhost:6379/0"
 
+    # External tools
+    google_maps_api_key: str = ""
+
     # LLM
     anthropic_api_key: str = ""
     sync_llm_model: str = "claude-opus-4-7"

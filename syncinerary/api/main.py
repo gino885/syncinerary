@@ -1,62 +1,49 @@
 """FastAPI entrypoint.
 
-M0 surface (CLAUDE.md §13 Phase A):
-- GET  /health        Smoke test.
-- POST /m0/noop       Build a TripState and run the no-op graph. Verifies that
-                      LangGraph -> OpenInference -> OTel -> Phoenix is wired
-                      end to end.
+M1 surface (CLAUDE.md §13 Phase A):
+- GET  /health                        Smoke test.
+- POST /trips                         Create a trip plus its creator traveler.
+- GET  /trips/{id}                    Trip detail.
+- GET  /trips/{id}/candidates         The swipe deck (lodging excluded, §8.6).
+- POST /trips/{id}/votes              One swipe: like or dislike.
+- GET  /trips/{id}/votes/progress     How far through the deck a traveler is.
+- POST /trips/{id}/gather             Run to the swipe interrupt.
+- POST /trips/{id}/plan               Resume through solver and explainer.
+- GET  /trips/{id}/itinerary          Read the active planned version.
 
-Real endpoints (trips, votes, shortlist, replan, websocket) land in M1+.
+Replan and the websocket land in M6.
 
-Note: uses the `lifespan` async context manager, not `@app.on_event`. The
-latter is deprecated in FastAPI 0.100+ (see CLAUDE.md §14 conventions).
+Uses the `lifespan` async context manager, not `@app.on_event`, which is
+deprecated in FastAPI 0.100+ (CLAUDE.md §14).
 """
 from contextlib import asynccontextmanager
-from datetime import date
 
 from fastapi import FastAPI
-from pydantic import BaseModel
 
-from syncinerary.agents.graph import run_noop
-from syncinerary.domain.models import Trip, TripState
+from syncinerary.agents.graph import dispose_graph, init_graph
+from syncinerary.api.routers import trips
 from syncinerary.obs.tracing import init_tracing
+from syncinerary.store.db import dispose_engine, init_engine
+from syncinerary.store.redis import dispose_redis, init_redis
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     init_tracing()
+    init_engine()
+    init_redis()
+    await init_graph()
     yield
-    # Shutdown (nothing to release in M0; spans flush via BatchSpanProcessor)
+    # Return pooled connections. Spans flush via BatchSpanProcessor.
+    await dispose_graph()
+    await dispose_redis()
+    await dispose_engine()
 
 
-app = FastAPI(title="Syncinerary", version="0.1.0-M0", lifespan=lifespan)
+app = FastAPI(title="Syncinerary", version="0.1.0+m1", lifespan=lifespan)
+app.include_router(trips.router)
 
 
-@app.get("/health")
+@app.get("/health", tags=["meta"])
 async def health() -> dict[str, str]:
-    return {"status": "ok", "milestone": "M0"}
-
-
-class NoopRequest(BaseModel):
-    destination: str = "Hokkaido"
-    start_date: date = date(2026, 5, 21)
-    end_date: date = date(2026, 5, 26)
-
-
-@app.post("/m0/noop")
-async def m0_noop(req: NoopRequest) -> dict[str, str]:
-    days = (req.end_date - req.start_date).days + 1
-    trip = Trip(
-        destination=req.destination,
-        start_date=req.start_date,
-        end_date=req.end_date,
-        days=days,
-    )
-    state = TripState(trip=trip)
-    await run_noop(state)
-    return {
-        "status": "ok",
-        "trip_id": str(trip.id),
-        "note": "Check Phoenix at http://localhost:6006 for the graph span.",
-    }
+    return {"status": "ok", "milestone": "M1"}
