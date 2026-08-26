@@ -23,13 +23,8 @@ actor APIClient {
         self.baseURL = baseURL
         self.session = session
 
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.decoder = decoder
-
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        self.encoder = encoder
+        self.decoder = JSONDecoder()
+        self.encoder = JSONEncoder()
     }
 
     func health() async throws -> HealthResponse {

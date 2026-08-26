@@ -7,4 +7,13 @@ struct TripSummary: Codable, Hashable, Identifiable, Sendable {
     let endDate: String
     let days: Int
     let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case destination
+        case startDate = "start_date"
+        case endDate = "end_date"
+        case days
+        case status
+    }
 }

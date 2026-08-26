@@ -29,6 +29,17 @@ your machine.
 - ItineraryView renders each day, transit legs, the narrative, and any
   wishlist-not-placed reasons.
 
+Run the Swift API contract regression test from the repository root:
+
+```bash
+xcrun swiftc -parse-as-library \
+  -module-cache-path /tmp/syncinerary-swift-module-cache \
+  ios/Syncinerary/Models/*.swift \
+  ios/Tests/APIContractTests.swift \
+  -o /tmp/syncinerary-api-contract-tests
+/tmp/syncinerary-api-contract-tests
+```
+
 ## Physical device note
 
 For testing on a physical iPhone, replace `localhost` in `APIClient.swift` with

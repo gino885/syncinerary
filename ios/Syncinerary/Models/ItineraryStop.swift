@@ -18,4 +18,14 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     let endTime: String
     let transitFromPrevMin: Int
     let transitFromPrevMode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case candidateID = "candidate_id"
+        case name
+        case area
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case transitFromPrevMin = "transit_from_prev_min"
+        case transitFromPrevMode = "transit_from_prev_mode"
+    }
 }

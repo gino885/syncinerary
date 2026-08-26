@@ -7,4 +7,13 @@ struct ItineraryResponse: Decodable, Sendable {
     let days: [ItineraryDay]
     let narrative: String?
     let wishlistNotPlaced: [WishlistItem]
+
+    enum CodingKeys: String, CodingKey {
+        case versionID = "version_id"
+        case versionNo = "version_no"
+        case status
+        case days
+        case narrative
+        case wishlistNotPlaced = "wishlist_not_placed"
+    }
 }
