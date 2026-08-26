@@ -378,6 +378,9 @@ Two sub-sources.
 - Screenshot: OCR + vision model entity extraction.
 - Geocode extracted place names. Drop unresolvable extractions.
 - Append to candidate pool with `sources[]` containing `{type:'personal', subtype:'user_paste', by:<traveler_id>, via:<platform>}`.
+- Preserve whether the input was a link or screenshot and the contributing traveler. This provenance must survive dedup even when the same place is also found automatically.
+
+Automatic discovery runs alongside user-paste. Backbone and buzz search approved public sources without user input. Instagram and TikTok may participate in automatic discovery only through configured official APIs or public metadata access permitted by the platform. Never log in as a user, bypass access controls, or scrape a platform that prohibits it.
 
 **C2 Profile-driven:** From each traveler's `profile_json`, an LLM proposes a small number of candidates that match stated interests.
 - Hard cap: max 2 candidates per traveler per trip.
@@ -401,10 +404,12 @@ When merging, keep the richest enrichment; union the `sources[]`.
 Each card shows badges based on `sources[]`:
 - 📍 Classic (has backbone source)
 - 🔥 Trending (has buzz source)
-- ❤️ Yours (has personal source from current viewer)
-- 👥 Saved by group (has personal source from another traveler)
+- ❤️ Attached by you (has a user-paste source from the current viewer)
+- 👥 Attached by group (has a user-paste source from another traveler; show the contributor's name in the accessible label and card details)
 
 These badges are separate from delegate badges (Section 9). Source badges are about provenance; delegate badges are about per-person fit.
+
+Every swipe card includes a primary image when a permitted image is available. For a user attachment, prefer the submitted screenshot crop or a platform-provided public preview and label it as user-attached. For an automatically discovered place, use an attributed Google Places photo. If neither is permitted or available, show the standard place placeholder rather than hotlinking or copying a restricted image.
 
 ### 8.6 Three card types and how they enter the flow
 
@@ -696,12 +701,13 @@ Goal: ship the real product including the three interview-headline features.
 **M3. Full gather strategy**
 - Implement backbone mining (Reddit + YouTube + Wikivoyage NER + frequency).
 - Implement buzz scoring (multi-source recency + 3-source threshold).
-- Implement personal: user-paste (links + screenshot OCR) and profile-driven (limited to cap).
+- Implement personal: user-paste (including Instagram and TikTok links, screenshot OCR, contributor provenance) and profile-driven (limited to cap).
+- Run automatic discovery alongside user attachments. Optional Instagram and TikTok automatic discovery must use configured official APIs or platform-permitted public metadata access.
 - Implement cross-source dedup with attribution.
-- Card UI source badges (📍 🔥 ❤️ 👥).
+- Card UI primary images and explicit source badges (📍 🔥 ❤️ 👥), including who attached user-submitted content.
 - Lodging path: solver-driven top 3 + group picks (not swipe).
 - Food pre-filter on hard dietary constraints before showing in swipe.
-- **Done when:** Hokkaido test trip produces a balanced 40/40/20 pool with correct attribution; dedup test passes (same place from 3 sources collapses to one card with all three source entries).
+- **Done when:** Hokkaido test trip produces a balanced 40/40/20 pool with correct attribution; dedup test passes (same place from 3 sources collapses to one card with all three source entries); every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
 
 **M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
 - Batched badge generation per traveler per card (cheap model).
@@ -787,7 +793,7 @@ Optional features to demonstrate additional senior signals. Pick based on interv
 Do not build these without explicit instruction; if needed, surface in a discussion before writing code.
 
 - Real booking or payment execution.
-- Real-time third-party place APIs in production traffic (tool interface is pluggable; use Google Places + fixtures, no scraping of Xiaohongshu/IG/TikTok at any point).
+- Unauthorized scraping of Xiaohongshu, Instagram, or TikTok, including login automation, access-control bypass, or collection that violates platform terms. Configured official APIs and platform-permitted public metadata access are allowed.
 - Popular Times / crowd estimation as a hard solver constraint. Reason: data sources are unreliable and silently biased. The system instead uses LLM-extracted heuristic flags from reviews ("crowds often mentioned") as soft hints to Stage 2 only.
 - Multi-trip personalization memory across trips (deferred to M12).
 - Mobile push notifications beyond the in-app WebSocket.
