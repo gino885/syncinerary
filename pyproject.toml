@@ -38,6 +38,7 @@ dependencies = [
   "openinference-instrumentation-langchain>=0.1",
   "openinference-instrumentation-anthropic>=0.1",
   "python-dotenv>=1.0",
+  "python-multipart>=0.0.20",
   "httpx>=0.28",
 ]
 

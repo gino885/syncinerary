@@ -6,11 +6,11 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from opentelemetry import trace
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from syncinerary.config import settings
 from syncinerary.config.harness import (
@@ -25,13 +25,40 @@ from syncinerary.store.db import session_scope
 from syncinerary.store.repositories import AgentRunRepository
 
 
+class LLMTextBlock(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class LLMBase64ImageSource(BaseModel):
+    type: Literal["base64"] = "base64"
+    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    data: str = Field(min_length=1)
+
+
+class LLMImageBlock(BaseModel):
+    type: Literal["image"] = "image"
+    source: LLMBase64ImageSource
+
+
+LLMContentBlock = Annotated[LLMTextBlock | LLMImageBlock, Field(discriminator="type")]
+
+
 class LLMMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str
+    content: str | list[LLMContentBlock]
+
+
+class LLMJSONSchemaFormat(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["json_schema"] = "json_schema"
+    schema_: dict[str, Any] = Field(alias="schema")
 
 
 class LLMOutputConfig(BaseModel):
-    effort: str = Field(min_length=1)
+    effort: str | None = Field(default=None, min_length=1)
+    format: LLMJSONSchemaFormat | None = None
 
 
 class LLMRequest(BaseModel):
@@ -42,7 +69,7 @@ class LLMRequest(BaseModel):
     output_config: LLMOutputConfig | None = None
 
     def provider_kwargs(self) -> dict[str, Any]:
-        return self.model_dump(mode="python", exclude_none=True)
+        return self.model_dump(mode="python", exclude_none=True, by_alias=True)
 
 
 class LLMUsage(BaseModel):
@@ -310,9 +337,14 @@ async def tracked_run(
 
 
 __all__ = [
+    "LLMBase64ImageSource",
+    "LLMContentBlock",
+    "LLMImageBlock",
+    "LLMJSONSchemaFormat",
     "LLMMessage",
     "LLMOutputConfig",
     "LLMRequest",
+    "LLMTextBlock",
     "LLMUsage",
     "MessagesClient",
     "PostgresRunRecorder",

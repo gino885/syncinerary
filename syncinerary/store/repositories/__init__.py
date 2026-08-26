@@ -2,6 +2,7 @@
 
 API routes and graph nodes import from here, never from store/tables.py.
 """
+from syncinerary.store.repositories.attachment import SourceAttachmentRepository
 from syncinerary.store.repositories.base import BaseRepository
 from syncinerary.store.repositories.candidate import (
     CandidateBadgeRepository,
@@ -38,6 +39,7 @@ __all__ = [
     "ItineraryVersionRepository",
     "ReplanEventRepository",
     "ShortlistStateRepository",
+    "SourceAttachmentRepository",
     "TravelerRepository",
     "TripRepository",
     "VoteRepository",
