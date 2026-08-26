@@ -3,7 +3,7 @@ name = "syncinerary"
 # PEP 440 local version segment. "0.1.0-M1" (what M0 shipped) is NOT a valid
 # version and made `pip install -e .` fail outright, so the milestone marker
 # moves into the local segment where PEP 440 allows it.
-version = "0.1.0+m1"
+version = "0.1.0+m2"
 description = "Group Travel Agent OS"
 requires-python = ">=3.12"
 

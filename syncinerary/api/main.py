@@ -1,6 +1,7 @@
 """FastAPI entrypoint.
 
-M1 surface (CLAUDE.md §13 Phase A):
+M2 keeps the M1 API surface and routes its external calls through the
+reliability harness (CLAUDE.md §12.1):
 - GET  /health                        Smoke test.
 - POST /trips                         Create a trip plus its creator traveler.
 - GET  /trips/{id}                    Trip detail.
@@ -40,10 +41,10 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
-app = FastAPI(title="Syncinerary", version="0.1.0+m1", lifespan=lifespan)
+app = FastAPI(title="Syncinerary", version="0.1.0+m2", lifespan=lifespan)
 app.include_router(trips.router)
 
 
 @app.get("/health", tags=["meta"])
 async def health() -> dict[str, str]:
-    return {"status": "ok", "milestone": "M1"}
+    return {"status": "ok", "milestone": "M2"}

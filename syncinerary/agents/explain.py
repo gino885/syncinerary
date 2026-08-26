@@ -6,13 +6,6 @@ transit legs are. Its only job is to say that back in prose. It writes nothing
 to the itinerary and nothing downstream reads its output, so a bad narrative
 is a cosmetic defect, never a wrong plan.
 
-TODO(M2): this module calls the Anthropic SDK directly. §12.1 requires every
-LLM call to go through harness/wrapper.py, and §13 M2 is where that lands.
-When it does, the client construction and the request below move behind the
-wrapper and this file keeps only the prompt building. §13 M1 explicitly allows
-the direct call in the thin slice; the CI grep check that would forbid it also
-arrives in M2.
-
 Request shape is pinned to what SYNC_LLM_MODEL (default claude-opus-4-7, §16)
 accepts. Two things that work on older models are 400s here:
 
@@ -26,7 +19,7 @@ omitting it means no thinking, which is what a describe-only task wants.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Protocol
+from typing import Any
 
 from syncinerary.config import settings
 from syncinerary.config.explain import EXPLAIN_EFFORT, EXPLAIN_MAX_TOKENS
@@ -35,6 +28,15 @@ from syncinerary.domain.models import (
     ItineraryNode,
     Trip,
     TripState,
+)
+from syncinerary.harness import BudgetExceeded, NoProgress, ToolCycle
+from syncinerary.harness.wrapper import (
+    LLMMessage,
+    LLMOutputConfig,
+    LLMRequest,
+    MessagesClient,
+    call_llm,
+    make_messages_client,
 )
 from syncinerary.obs.tracing import get_tracer
 from syncinerary.store.db import session_scope
@@ -64,16 +66,6 @@ stops connect.
 noticeably longer than the rest.
 - Write for the whole group, not one person. No second-person singular \
 instructions."""
-
-
-class _MessagesClient(Protocol):
-    """The slice of the Anthropic client this module uses.
-
-    Narrow on purpose: the tests substitute a stub, and M2 substitutes the
-    harness wrapper. Neither should have to implement the whole SDK.
-    """
-
-    async def create(self, **kwargs: Any) -> Any: ...
 
 
 class ExplainUnavailable(RuntimeError):
@@ -134,14 +126,8 @@ def build_prompt(
     return "\n".join(lines).rstrip()
 
 
-def _make_client() -> _MessagesClient:
-    # Imported here, not at module scope, so importing this module does not
-    # require the SDK to be configured. Tests substitute a stub and never
-    # reach this function.
-    from anthropic import AsyncAnthropic
-
-    api_key = settings.anthropic_api_key or None
-    return AsyncAnthropic(api_key=api_key).messages
+def _make_client() -> MessagesClient:
+    return make_messages_client()
 
 
 async def generate_narrative(
@@ -149,7 +135,7 @@ async def generate_narrative(
     nodes: list[ItineraryNode],
     candidates: list[CandidatePlace],
     *,
-    client: _MessagesClient | None = None,
+    client: MessagesClient | None = None,
 ) -> str:
     """Ask the model to describe the itinerary. Returns the prose."""
     if not nodes:
@@ -160,15 +146,24 @@ async def generate_narrative(
     messages_client = client if client is not None else _make_client()
 
     try:
-        response = await messages_client.create(
-            model=settings.sync_llm_model,
-            max_tokens=EXPLAIN_MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            output_config={"effort": EXPLAIN_EFFORT},
-            messages=[
-                {"role": "user", "content": build_prompt(trip, nodes, candidates)}
-            ],
+        response = await call_llm(
+            LLMRequest(
+                model=settings.sync_llm_model,
+                max_tokens=EXPLAIN_MAX_TOKENS,
+                system=SYSTEM_PROMPT,
+                output_config=LLMOutputConfig(effort=EXPLAIN_EFFORT),
+                messages=[
+                    LLMMessage(
+                        role="user",
+                        content=build_prompt(trip, nodes, candidates),
+                    )
+                ],
+            ),
+            client=messages_client,
+            state={"node": "explain", "trip_id": str(trip.id)},
         )
+    except (BudgetExceeded, NoProgress, ToolCycle):
+        raise
     except Exception as exc:  # re-raised as a typed domain error
         raise ExplainUnavailable(f"Explainer call failed: {exc}") from exc
 

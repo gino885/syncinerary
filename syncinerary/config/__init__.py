@@ -1,6 +1,8 @@
 """Top-level settings (env-backed). Per-domain defaults live in sibling modules
 (gather.py, aggregate.py, solver.py, harness.py). Values mirror CLAUDE.md §16.
 """
+from decimal import Decimal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,7 +27,11 @@ class Settings(BaseSettings):
 
     # Harness (used from M2+; safe to set now)
     sync_max_steps: int = 50
-    sync_max_tokens_usd: float = 2.0
+    sync_max_tokens_usd: Decimal = Decimal("2.0")
+    # Claude Opus 4.7 standard API pricing, configurable because provider
+    # pricing changes independently of application releases.
+    sync_llm_input_usd_per_million: Decimal = Decimal(5)
+    sync_llm_output_usd_per_million: Decimal = Decimal(25)
 
 
 settings = Settings()
