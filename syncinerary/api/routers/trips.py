@@ -1,7 +1,8 @@
-"""Trip setup and swipe voting.
+"""Trip setup, saved-post collection, and swipe voting.
 
-The M1 surface from CLAUDE.md §13: create a trip, read the deck, swipe it.
-Shortlist confirmation (M4), badges (M4) and replan (M6) are not here.
+The router keeps the client-facing trip flow together: create a trip, attach
+personal sources, read the attributed deck, and swipe it. Shortlist
+confirmation and replan arrive in later milestones.
 """
 from __future__ import annotations
 
@@ -124,15 +125,35 @@ async def get_trip(trip_id: UUID, session: Session) -> TripOut:
 
 
 @router.get("/{trip_id}/candidates")
-async def list_candidates(trip_id: UUID, session: Session) -> list[CandidateCardOut]:
+async def list_candidates(
+    trip_id: UUID,
+    session: Session,
+    traveler_id: UUID | None = None,
+) -> list[CandidateCardOut]:
     """The swipe deck.
 
     Lodging is excluded. §8.6 makes it solver-driven after shortlist
     confirmation, not something the group swipes.
     """
     await _load_trip(session, trip_id)
+    if traveler_id is not None:
+        viewer = await TravelerRepository(session).get(traveler_id)
+        if viewer is None or viewer.trip_id != trip_id:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"Traveler {traveler_id} is not on trip {trip_id}",
+            )
     candidates = await CandidatePlaceRepository(session).list_swipeable(trip_id)
-    return [CandidateCardOut.of(c) for c in candidates]
+    travelers = await TravelerRepository(session).list_for_trip(trip_id)
+    contributor_names = {traveler.id: traveler.name for traveler in travelers}
+    return [
+        CandidateCardOut.of(
+            candidate,
+            viewer_id=traveler_id,
+            contributor_names=contributor_names,
+        )
+        for candidate in candidates
+    ]
 
 
 @router.get("/{trip_id}/candidates/{candidate_id}/photo")
@@ -233,7 +254,29 @@ async def attach_link(
             "Attach a specific post URL, not a search or discovery page",
         )
 
-    attachment = await SourceAttachmentRepository(session).add(
+    attachment_repo = SourceAttachmentRepository(session)
+    attachment = await attachment_repo.find_link(
+        trip_id=trip_id,
+        traveler_id=traveler.id,
+        canonical_url=reference.canonical_url,
+    )
+    if attachment is not None:
+        if attachment.status is AttachmentStatus.READY:
+            return SourceAttachmentOut.of(attachment, traveler)
+        if payload.place_name is not None:
+            metadata = dict(attachment.metadata)
+            metadata["submitted_place_name"] = payload.place_name
+            attachment = (
+                await attachment_repo.record_metadata(
+                    attachment.id,
+                    metadata=metadata,
+                )
+                or attachment
+            )
+        attachment = await resolve_link_attachment(attachment, trip, session)
+        return SourceAttachmentOut.of(attachment, traveler)
+
+    attachment = await attachment_repo.add(
         SourceAttachment(
             trip_id=trip_id,
             traveler_id=traveler.id,

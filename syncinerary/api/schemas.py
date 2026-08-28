@@ -126,9 +126,21 @@ class SourceAttachmentOut(BaseModel):
         )
 
 
+class SourceBadgeKind(str, Enum):
+    CLASSIC = "classic"
+    TRENDING = "trending"
+    ATTACHED_BY_YOU = "attached_by_you"
+    ATTACHED_BY_GROUP = "attached_by_group"
+
+
+class SourceBadgeOut(BaseModel):
+    kind: SourceBadgeKind
+    label: str
+    contributor_name: str | None = None
+
+
 class CandidateCardOut(BaseModel):
-    """One swipe card. A subset of CandidatePlace: enrichment, sources and
-    trending signals are not part of the M1 card."""
+    """One swipe card with display-safe provenance badges."""
 
     id: UUID
     type: CandidateType
@@ -142,9 +154,47 @@ class CandidateCardOut(BaseModel):
     price_tier: int
     duration_estimate_min: int
     dietary_tags: list[str]
+    source_badges: list[SourceBadgeOut]
 
     @classmethod
-    def of(cls, candidate: CandidatePlace) -> CandidateCardOut:
+    def of(
+        cls,
+        candidate: CandidatePlace,
+        *,
+        viewer_id: UUID | None = None,
+        contributor_names: dict[UUID, str] | None = None,
+    ) -> CandidateCardOut:
+        names = contributor_names or {}
+        badges: list[SourceBadgeOut] = []
+        if any(source.type == "backbone" for source in candidate.sources):
+            badges.append(SourceBadgeOut(kind=SourceBadgeKind.CLASSIC, label="Classic"))
+        if any(source.type == "buzz" for source in candidate.sources):
+            badges.append(SourceBadgeOut(kind=SourceBadgeKind.TRENDING, label="Trending"))
+
+        contributors = {
+            source.by
+            for source in candidate.sources
+            if source.type == "personal" and source.subtype == "user_paste" and source.by
+        }
+        for contributor_id in sorted(contributors, key=str):
+            contributor_name = names.get(contributor_id)
+            is_viewer = contributor_id == viewer_id
+            badges.append(
+                SourceBadgeOut(
+                    kind=(
+                        SourceBadgeKind.ATTACHED_BY_YOU
+                        if is_viewer
+                        else SourceBadgeKind.ATTACHED_BY_GROUP
+                    ),
+                    label=(
+                        "Attached by you"
+                        if is_viewer
+                        else f"Attached by {contributor_name or 'group'}"
+                    ),
+                    contributor_name=contributor_name,
+                )
+            )
+
         return cls(
             id=candidate.id,
             type=candidate.type,
@@ -158,6 +208,7 @@ class CandidateCardOut(BaseModel):
             price_tier=candidate.price_tier,
             duration_estimate_min=candidate.duration_estimate_min,
             dietary_tags=candidate.dietary_tags,
+            source_badges=badges,
         )
 
 

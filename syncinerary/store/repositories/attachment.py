@@ -25,6 +25,20 @@ class SourceAttachmentRepository(
             order_by=tables.SourceAttachment.created_at,
         )
 
+    async def find_link(
+        self,
+        *,
+        trip_id: UUID,
+        traveler_id: UUID,
+        canonical_url: str,
+    ) -> SourceAttachment | None:
+        matches = await self.list_where(
+            tables.SourceAttachment.trip_id == trip_id,
+            tables.SourceAttachment.traveler_id == traveler_id,
+            tables.SourceAttachment.canonical_url == canonical_url,
+        )
+        return matches[0] if matches else None
+
     async def record_screenshot(
         self,
         attachment_id: UUID,

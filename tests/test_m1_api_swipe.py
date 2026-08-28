@@ -4,9 +4,16 @@ from __future__ import annotations
 from uuid import uuid4
 
 from syncinerary.agents.gather import gather_node
-from syncinerary.domain.models import TripState, TripStatus, VoteSignal
+from syncinerary.domain.models import (
+    CandidatePlace,
+    Traveler,
+    TripState,
+    TripStatus,
+    VoteSignal,
+)
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
+    TravelerRepository,
     TripRepository,
     VoteRepository,
 )
@@ -135,10 +142,89 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
         "price_tier",
         "duration_estimate_min",
         "dietary_tags",
+        "source_badges",
     }
-    # Provenance and enrichment are not part of the M1 card.
+    # Raw provenance and enrichment stay behind the display-safe badges.
     assert "sources" not in card
     assert "enrichment" not in card
+
+
+async def test_deck_labels_personal_sources_for_the_current_traveler(client, session):
+    body = await _created_trip(client)
+    trip_id = body["trip"]["id"]
+    traveler_id = body["traveler_id"]
+    candidate = await CandidatePlaceRepository(session).add(
+        CandidatePlace(
+            trip_id=trip_id,
+            type="attraction",
+            name_canonical="Otaru Canal",
+            lat=43.1987,
+            lng=140.9947,
+            sources=[
+                {
+                    "type": "personal",
+                    "subtype": "user_paste",
+                    "by": traveler_id,
+                    "via": "instagram_link",
+                }
+            ],
+        )
+    )
+
+    response = await client.get(
+        f"/trips/{trip_id}/candidates",
+        params={"traveler_id": traveler_id},
+    )
+
+    assert response.status_code == 200
+    card = next(item for item in response.json() if item["id"] == str(candidate.id))
+    assert card["source_badges"] == [
+        {
+            "kind": "attached_by_you",
+            "label": "Attached by you",
+            "contributor_name": "Gino",
+        }
+    ]
+
+
+async def test_deck_names_the_friend_who_attached_a_source(client, session):
+    body = await _created_trip(client)
+    trip_id = body["trip"]["id"]
+    friend = await TravelerRepository(session).add(
+        Traveler(trip_id=trip_id, name="Ana")
+    )
+    candidate = await CandidatePlaceRepository(session).add(
+        CandidatePlace(
+            trip_id=trip_id,
+            type="food",
+            name_canonical="Sapporo Ramen Haruka",
+            lat=43.0553,
+            lng=141.3507,
+            sources=[
+                {
+                    "type": "personal",
+                    "subtype": "user_paste",
+                    "by": friend.id,
+                    "via": "tiktok_link",
+                }
+            ],
+        )
+    )
+
+    response = await client.get(
+        f"/trips/{trip_id}/candidates",
+        params={"traveler_id": body["traveler_id"]},
+    )
+
+    assert response.status_code == 200
+    card = next(item for item in response.json() if item["id"] == str(candidate.id))
+    assert card["source_badges"] == [
+        {
+            "kind": "attached_by_group",
+            "label": "Attached by Ana",
+            "contributor_name": "Ana",
+        }
+    ]
 
 
 async def test_deck_is_empty_before_gather(client):

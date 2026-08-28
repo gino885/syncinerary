@@ -135,6 +135,60 @@ async def test_post_rednote_short_link_is_preserved_for_enrichment(client):
     assert response.json()["status"] == "pending"
 
 
+async def test_pending_link_can_be_resubmitted_with_a_place_name(
+    client,
+    monkeypatch,
+):
+    async def fake_run_tool(tool, arguments, **_kwargs):
+        assert tool.name == "google_places_text_search"
+        assert arguments.query == "Otaru Canal"
+        return PlaceSearchOutput(
+            matches=[
+                PlaceMatch(
+                    place_id="ChIJ-otaru",
+                    display_name="Otaru Canal",
+                    lat=43.1987,
+                    lng=140.9947,
+                    primary_type="tourist_attraction",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(personal_module, "run_tool", fake_run_tool)
+    created = await client.post(
+        "/trips",
+        json={
+            "destination": "Hokkaido",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+    trip_id = created.json()["trip"]["id"]
+    traveler_id = created.json()["traveler_id"]
+    first = await client.post(
+        f"/trips/{trip_id}/attachments/links",
+        json={
+            "traveler_id": traveler_id,
+            "url": "http://xhslink.com/o/8YJmF0qK4t",
+        },
+    )
+
+    second = await client.post(
+        f"/trips/{trip_id}/attachments/links",
+        json={
+            "traveler_id": traveler_id,
+            "url": "http://xhslink.com/o/8YJmF0qK4t",
+            "place_name": "Otaru Canal",
+        },
+    )
+
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["status"] == "ready"
+    assert second.json()["candidate_id"] is not None
+
+
 async def test_link_place_name_becomes_a_personal_candidate_without_a_picture(
     client,
     session,
