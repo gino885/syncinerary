@@ -1,19 +1,18 @@
 """M1 single-stage itinerary solver.
 
 This is deliberately narrower than the final two-stage design in CLAUDE.md
-§11. M1 keeps the shortlist's score order, chunks it evenly across trip days,
-then uses CP-SAT independently per day to choose visit order and times from
-opening hours plus Google transit durations.
+§11. M1 keeps the shortlist's score priority while grouping nearby places
+into balanced days, then uses CP-SAT independently per day to choose visit
+order and times from opening hours plus Google transit durations.
 
-TODO(M5): replace the placeholder day chunking with stage1_days.py and add
-weather, fatigue, diversity, dispersion, pinned anchors and must-go handling.
+TODO(M5): expand stage1_days.py with weather, fatigue, diversity, dispersion,
+pinned anchors and must-go handling.
 
 NO LLM IN THIS FILE. Feasibility and final ordering are deterministic work
 owned by OR-Tools under CLAUDE.md §2.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any, Protocol
 from uuid import UUID
@@ -22,6 +21,7 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
+from syncinerary.agents.solver.stage1_days import cluster_nearby_evenly
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
@@ -114,20 +114,6 @@ def _minute_of_day(value: time) -> int:
 
 def _as_time(minutes: int) -> time:
     return time(hour=minutes // 60, minute=minutes % 60)
-
-
-def chunk_evenly[T](items: Sequence[T], bucket_count: int) -> list[list[T]]:
-    """Contiguous score-ordered buckets whose sizes differ by at most one."""
-    if bucket_count <= 0:
-        return []
-    base, remainder = divmod(len(items), bucket_count)
-    buckets: list[list[T]] = []
-    offset = 0
-    for index in range(bucket_count):
-        size = base + (1 if index < remainder else 0)
-        buckets.append(list(items[offset : offset + size]))
-        offset += size
-    return buckets
 
 
 def _open_windows(
@@ -390,7 +376,7 @@ async def solve_routes(
 ) -> SolverResult:
     """Placeholder day assignment followed by independent per-day CP-SAT."""
     options = options or SolverOptions()
-    buckets = chunk_evenly(candidates, state.trip.days)
+    buckets = cluster_nearby_evenly(candidates, state.trip.days)
     routes: list[DayRoute] = []
     timezone = ZoneInfo(options.timezone)
 
@@ -521,7 +507,6 @@ __all__ = [
     "SolverOptions",
     "SolverResult",
     "UnplacedCandidate",
-    "chunk_evenly",
     "solve_day",
     "solve_routes",
     "solver_node",
