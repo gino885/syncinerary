@@ -2,10 +2,16 @@ import SwiftUI
 
 struct CandidateCardView: View {
     let candidate: CandidateCard
+    let photo: CandidatePhoto?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading) {
+                CandidatePhotoView(
+                    photo: photo,
+                    placeName: candidate.nameCanonical
+                )
+
                 Text(candidate.nameCanonical)
                     .font(.title)
                     .bold()
@@ -19,6 +25,8 @@ struct CandidateCardView: View {
                 if let area = candidate.area {
                     Label(area, systemImage: "mappin.and.ellipse")
                 }
+
+                SourceBadgesView(badges: candidate.sourceBadges)
 
                 Label(
                     "^[\(candidate.durationEstimateMin) minute](inflect: true)",
@@ -36,7 +44,7 @@ struct CandidateCardView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(.thinMaterial)
+            .background(.blue.opacity(0.06))
             .clipShape(.rect(cornerRadius: AppLayout.cardCornerRadius))
             .padding()
         }
@@ -57,7 +65,15 @@ struct CandidateCardView: View {
             category: "park",
             priceTier: 1,
             durationEstimateMin: 60,
-            dietaryTags: []
-        )
+            dietaryTags: [],
+            sourceBadges: [
+                SourceBadge(
+                    kind: "attached_by_you",
+                    label: "Attached by you",
+                    contributorName: "Gino"
+                )
+            ]
+        ),
+        photo: nil
     )
 }

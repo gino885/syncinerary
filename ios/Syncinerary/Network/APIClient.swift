@@ -39,8 +39,22 @@ actor APIClient {
         try await post(path: "trips/\(tripID)/gather", body: EmptyRequest())
     }
 
-    func candidates(tripID: UUID) async throws -> [CandidateCard] {
-        try await get(path: "trips/\(tripID)/candidates")
+    func attachLink(
+        tripID: UUID,
+        request: AttachmentLinkRequest
+    ) async throws -> SourceAttachmentResponse {
+        try await post(path: "trips/\(tripID)/attachments/links", body: request)
+    }
+
+    func candidates(tripID: UUID, travelerID: UUID) async throws -> [CandidateCard] {
+        try await get(
+            path: "trips/\(tripID)/candidates",
+            queryItems: [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
+        )
+    }
+
+    func candidatePhoto(tripID: UUID, candidateID: UUID) async throws -> CandidatePhoto {
+        try await get(path: "trips/\(tripID)/candidates/\(candidateID)/photo")
     }
 
     func vote(tripID: UUID, request: VoteRequest) async throws -> VoteResponse {
@@ -55,8 +69,19 @@ actor APIClient {
         try await get(path: "trips/\(tripID)/itinerary")
     }
 
-    private func get<Response: Decodable & Sendable>(path: String) async throws -> Response {
-        let request = URLRequest(url: baseURL.appending(path: path))
+    private func get<Response: Decodable & Sendable>(
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) async throws -> Response {
+        let endpoint = baseURL.appending(path: path)
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidResponse
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw APIError.invalidResponse
+        }
+        let request = URLRequest(url: url)
         return try await send(request)
     }
 

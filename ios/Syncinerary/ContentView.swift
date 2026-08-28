@@ -5,9 +5,11 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            TripCreateView(onCreated: showSwipe)
+            TripCreateView(onCreated: showSavedPosts)
                 .navigationDestination(for: AppRoute.self) { route in
                     switch route {
+                    case let .savedPosts(session):
+                        SavedPostsView(session: session, onContinue: showSwipe)
                     case let .swipe(session):
                         SwipeView(session: session, onPlanned: showItinerary)
                     case let .itinerary(tripID):
@@ -15,6 +17,11 @@ struct ContentView: View {
                     }
                 }
         }
+        .tint(.blue)
+    }
+
+    private func showSavedPosts(_ session: TripSession) {
+        path.append(.savedPosts(session))
     }
 
     private func showSwipe(_ session: TripSession) {

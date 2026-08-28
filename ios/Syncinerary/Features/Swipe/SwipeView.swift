@@ -26,7 +26,10 @@ struct SwipeView: View {
                     .accessibilityValue(viewModel.progressText)
                     .padding(.horizontal)
 
-                    CandidateCardView(candidate: candidate)
+                    CandidateCardView(
+                        candidate: candidate,
+                        photo: viewModel.currentPhoto
+                    )
 
                     SwipeControls(
                         isDisabled: viewModel.isSubmittingVote,

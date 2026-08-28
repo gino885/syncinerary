@@ -21,10 +21,15 @@ your machine.
 6. Start the backend with `.venv/bin/uvicorn syncinerary.api.main:app --reload`.
 7. Build and run on the iOS Simulator.
 
-## M1 acceptance gate for iOS
+## Current acceptance gate for iOS
 
 - App launches without crash.
 - TripCreate creates a Hokkaido trip and gathers its swipe deck.
+- The saved-post step accepts Instagram, TikTok, and RedNote links without
+  requiring a picture upload.
+- A link that cannot reveal its place can be submitted again after adding the
+  place or restaurant name.
+- Swipe cards show permitted place photos and identify who attached a source.
 - Swipe records like/dislike votes and builds the itinerary when complete.
 - ItineraryView renders each day, transit legs, the narrative, and any
   wishlist-not-placed reasons.

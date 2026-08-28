@@ -6,7 +6,10 @@ enum APIContractTests {
         try encodeTripCreateRequest()
         try decodeTripCreatedResponse()
         try decodeGatherResponse()
+        try encodeAttachmentLinkRequest()
+        try decodeSourceAttachmentResponse()
         try decodeCandidateCard()
+        try decodeCandidatePhoto()
         try encodeVoteRequest()
         try decodeVoteResponse()
         try encodePlanRequest()
@@ -65,6 +68,38 @@ enum APIContractTests {
         try require(response.deckSize == 35, "Gather response must decode deck_size")
     }
 
+    private static func encodeAttachmentLinkRequest() throws {
+        let request = AttachmentLinkRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            url: "https://www.instagram.com/reel/Da2UDmNtLvp/",
+            placeName: "Otaru Canal"
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Attachment request must encode as a JSON object")
+        }
+
+        try require(
+            payload["traveler_id"] as? String == "22222222-2222-2222-2222-222222222222",
+            "Attachment request must encode traveler_id"
+        )
+        try require(
+            payload["place_name"] as? String == "Otaru Canal",
+            "Attachment request must encode an optional place_name"
+        )
+    }
+
+    private static func decodeSourceAttachmentResponse() throws {
+        let data = Data(
+            #"{"id":"77777777-7777-7777-7777-777777777777","platform":"instagram","input_type":"link","status":"ready","original_url":"https://www.instagram.com/reel/Da2UDmNtLvp/","canonical_url":"https://www.instagram.com/reel/Da2UDmNtLvp/","has_screenshot":false,"submitted_place_name":"Otaru Canal","candidate_id":"33333333-3333-3333-3333-333333333333","contributor":{"id":"22222222-2222-2222-2222-222222222222","name":"Gino"}}"#.utf8
+        )
+
+        let response = try JSONDecoder().decode(SourceAttachmentResponse.self, from: data)
+        try require(response.status == "ready", "Attachment status must decode")
+        try require(response.submittedPlaceName == "Otaru Canal", "Place name must decode")
+        try require(response.contributor.name == "Gino", "Contributor must decode")
+    }
+
     private static func decodeCandidateCard() throws {
         let data = Data(
             #"""
@@ -80,7 +115,12 @@ enum APIContractTests {
                 "category": "park",
                 "price_tier": 0,
                 "duration_estimate_min": 60,
-                "dietary_tags": []
+                "dietary_tags": [],
+                "source_badges": [{
+                    "kind": "attached_by_you",
+                    "label": "Attached by you",
+                    "contributor_name": "Gino"
+                }]
             }
             """#.utf8
         )
@@ -88,6 +128,17 @@ enum APIContractTests {
         let response = try JSONDecoder().decode(CandidateCard.self, from: data)
         try require(response.nameCanonical == "Odori Park", "Candidate names must decode")
         try require(response.durationEstimateMin == 60, "Candidate durations must decode")
+        try require(response.sourceBadges[0].label == "Attached by you", "Source badges must decode")
+    }
+
+    private static func decodeCandidatePhoto() throws {
+        let data = Data(
+            #"{"provider":"google_places","photo_url":"https://example.com/place.jpg","width_px":1200,"height_px":800,"attributions":[{"display_name":"A Photographer","uri":"https://example.com/profile","photo_uri":null}]}"#.utf8
+        )
+
+        let response = try JSONDecoder().decode(CandidatePhoto.self, from: data)
+        try require(response.provider == "google_places", "Photo provider must decode")
+        try require(response.attributions[0].displayName == "A Photographer", "Photo attribution must decode")
     }
 
     private static func encodeVoteRequest() throws {
