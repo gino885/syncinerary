@@ -14,6 +14,8 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     let candidateID: UUID
     let name: String
     let area: String?
+    let description: String?
+    let descriptionSource: String?
     let startTime: String
     let endTime: String
     let transitFromPrevMin: Int
@@ -23,6 +25,8 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
         case candidateID = "candidate_id"
         case name
         case area
+        case description
+        case descriptionSource = "description_source"
         case startTime = "start_time"
         case endTime = "end_time"
         case transitFromPrevMin = "transit_from_prev_min"

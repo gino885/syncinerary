@@ -41,6 +41,10 @@ Rules:
 - Preserve the original language of each name.
 - Do not infer a destination from the creator, visual style, or general knowledge.
 - An empty place_mentions list is correct when the caption identifies no place.
+- short_description is one lively sentence of at most 120 characters, based only on
+  the caption. Omit it when the caption has no useful place detail.
+- Do not include hashtags, handles, engagement prompts, or unsupported claims in
+  short_description.
 """
 PLATFORM_LABEL = {
     SocialPlatform.INSTAGRAM: "Instagram",
@@ -74,6 +78,7 @@ LODGING_PLACE_TYPES = {
 
 class TextPlaceExtraction(BaseModel):
     language: str | None = None
+    short_description: str | None = Field(default=None, max_length=120)
     place_mentions: list[ExtractedPlaceMention] = Field(default_factory=list)
 
 
@@ -200,6 +205,7 @@ async def _resolve_place_name(
                 "platform_preview_url": attachment.metadata.get(
                     "platform_preview_url"
                 ),
+                "source_description": attachment.metadata.get("short_description"),
             },
         )
     )
@@ -243,6 +249,9 @@ async def resolve_link_attachment(
         preview.caption,
         platform=attachment.platform,
     )
+    if extraction.short_description:
+        metadata["short_description"] = extraction.short_description
+        attachment = attachment.model_copy(update={"metadata": metadata})
     if not extraction.place_mentions:
         updated = await SourceAttachmentRepository(session).record_metadata(
             attachment.id,

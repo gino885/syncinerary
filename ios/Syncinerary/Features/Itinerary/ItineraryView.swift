@@ -15,12 +15,6 @@ struct ItineraryView: View {
                 ProgressView("Loading itinerary…")
             } else if let itinerary = viewModel.itinerary {
                 List {
-                    if let narrative = itinerary.narrative {
-                        Section("Your trip") {
-                            Text(narrative)
-                        }
-                    }
-
                     ForEach(itinerary.days) { day in
                         ItineraryDaySection(day: day)
                     }

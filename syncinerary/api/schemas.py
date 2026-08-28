@@ -299,6 +299,8 @@ class ItineraryStopOut(BaseModel):
     candidate_id: UUID
     name: str
     area: str | None
+    description: str | None
+    description_source: str | None
     start_time: time
     end_time: time
     transit_from_prev_min: int
@@ -306,15 +308,72 @@ class ItineraryStopOut(BaseModel):
 
     @classmethod
     def of(cls, node: ItineraryNode, candidate: CandidatePlace | None) -> ItineraryStopOut:
+        description, description_source = _itinerary_description(candidate)
         return cls(
             candidate_id=node.candidate_id,
             name=candidate.name_canonical if candidate else "Unknown place",
             area=candidate.area if candidate else None,
+            description=description,
+            description_source=description_source,
             start_time=node.start_time,
             end_time=node.end_time,
             transit_from_prev_min=node.transit_from_prev_min,
             transit_from_prev_mode=node.transit_from_prev_mode,
         )
+
+
+def _itinerary_description(
+    candidate: CandidatePlace | None,
+) -> tuple[str | None, str | None]:
+    if candidate is None:
+        return None, None
+
+    raw_description = candidate.enrichment.get("source_description")
+    if isinstance(raw_description, str) and raw_description.strip():
+        return _brief(raw_description), _description_source(candidate)
+
+    if candidate.type is CandidateType.FOOD:
+        description = "A local food stop worth arriving hungry for."
+    else:
+        descriptions = {
+            "historic": "A quick glimpse into the area’s local story.",
+            "market": "Come hungry for local flavors and market energy.",
+            "museum": "A compact culture stop with a local story.",
+            "park": "An easy green pause between busier stops.",
+            "shrine": "A peaceful cultural stop worth slowing down for.",
+            "viewpoint": "A scenic pause made for taking in the view.",
+            "zoo": "A relaxed wildlife stop with plenty to wander.",
+        }
+        description = descriptions.get(
+            candidate.category or "",
+            "A local landmark worth slowing down for.",
+        )
+    return description, _description_source(candidate)
+
+
+def _description_source(candidate: CandidatePlace) -> str:
+    platform = candidate.enrichment.get("platform")
+    if platform == "instagram":
+        return "Instagram Reel"
+    if platform == "tiktok":
+        return "TikTok"
+    if platform == "rednote":
+        return "RedNote"
+    if candidate.enrichment.get("google_place_id"):
+        return "Google Places"
+    if any(source.type == "backbone" for source in candidate.sources):
+        return "Travel guides"
+    if any(source.type == "buzz" for source in candidate.sources):
+        return "Social discovery"
+    return "Place details"
+
+
+def _brief(value: str, limit: int = 120) -> str:
+    compact = " ".join(value.split())
+    if len(compact) <= limit:
+        return compact
+    shortened = compact[: limit - 3].rsplit(" ", 1)[0].rstrip(".,;:")
+    return f"{shortened}..."
 
 
 class ItineraryDayOut(BaseModel):

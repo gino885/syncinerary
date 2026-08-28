@@ -13,6 +13,18 @@ struct ItineraryStopRow: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let description = stop.description {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let source = stop.descriptionSource {
+                Label("From \(source)", systemImage: "sparkles")
+                    .font(.footnote)
+                    .foregroundStyle(.blue)
+            }
+
             if stop.transitFromPrevMin > 0 {
                 Label(
                     "^[\(stop.transitFromPrevMin) minute](inflect: true) by \(stop.transitLabel)",

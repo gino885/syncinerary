@@ -221,6 +221,8 @@ enum APIContractTests {
                         "candidate_id": "33333333-3333-3333-3333-333333333333",
                         "name": "Odori Park",
                         "area": "Sapporo",
+                        "description": "An easy green pause between busier stops.",
+                        "description_source": "Travel guides",
                         "start_time": "09:00:00",
                         "end_time": "10:00:00",
                         "transit_from_prev_min": 0,
@@ -240,6 +242,10 @@ enum APIContractTests {
 
         let response = try JSONDecoder().decode(ItineraryResponse.self, from: data)
         try require(response.days[0].stops[0].name == "Odori Park", "Itinerary stops must decode")
+        try require(
+            response.days[0].stops[0].descriptionSource == "Travel guides",
+            "Itinerary description sources must decode"
+        )
         try require(response.wishlistNotPlaced.count == 1, "Wishlist reasons must decode")
     }
 

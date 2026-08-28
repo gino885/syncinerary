@@ -357,7 +357,8 @@ class ScreenshotMessages:
 
 async def test_caption_place_extraction_uses_typed_structured_output():
     stub = ScreenshotMessages(
-        '{"language":"en","place_mentions":['
+        '{"language":"en","short_description":"Blue-hour reflections along the canal.",'
+        '"place_mentions":['
         '{"name":"Otaru Canal","evidence":"Night walk at Otaru Canal"}]}'
     )
 
@@ -368,6 +369,7 @@ async def test_caption_place_extraction_uses_typed_structured_output():
     )
 
     assert result.place_mentions[0].name == "Otaru Canal"
+    assert result.short_description == "Blue-hour reflections along the canal."
     sent = stub.calls[0]
     assert sent["messages"] == [
         {
@@ -411,6 +413,7 @@ async def test_tiktok_link_uses_official_preview_then_google_place(
     async def fake_extract(*_args, **_kwargs):
         return TextPlaceExtraction(
             language="en",
+            short_description="Blue-hour reflections make this canal especially cinematic.",
             place_mentions=[
                 ExtractedPlaceMention(
                     name="Otaru Canal",
@@ -446,6 +449,9 @@ async def test_tiktok_link_uses_official_preview_then_google_place(
     candidates = await CandidatePlaceRepository(session).list_for_trip(trip_id)
     assert candidates[0].enrichment["platform_preview_url"] == (
         "https://p16-sign.tiktokcdn-us.com/preview.jpeg"
+    )
+    assert candidates[0].enrichment["source_description"] == (
+        "Blue-hour reflections make this canal especially cinematic."
     )
 
 
