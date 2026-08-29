@@ -1,8 +1,10 @@
 """Platform-safe social URL normalization and deterministic search queries."""
 from __future__ import annotations
 
+import hashlib
 import re
 from enum import StrEnum
+from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -11,6 +13,15 @@ from pydantic import BaseModel, Field
 from syncinerary.config import settings
 from syncinerary.domain.models import SocialPlatform
 from syncinerary.harness import ToolDefinition
+from syncinerary.store.redis import get_redis
+
+BRAVE_SEARCH_CACHE_TTL_SECONDS = 86_400
+
+
+class SocialSearchCache(Protocol):
+    async def get(self, key: str) -> str | bytes | None: ...
+
+    async def set(self, key: str, value: str, *, ex: int) -> object: ...
 
 
 class SocialReferenceKind(StrEnum):
@@ -163,72 +174,34 @@ def build_discovery_queries(
     destination_localized: str | None = None,
     interests: list[str] | None = None,
 ) -> list[str]:
-    """Build a small, stable platform-native query set for one destination.
+    """Build one stable platform-native query for one selected city.
 
-    The base queries are the same for every group, so the pool always has a
-    floor. Traveler interests are appended as extra queries rather than mixed
-    into the base ones, which keeps discovery reproducible for a given profile
-    and makes it obvious in a trace which query found which post.
-
-    The base set is deliberately wide. Cross-source counting only separates a
-    genuinely popular place from the long tail when enough posts are read for
-    the popular one to recur, and three queries a platform did not reach that.
+    One query per platform makes the provider budget explicit. At most two
+    traveler interests refine that query without creating more API calls.
     """
     destination = destination.strip()
     if not destination:
         raise ValueError("destination cannot be empty")
 
+    cleaned_interests: list[str] = []
+    seen_interests: set[str] = set()
+    for interest in interests or []:
+        cleaned = interest.strip()
+        if not cleaned or cleaned.casefold() in seen_interests:
+            continue
+        seen_interests.add(cleaned.casefold())
+        cleaned_interests.append(cleaned)
+        if len(cleaned_interests) == 2:
+            break
+
+    suffix = "" if not cleaned_interests else f" {' '.join(cleaned_interests)}"
     if platform is SocialPlatform.REDNOTE:
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("RedNote discovery requires a localized destination")
         local = destination_localized.strip()
-        base = [
-            f"{local}旅游攻略",
-            f"{local}小众景点",
-            f"{local}必吃美食",
-            f"{local}自由行",
-            f"{local}避雷",
-            f"{local}行程",
-            f"{local}三日游",
-        ]
-        interest_term = local
-        # The base RedNote queries are written unspaced, the way the platform's
-        # own Chinese search terms read. Interest queries match that.
-        joiner = ""
-    elif platform is SocialPlatform.INSTAGRAM:
-        base = [
-            f"{destination} travel reels",
-            f"{destination} hidden gems",
-            f"{destination} food guide",
-            f"{destination} itinerary",
-            f"{destination} things to do",
-            f"{destination} must eat",
-        ]
-        interest_term = destination
-        joiner = " "
-    else:
-        base = [
-            f"{destination} travel",
-            f"{destination} hidden gems",
-            f"{destination} food guide",
-            f"{destination} itinerary",
-            f"{destination} things to do",
-            f"{destination} must eat",
-        ]
-        interest_term = destination
-        joiner = " "
+        return [f"{local}旅游美食攻略{suffix}"]
 
-    seen = {query.casefold() for query in base}
-    for interest in interests or []:
-        cleaned = interest.strip()
-        if not cleaned:
-            continue
-        query = f"{interest_term}{joiner}{cleaned}"
-        if query.casefold() in seen:
-            continue
-        seen.add(query.casefold())
-        base.append(query)
-    return base
+    return [f"{destination} travel food guide{suffix}"]
 
 
 # Scoped to the host, not to a path prefix: "site:tiktok.com/@" matched nothing
@@ -246,9 +219,18 @@ async def _search_brave(
     *,
     client: httpx.AsyncClient,
     api_key: str,
+    cache: SocialSearchCache | None = None,
 ) -> BraveSocialSearchOutput:
     if not api_key:
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
+
+    cache_payload = value.model_dump_json()
+    cache_digest = hashlib.sha256(cache_payload.encode()).hexdigest()
+    cache_key = f"social:brave:v1:{cache_digest}"
+    if cache is not None:
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return BraveSocialSearchOutput.model_validate_json(cached)
 
     queries = build_discovery_queries(
         value.platform,
@@ -293,25 +275,39 @@ async def _search_brave(
                 )
             )
 
-    return BraveSocialSearchOutput(results=results)
+    output = BraveSocialSearchOutput(results=results)
+    if cache is not None:
+        await cache.set(
+            cache_key,
+            output.model_dump_json(),
+            ex=BRAVE_SEARCH_CACHE_TTL_SECONDS,
+        )
+    return output
 
 
 def make_brave_social_search_tool(
     *,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
+    cache: SocialSearchCache | None = None,
 ) -> ToolDefinition:
-    """Create the harness tool, allowing an injected client for boundary tests."""
+    """Create the search tool with pooled production cache dependencies."""
     resolved_key = settings.brave_search_api_key if api_key is None else api_key
 
     async def search(value: BraveSocialSearchInput) -> BraveSocialSearchOutput:
         if client is not None:
-            return await _search_brave(value, client=client, api_key=resolved_key)
+            return await _search_brave(
+                value,
+                client=client,
+                api_key=resolved_key,
+                cache=cache,
+            )
         async with httpx.AsyncClient(timeout=20) as owned_client:
             return await _search_brave(
                 value,
                 client=owned_client,
                 api_key=resolved_key,
+                cache=cache if cache is not None else get_redis(),
             )
 
     return ToolDefinition(
@@ -458,6 +454,7 @@ def make_tiktok_oembed_tool(
 
 
 __all__ = [
+    "BRAVE_SEARCH_CACHE_TTL_SECONDS",
     "BraveSocialSearchInput",
     "BraveSocialSearchOutput",
     "DiscoveredSocialURL",

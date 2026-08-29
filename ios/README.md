@@ -28,7 +28,7 @@ checkout.
 ## Current acceptance gate for iOS
 
 - App launches without crash.
-- TripCreate creates a Hokkaido trip and gathers its swipe deck.
+- TripCreate asks for one supported Hokkaido city and gathers its swipe deck.
 - The saved-post step accepts Instagram, TikTok, and RedNote links without
   requiring a picture upload.
 - A link that cannot reveal its place can be submitted again after adding the
@@ -41,6 +41,18 @@ checkout.
   open inside the user's day window.
 - Thin days are topped up only with nearby cards the group selected. Excluded
   swipe cards never reappear in the itinerary.
+
+## Search scope
+
+The prototype plans one city at a time. A gather uses one automatic Brave
+search for Instagram, one for TikTok, and one for RedNote. The result for the
+same city, platform, and interests is cached for 24 hours, so repeated testing
+does not spend more provider requests. Automated tests use local HTTP stubs.
+
+For the full product, city combinations should be suggested from trip length
+and real transit time: one city for 1 to 3 days, up to two nearby cities for 4
+to 6 days, and up to three for longer trips. The traveler can change the
+suggestion before gathering begins.
 
 Run the Swift API contract regression test from the repository root:
 

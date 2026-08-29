@@ -57,7 +57,7 @@ DISCOVERY_PLATFORMS = (
 
 # Posts read per platform, and places geocoded per trip. Both are capped so a
 # noisy destination cannot turn one gather into hundreds of external calls.
-MAX_POSTS_PER_PLATFORM = 60
+MAX_POSTS_PER_PLATFORM = 20
 MAX_GEOCODED_PLACES = 12
 
 NER_PROMPT = """Extract place names from numbered social post snippets about one trip destination.

@@ -94,7 +94,7 @@ def test_traveler_interests_are_collected_in_order_without_duplicates():
     assert traveler_interests(travelers) == ["ramen", "onsen", "pottery"]
 
 
-def test_interests_become_extra_queries_without_disturbing_the_base_set():
+def test_interests_refine_the_base_query_without_adding_requests():
     base = build_discovery_queries(SocialPlatform.INSTAGRAM, destination="Hokkaido")
     personalised = build_discovery_queries(
         SocialPlatform.INSTAGRAM,
@@ -102,12 +102,11 @@ def test_interests_become_extra_queries_without_disturbing_the_base_set():
         interests=["ramen", "onsen"],
     )
 
-    assert personalised[: len(base)] == base
-    assert "Hokkaido ramen" in personalised
-    assert "Hokkaido onsen" in personalised
+    assert len(base) == 1
+    assert personalised == ["Hokkaido travel food guide ramen onsen"]
 
 
-def test_rednote_interest_queries_use_the_localized_destination():
+def test_rednote_interests_refine_the_single_localized_query():
     queries = build_discovery_queries(
         SocialPlatform.REDNOTE,
         destination="Hokkaido",
@@ -115,7 +114,7 @@ def test_rednote_interest_queries_use_the_localized_destination():
         interests=["拉麵"],
     )
 
-    assert "北海道拉麵" in queries
+    assert queries == ["北海道旅游美食攻略 拉麵"]
 
 
 # ----- the cross-source threshold -----

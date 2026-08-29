@@ -17,6 +17,21 @@ from syncinerary.tools.fetch.social import (
 )
 
 
+class FakeCache:
+    def __init__(self):
+        self.values: dict[str, str] = {}
+        self.last_key: str | None = None
+        self.last_ttl: int | None = None
+
+    async def get(self, key: str) -> str | None:
+        return self.values.get(key)
+
+    async def set(self, key: str, value: str, *, ex: int) -> None:
+        self.values[key] = value
+        self.last_key = key
+        self.last_ttl = ex
+
+
 def test_instagram_reel_drops_share_tracking_from_canonical_url():
     reference = normalize_social_url(
         "https://www.instagram.com/reel/DcbEs5IpTCt/"
@@ -77,16 +92,33 @@ def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
     )
 
     assert first == second
-    assert first == [
-        "北海道旅游攻略",
-        "北海道小众景点",
-        "北海道必吃美食",
-        "北海道自由行",
-        "北海道避雷",
-        "北海道行程",
-        "北海道三日游",
-    ]
+    assert first == ["北海道旅游美食攻略"]
     assert all("Hokkaido" not in query for query in first)
+
+
+def test_interests_refine_one_query_without_adding_provider_calls():
+    queries = build_discovery_queries(
+        SocialPlatform.INSTAGRAM,
+        destination="Sapporo",
+        interests=["ramen", "onsen", "coffee"],
+    )
+
+    assert queries == ["Sapporo travel food guide ramen onsen"]
+
+
+def test_one_trip_uses_at_most_three_automatic_brave_searches():
+    request_count = sum(
+        len(
+            build_discovery_queries(
+                platform,
+                destination="Sapporo",
+                destination_localized="札幌" if platform is SocialPlatform.REDNOTE else None,
+            )
+        )
+        for platform in SocialPlatform
+    )
+
+    assert request_count == 3
 
 
 def test_rednote_discovery_requires_a_mandarin_destination_name():
@@ -146,12 +178,7 @@ async def test_brave_search_keeps_only_valid_platform_posts_and_deduplicates():
         )
 
     assert seen_queries == [
-        "site:instagram.com/reel Hokkaido travel reels",
-        "site:instagram.com/reel Hokkaido hidden gems",
-        "site:instagram.com/reel Hokkaido food guide",
-        "site:instagram.com/reel Hokkaido itinerary",
-        "site:instagram.com/reel Hokkaido things to do",
-        "site:instagram.com/reel Hokkaido must eat",
+        "site:instagram.com/reel Hokkaido travel food guide",
     ]
     assert len(result.results) == 1
     assert result.results[0].reference.canonical_url == (
@@ -179,14 +206,36 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
         )
 
     assert seen_queries == [
-        "site:xiaohongshu.com 北海道旅游攻略",
-        "site:xiaohongshu.com 北海道小众景点",
-        "site:xiaohongshu.com 北海道必吃美食",
-        "site:xiaohongshu.com 北海道自由行",
-        "site:xiaohongshu.com 北海道避雷",
-        "site:xiaohongshu.com 北海道行程",
-        "site:xiaohongshu.com 北海道三日游",
+        "site:xiaohongshu.com 北海道旅游美食攻略",
     ]
+
+
+async def test_brave_search_reuses_a_cached_city_platform_result():
+    calls = 0
+    cache = FakeCache()
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"web": {"results": []}}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        tool = make_brave_social_search_tool(
+            client=client,
+            api_key="test-key",
+            cache=cache,
+        )
+        value = BraveSocialSearchInput(
+            platform=SocialPlatform.TIKTOK,
+            destination="Sapporo",
+        )
+        await run_tool(tool, value)
+        await run_tool(tool, value)
+
+    assert calls == 1
+    assert cache.last_ttl == 86_400
+    assert cache.last_key is not None
+    assert cache.last_key.startswith("social:brave:v1:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():
