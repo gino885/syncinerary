@@ -16,9 +16,20 @@ actor APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    /// Gather now runs a destination search, three social searches, entity
+    /// extraction, and geocoding before it returns, which can take well over
+    /// the 60 second default. Planning re-solves thin days on top of the
+    /// per-day routing. Both need a longer ceiling than `URLSession.shared`.
+    private static let longRunningSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 180
+        configuration.timeoutIntervalForResource = 300
+        return URLSession(configuration: configuration)
+    }()
+
     init(
         baseURL: URL = APIClient.localBaseURL,
-        session: URLSession = .shared
+        session: URLSession = APIClient.longRunningSession
     ) {
         self.baseURL = baseURL
         self.session = session
@@ -65,8 +76,15 @@ actor APIClient {
         try await post(path: "trips/\(tripID)/plan", body: request)
     }
 
-    func itinerary(tripID: UUID) async throws -> ItineraryResponse {
-        try await get(path: "trips/\(tripID)/itinerary")
+    static func itineraryQueryItems(travelerID: UUID) -> [URLQueryItem] {
+        [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
+    }
+
+    func itinerary(tripID: UUID, travelerID: UUID) async throws -> ItineraryResponse {
+        try await get(
+            path: "trips/\(tripID)/itinerary",
+            queryItems: Self.itineraryQueryItems(travelerID: travelerID)
+        )
     }
 
     private func get<Response: Decodable & Sendable>(

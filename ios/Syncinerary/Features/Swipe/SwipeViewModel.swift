@@ -84,8 +84,8 @@ final class SwipeViewModel {
         )
     }
 
-    func plan() async -> UUID? {
-        guard isComplete, !isPlanning else { return nil }
+    func plan() async -> Bool {
+        guard isComplete, !isPlanning else { return false }
         isPlanning = true
         defer { isPlanning = false }
 
@@ -94,10 +94,10 @@ final class SwipeViewModel {
                 tripID: session.trip.id,
                 request: session.planRequest
             )
-            return session.trip.id
+            return true
         } catch {
             show(error)
-            return nil
+            return false
         }
     }
 

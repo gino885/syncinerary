@@ -24,7 +24,8 @@ final class TripCreateViewModel {
         startDate = start
         endDate = calendar.date(byAdding: .day, value: 4, to: start) ?? start
         dayStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: .now) ?? .now
-        dayEnd = calendar.date(bySettingHour: 20, minute: 0, second: 0, of: .now) ?? .now
+        // 21:00 leaves room for dinner; the solver will not schedule past it.
+        dayEnd = calendar.date(bySettingHour: 21, minute: 0, second: 0, of: .now) ?? .now
     }
 
     var canSubmit: Bool {

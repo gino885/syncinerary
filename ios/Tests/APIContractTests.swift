@@ -14,6 +14,7 @@ enum APIContractTests {
         try decodeVoteResponse()
         try encodePlanRequest()
         try decodePlanResponse()
+        try buildItineraryViewerQuery()
         try decodeItineraryResponse()
         print("iOS API contract tests passed")
     }
@@ -188,7 +189,7 @@ enum APIContractTests {
         }
 
         try require(payload["day_start"] as? String == "08:00:00", "Plan request must encode day_start")
-        try require(payload["day_end"] as? String == "20:00:00", "Plan request must encode day_end")
+        try require(payload["day_end"] as? String == "21:00:00", "Plan request must encode day_end")
     }
 
     private static func decodePlanResponse() throws {
@@ -205,6 +206,18 @@ enum APIContractTests {
 
         let response = try JSONDecoder().decode(PlanResponse.self, from: data)
         try require(response.versionNo == 1, "Plan response must decode version_no")
+    }
+
+    private static func buildItineraryViewerQuery() throws {
+        let travelerID = try uuid("22222222-2222-2222-2222-222222222222")
+        let items = APIClient.itineraryQueryItems(travelerID: travelerID)
+
+        try require(items.count == 1, "Itinerary requests need one viewer query item")
+        try require(items[0].name == "traveler_id", "Itinerary requests must name traveler_id")
+        try require(
+            items[0].value == travelerID.uuidString,
+            "Itinerary requests must carry the current traveler_id"
+        )
     }
 
     private static func decodeItineraryResponse() throws {
@@ -226,7 +239,28 @@ enum APIContractTests {
                         "start_time": "09:00:00",
                         "end_time": "10:00:00",
                         "transit_from_prev_min": 0,
-                        "transit_from_prev_mode": null
+                        "transit_from_prev_mode": null,
+                        "source_badges": [{
+                            "kind": "discovered",
+                            "label": "Found on Google Maps",
+                            "contributor_name": null
+                        }]
+                    }, {
+                        "candidate_id": "77777777-7777-7777-7777-777777777777",
+                        "name": "Ramen Yokocho",
+                        "area": "Sapporo",
+                        "description": "An alley of ramen counters.",
+                        "description_source": "Google",
+                        "start_time": "12:00:00",
+                        "end_time": "13:15:00",
+                        "transit_from_prev_min": 12,
+                        "transit_from_prev_mode": "walking",
+                        "meal_slot": "lunch",
+                        "source_badges": [{
+                            "kind": "trending",
+                            "label": "Trending on TikTok, RedNote",
+                            "contributor_name": null
+                        }]
                     }]
                 }],
                 "narrative": "A relaxed first day.",
@@ -245,6 +279,22 @@ enum APIContractTests {
         try require(
             response.days[0].stops[0].descriptionSource == "Travel guides",
             "Itinerary description sources must decode"
+        )
+        try require(
+            response.days[0].stops[0].mealLabel == nil,
+            "A stop that is not a meal must carry no meal label"
+        )
+        try require(
+            response.days[0].stops[1].mealLabel == "Lunch",
+            "Itinerary meal slots must decode and read back capitalised"
+        )
+        try require(
+            response.days[0].stops[0].sourceBadges[0].label == "Found on Google Maps",
+            "An itinerary stop must say where the place came from"
+        )
+        try require(
+            response.days[0].stops[1].sourceBadges[0].kind == "trending",
+            "Buzz provenance must survive onto the itinerary"
         )
         try require(response.wishlistNotPlaced.count == 1, "Wishlist reasons must decode")
     }

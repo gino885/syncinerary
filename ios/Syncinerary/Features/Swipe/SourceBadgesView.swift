@@ -31,6 +31,7 @@ struct SourceBadgesView: View {
         switch kind {
         case "classic": "mappin.circle.fill"
         case "trending": "flame.fill"
+        case "discovered": "map.fill"
         case "attached_by_you": "heart.fill"
         default: "person.2.fill"
         }
@@ -39,6 +40,7 @@ struct SourceBadgesView: View {
     private func color(for kind: String) -> Color {
         switch kind {
         case "trending": .orange
+        case "discovered": .green
         case "attached_by_you": .pink
         default: .blue
         }

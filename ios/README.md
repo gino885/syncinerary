@@ -2,8 +2,9 @@
 
 ## Local setup
 
-The .xcodeproj is not committed; create it locally so the build settings match
-your machine.
+If `ios/Syncinerary.xcodeproj` already exists locally, open it directly. The
+project file is not tracked yet, so use the steps below when setting up a new
+checkout.
 
 1. Open Xcode and create a new **iOS App** named `Syncinerary` in this directory
    (so you get `ios/Syncinerary.xcodeproj` and `ios/Syncinerary/...`).
@@ -19,6 +20,9 @@ your machine.
 5. In `Info.plist`, add an `App Transport Security Settings` entry with
    `Allow Arbitrary Loads = YES` so the simulator can hit `http://localhost`.
 6. Start the backend with `.venv/bin/uvicorn syncinerary.api.main:app --reload`.
+   Gather needs `GOOGLE_MAPS_API_KEY`, `BRAVE_SEARCH_API_KEY`, and
+   `ANTHROPIC_API_KEY`. Provider failures are returned instead of being hidden
+   as an empty social result.
 7. Build and run on the iOS Simulator.
 
 ## Current acceptance gate for iOS
@@ -33,6 +37,10 @@ your machine.
 - Swipe records like/dislike votes and builds the itinerary when complete.
 - ItineraryView renders each day, transit legs, the narrative, and any
   wishlist-not-placed reasons.
+- The planner aims for lunch and dinner when suitable selected restaurants are
+  open inside the user's day window.
+- Thin days are topped up only with nearby cards the group selected. Excluded
+  swipe cards never reappear in the itinerary.
 
 Run the Swift API contract regression test from the repository root:
 
@@ -40,6 +48,7 @@ Run the Swift API contract regression test from the repository root:
 xcrun swiftc -parse-as-library \
   -module-cache-path /tmp/syncinerary-swift-module-cache \
   ios/Syncinerary/Models/*.swift \
+  ios/Syncinerary/Network/*.swift \
   ios/Tests/APIContractTests.swift \
   -o /tmp/syncinerary-api-contract-tests
 /tmp/syncinerary-api-contract-tests

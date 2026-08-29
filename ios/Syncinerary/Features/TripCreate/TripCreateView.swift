@@ -43,7 +43,7 @@ struct TripCreateView: View {
                     selection: $viewModel.dayEnd,
                     displayedComponents: .hourAndMinute
                 )
-                Text("The default is 8:00 AM to 8:00 PM. You can adjust it for this trip.")
+                Text("The default is 8:00 AM to 9:00 PM, which leaves room for dinner. You can adjust it for this trip.")
                     .foregroundStyle(.secondary)
             }
 

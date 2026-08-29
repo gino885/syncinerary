@@ -15,7 +15,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
+from syncinerary.config.solver import (
+    DEFAULT_DAY_END_HOUR,
+    DEFAULT_DAY_START_HOUR,
+    MEAL_WINDOWS,
+)
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
@@ -129,6 +133,7 @@ class SourceAttachmentOut(BaseModel):
 class SourceBadgeKind(str, Enum):
     CLASSIC = "classic"
     TRENDING = "trending"
+    DISCOVERED = "discovered"
     ATTACHED_BY_YOU = "attached_by_you"
     ATTACHED_BY_GROUP = "attached_by_group"
 
@@ -137,6 +142,81 @@ class SourceBadgeOut(BaseModel):
     kind: SourceBadgeKind
     label: str
     contributor_name: str | None = None
+
+
+PLATFORM_LABELS = {
+    "instagram": "Instagram",
+    "tiktok": "TikTok",
+    "rednote": "RedNote",
+}
+
+
+def source_badges(
+    candidate: CandidatePlace,
+    *,
+    viewer_id: UUID | None = None,
+    contributor_names: dict[UUID, str] | None = None,
+) -> list[SourceBadgeOut]:
+    """Where this place came from, in the order it entered the pool.
+
+    Shared by the swipe deck and the itinerary. The itinerary needs it for the
+    same reason the deck does: "why is this on my trip" is the first question a
+    traveler asks, and the answer is provenance, not the blurb underneath.
+    """
+    names = contributor_names or {}
+    badges: list[SourceBadgeOut] = []
+
+    if any(source.type == "backbone" for source in candidate.sources):
+        badges.append(SourceBadgeOut(kind=SourceBadgeKind.CLASSIC, label="Classic"))
+
+    if any(source.type == "buzz" for source in candidate.sources):
+        platforms = candidate.enrichment.get("social_platforms")
+        named = [
+            PLATFORM_LABELS[platform]
+            for platform in platforms
+            if platform in PLATFORM_LABELS
+        ] if isinstance(platforms, list) else []
+        badges.append(
+            SourceBadgeOut(
+                kind=SourceBadgeKind.TRENDING,
+                label=(
+                    f"Trending on {', '.join(named)}" if named else "Trending"
+                ),
+            )
+        )
+
+    if any(source.type == "discovery" for source in candidate.sources):
+        badges.append(
+            SourceBadgeOut(
+                kind=SourceBadgeKind.DISCOVERED,
+                label="Found on Google Maps",
+            )
+        )
+
+    contributors = {
+        source.by
+        for source in candidate.sources
+        if source.type == "personal" and source.subtype == "user_paste" and source.by
+    }
+    for contributor_id in sorted(contributors, key=str):
+        contributor_name = names.get(contributor_id)
+        is_viewer = contributor_id == viewer_id
+        badges.append(
+            SourceBadgeOut(
+                kind=(
+                    SourceBadgeKind.ATTACHED_BY_YOU
+                    if is_viewer
+                    else SourceBadgeKind.ATTACHED_BY_GROUP
+                ),
+                label=(
+                    "Attached by you"
+                    if is_viewer
+                    else f"Attached by {contributor_name or 'group'}"
+                ),
+                contributor_name=contributor_name,
+            )
+        )
+    return badges
 
 
 class CandidateCardOut(BaseModel):
@@ -164,36 +244,11 @@ class CandidateCardOut(BaseModel):
         viewer_id: UUID | None = None,
         contributor_names: dict[UUID, str] | None = None,
     ) -> CandidateCardOut:
-        names = contributor_names or {}
-        badges: list[SourceBadgeOut] = []
-        if any(source.type == "backbone" for source in candidate.sources):
-            badges.append(SourceBadgeOut(kind=SourceBadgeKind.CLASSIC, label="Classic"))
-        if any(source.type == "buzz" for source in candidate.sources):
-            badges.append(SourceBadgeOut(kind=SourceBadgeKind.TRENDING, label="Trending"))
-
-        contributors = {
-            source.by
-            for source in candidate.sources
-            if source.type == "personal" and source.subtype == "user_paste" and source.by
-        }
-        for contributor_id in sorted(contributors, key=str):
-            contributor_name = names.get(contributor_id)
-            is_viewer = contributor_id == viewer_id
-            badges.append(
-                SourceBadgeOut(
-                    kind=(
-                        SourceBadgeKind.ATTACHED_BY_YOU
-                        if is_viewer
-                        else SourceBadgeKind.ATTACHED_BY_GROUP
-                    ),
-                    label=(
-                        "Attached by you"
-                        if is_viewer
-                        else f"Attached by {contributor_name or 'group'}"
-                    ),
-                    contributor_name=contributor_name,
-                )
-            )
+        badges = source_badges(
+            candidate,
+            viewer_id=viewer_id,
+            contributor_names=contributor_names,
+        )
 
         return cls(
             id=candidate.id,
@@ -305,9 +360,18 @@ class ItineraryStopOut(BaseModel):
     end_time: time
     transit_from_prev_min: int
     transit_from_prev_mode: str | None
+    meal_slot: str | None
+    source_badges: list[SourceBadgeOut]
 
     @classmethod
-    def of(cls, node: ItineraryNode, candidate: CandidatePlace | None) -> ItineraryStopOut:
+    def of(
+        cls,
+        node: ItineraryNode,
+        candidate: CandidatePlace | None,
+        *,
+        viewer_id: UUID | None = None,
+        contributor_names: dict[UUID, str] | None = None,
+    ) -> ItineraryStopOut:
         description, description_source = _itinerary_description(candidate)
         return cls(
             candidate_id=node.candidate_id,
@@ -319,7 +383,34 @@ class ItineraryStopOut(BaseModel):
             end_time=node.end_time,
             transit_from_prev_min=node.transit_from_prev_min,
             transit_from_prev_mode=node.transit_from_prev_mode,
+            meal_slot=_meal_slot(candidate, node.start_time),
+            source_badges=(
+                source_badges(
+                    candidate,
+                    viewer_id=viewer_id,
+                    contributor_names=contributor_names,
+                )
+                if candidate
+                else []
+            ),
         )
+
+
+def _meal_slot(candidate: CandidatePlace | None, start_time: time) -> str | None:
+    """Which meal a food stop fills, read back from the time the solver chose.
+
+    The solver already constrains food stops to a meal window, so the label is
+    derived here rather than stored: itinerary_node is append-only (CLAUDE.md
+    section 7) and a new column would be a migration for a value that is a
+    function of two columns already present.
+    """
+    if candidate is None or candidate.type is not CandidateType.FOOD:
+        return None
+    minute = start_time.hour * 60 + start_time.minute
+    for name, (start_hour, end_hour) in MEAL_WINDOWS.items():
+        if start_hour * 60 <= minute < end_hour * 60:
+            return name
+    return None
 
 
 def _itinerary_description(

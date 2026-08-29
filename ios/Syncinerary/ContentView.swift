@@ -12,8 +12,8 @@ struct ContentView: View {
                         SavedPostsView(session: session, onContinue: showSwipe)
                     case let .swipe(session):
                         SwipeView(session: session, onPlanned: showItinerary)
-                    case let .itinerary(tripID):
-                        ItineraryView(tripID: tripID)
+                    case let .itinerary(session):
+                        ItineraryView(session: session)
                     }
                 }
         }
@@ -28,8 +28,8 @@ struct ContentView: View {
         path.append(.swipe(session))
     }
 
-    private func showItinerary(_ tripID: UUID) {
-        path.append(.itinerary(tripID))
+    private func showItinerary(_ session: TripSession) {
+        path.append(.itinerary(session))
     }
 }
 

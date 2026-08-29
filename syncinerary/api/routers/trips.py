@@ -501,7 +501,11 @@ async def plan_trip(
 
 
 @router.get("/{trip_id}/itinerary")
-async def get_itinerary(trip_id: UUID, session: Session) -> ItineraryOut:
+async def get_itinerary(
+    trip_id: UUID,
+    session: Session,
+    traveler_id: UUID | None = None,
+) -> ItineraryOut:
     trip = await _load_trip(session, trip_id)
     versions = ItineraryVersionRepository(session)
     version = await versions.get_active(trip_id) or await versions.get_latest(trip_id)
@@ -517,9 +521,16 @@ async def get_itinerary(trip_id: UUID, session: Session) -> ItineraryOut:
     by_id = {candidate.id: candidate for candidate in candidates}
 
     nodes_by_day: dict[int, list[ItineraryStopOut]] = {}
+    travelers = await TravelerRepository(session).list_for_trip(trip_id)
+    contributor_names = {traveler.id: traveler.name for traveler in travelers}
     for node in nodes:
         nodes_by_day.setdefault(node.day, []).append(
-            ItineraryStopOut.of(node, by_id.get(node.candidate_id))
+            ItineraryStopOut.of(
+                node,
+                by_id.get(node.candidate_id),
+                viewer_id=traveler_id,
+                contributor_names=contributor_names,
+            )
         )
 
     narrative = None

@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct SwipeView: View {
-    let onPlanned: (UUID) -> Void
+    let onPlanned: (TripSession) -> Void
 
     @State private var viewModel: SwipeViewModel
 
-    init(session: TripSession, onPlanned: @escaping (UUID) -> Void) {
+    init(session: TripSession, onPlanned: @escaping (TripSession) -> Void) {
         self.onPlanned = onPlanned
         _viewModel = State(initialValue: SwipeViewModel(session: session))
     }
@@ -76,8 +76,8 @@ struct SwipeView: View {
 
     private func plan() {
         Task {
-            if let tripID = await viewModel.plan() {
-                onPlanned(tripID)
+            if await viewModel.plan() {
+                onPlanned(viewModel.session)
             }
         }
     }

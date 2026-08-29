@@ -6,6 +6,7 @@ from uuid import uuid4
 from syncinerary.agents.gather import gather_node
 from syncinerary.domain.models import (
     CandidatePlace,
+    CandidateType,
     Traveler,
     TripState,
     TripStatus,
@@ -425,10 +426,42 @@ def _use_test_session(monkeypatch, session):
     """Point gather_node's session_scope at the test transaction."""
     from contextlib import asynccontextmanager
 
-    from syncinerary.agents.gather import fixture as fixture_module
+    from syncinerary.agents.gather import live as live_module
 
     @asynccontextmanager
     async def _scope():
         yield session
 
-    monkeypatch.setattr(fixture_module, "session_scope", _scope)
+    async def _discover(trip, _travelers=None):
+        swipeable = [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=(CandidateType.FOOD if index % 4 == 0 else CandidateType.ATTRACTION),
+                name_canonical=f"Live candidate {index:02d}",
+                lat=43.05 + (index % 7) * 0.002,
+                lng=141.34 + (index // 7) * 0.002,
+                hours_by_weekday={
+                    day: [[8, 20]]
+                    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+            )
+            for index in range(trip.days * 7)
+        ]
+        lodging = [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=CandidateType.LODGING,
+                name_canonical=f"Live hotel {index}",
+                lat=43.06 + index * 0.001,
+                lng=141.35,
+                hours_by_weekday={
+                    day: [[0, 24]]
+                    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+            )
+            for index in range(3)
+        ]
+        return swipeable + lodging
+
+    monkeypatch.setattr(live_module, "session_scope", _scope)
+    monkeypatch.setattr(live_module, "discover_candidates", _discover)
