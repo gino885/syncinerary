@@ -1,6 +1,8 @@
 """Resolve traveler-submitted place names into attributed candidates."""
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,13 +25,16 @@ from syncinerary.harness.wrapper import (
     MessagesClient,
     call_llm,
     make_messages_client,
+    strict_json_schema,
 )
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
     SourceAttachmentRepository,
 )
 from syncinerary.tools.fetch.social import (
+    SocialLinkMetadataInput,
     TikTokOEmbedInput,
+    make_social_link_metadata_tool,
     make_tiktok_oembed_tool,
 )
 from syncinerary.tools.places import PlaceMatch, PlaceSearchInput, make_place_search_tool
@@ -101,9 +106,11 @@ async def extract_place_mentions(
             max_tokens=800,
             system=TEXT_EXTRACTION_PROMPT,
             output_config=LLMOutputConfig(
-                effort="low",
+                # No effort setting: the cheap model rejects the parameter, and
+                # this is extraction rather than reasoning so there is nothing
+                # to tune. See config/explain.py for the model that does use it.
                 format=LLMJSONSchemaFormat(
-                    schema_=TextPlaceExtraction.model_json_schema()
+                    schema_=strict_json_schema(TextPlaceExtraction)
                 ),
             ),
             messages=[
@@ -220,6 +227,41 @@ async def _resolve_place_name(
     return updated
 
 
+async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
+    """Whatever each platform permits us to read about one shared post.
+
+    TikTok publishes oEmbed, so that is used and it carries a thumbnail and an
+    author. Instagram and RedNote publish neither an open oEmbed endpoint nor
+    anything we may fetch directly (CLAUDE.md section 15 rules out logging in
+    and scraping), so those fall back to the title and description a search
+    index has already published for the URL. That is thinner but it is enough
+    to name a place, which is all this step needs.
+    """
+    url = attachment.canonical_url
+    if url is None:
+        return {}
+
+    if attachment.platform is SocialPlatform.TIKTOK:
+        preview = await run_tool(make_tiktok_oembed_tool(), TikTokOEmbedInput(url=url))
+        return {
+            "caption": preview.caption,
+            "platform_author_name": preview.author_name,
+            "platform_author_url": preview.author_url,
+            "platform_preview_url": preview.thumbnail_url,
+        }
+
+    indexed = await run_tool(
+        make_social_link_metadata_tool(),
+        SocialLinkMetadataInput(url=url),
+    )
+    if not indexed.indexed_text.strip():
+        return {}
+    return {
+        "caption": indexed.indexed_text,
+        "platform_metadata_source": "public_search_index",
+    }
+
+
 async def resolve_link_attachment(
     attachment: SourceAttachment,
     trip: Trip,
@@ -228,25 +270,18 @@ async def resolve_link_attachment(
     """Use confirmed names first, then permitted platform metadata."""
     if attachment.metadata.get("submitted_place_name"):
         return await resolve_named_attachment(attachment, trip, session)
-    if attachment.platform is not SocialPlatform.TIKTOK:
-        return attachment
     if attachment.canonical_url is None:
         return attachment
 
-    preview = await run_tool(
-        make_tiktok_oembed_tool(),
-        TikTokOEmbedInput(url=attachment.canonical_url),
-    )
-    metadata = {
-        **attachment.metadata,
-        "caption": preview.caption,
-        "platform_author_name": preview.author_name,
-        "platform_author_url": preview.author_url,
-        "platform_preview_url": preview.thumbnail_url,
-    }
+    public = await _read_public_metadata(attachment)
+    if not public.get("caption"):
+        return attachment
+
+    metadata = {**attachment.metadata, **public}
     attachment = attachment.model_copy(update={"metadata": metadata})
+    preview_caption = public["caption"]
     extraction = await extract_place_mentions(
-        preview.caption,
+        preview_caption,
         platform=attachment.platform,
     )
     if extraction.short_description:

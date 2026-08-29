@@ -33,7 +33,7 @@ from syncinerary.store.repositories import (
     TravelerRepository,
     TripRepository,
 )
-from syncinerary.tools.fetch.social import SocialPostPreview
+from syncinerary.tools.fetch.social import SocialLinkMetadata, SocialPostPreview
 from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput
 
 
@@ -140,6 +140,12 @@ async def test_pending_link_can_be_resubmitted_with_a_place_name(
     monkeypatch,
 ):
     async def fake_run_tool(tool, arguments, **_kwargs):
+        if tool.name == "social_link_metadata":
+            return SocialLinkMetadata(
+                platform=SocialPlatform.REDNOTE,
+                canonical_url="https://xhslink.com/o/8YJmF0qK4t",
+                platform_id="8YJmF0qK4t",
+            )
         assert tool.name == "google_places_text_search"
         assert arguments.query == "Otaru Canal"
         return PlaceSearchOutput(

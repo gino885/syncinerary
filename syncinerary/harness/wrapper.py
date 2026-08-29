@@ -49,6 +49,54 @@ class LLMMessage(BaseModel):
     content: str | list[LLMContentBlock]
 
 
+def strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """A pydantic schema tightened to what structured output actually accepts.
+
+    The provider rejects an object schema that does not close itself, with
+    `output_config.format.schema: For 'object' type, 'additionalProperties'...`.
+    Pydantic never emits that key, so every structured call was failing with a
+    400 at runtime while passing every test that stubbed the client. Applied to
+    nested definitions too, since $defs objects are checked the same way.
+    """
+    schema = model.model_json_schema()
+    _tighten(schema)
+    return schema
+
+
+# Validation keywords pydantic emits from Field(...) that the structured output
+# schema subset rejects outright. Dropping them from the wire schema costs
+# nothing: the response is still parsed back through the model, so the same
+# constraints are enforced, just on our side of the call.
+UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "multipleOf",
+        "pattern",
+        "uniqueItems",
+    }
+)
+
+
+def _tighten(node: Any) -> None:
+    if isinstance(node, dict):
+        for keyword in UNSUPPORTED_SCHEMA_KEYWORDS & node.keys():
+            del node[keyword]
+        if node.get("type") == "object":
+            node.setdefault("additionalProperties", False)
+        for value in node.values():
+            _tighten(value)
+    elif isinstance(node, list):
+        for item in node:
+            _tighten(item)
+
+
 class LLMJSONSchemaFormat(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -353,5 +401,6 @@ __all__ = [
     "call_llm",
     "log_attempt",
     "make_messages_client",
+    "strict_json_schema",
     "tracked_run",
 ]

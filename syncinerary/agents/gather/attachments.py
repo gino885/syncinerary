@@ -18,6 +18,7 @@ from syncinerary.harness.wrapper import (
     MessagesClient,
     call_llm,
     make_messages_client,
+    strict_json_schema,
 )
 
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -71,9 +72,11 @@ async def extract_screenshot(
             max_tokens=1200,
             system=SYSTEM_PROMPT,
             output_config=LLMOutputConfig(
-                effort="low",
+                # No effort setting: the cheap model rejects the parameter, and
+                # this is extraction rather than reasoning so there is nothing
+                # to tune. See config/explain.py for the model that does use it.
                 format=LLMJSONSchemaFormat(
-                    schema_=ScreenshotExtraction.model_json_schema()
+                    schema_=strict_json_schema(ScreenshotExtraction)
                 ),
             ),
             messages=[
