@@ -83,6 +83,8 @@ def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
         "北海道必吃美食",
         "北海道自由行",
         "北海道避雷",
+        "北海道行程",
+        "北海道三日游",
     ]
     assert all("Hokkaido" not in query for query in first)
 
@@ -147,6 +149,9 @@ async def test_brave_search_keeps_only_valid_platform_posts_and_deduplicates():
         "site:instagram.com/reel Hokkaido travel reels",
         "site:instagram.com/reel Hokkaido hidden gems",
         "site:instagram.com/reel Hokkaido food guide",
+        "site:instagram.com/reel Hokkaido itinerary",
+        "site:instagram.com/reel Hokkaido things to do",
+        "site:instagram.com/reel Hokkaido must eat",
     ]
     assert len(result.results) == 1
     assert result.results[0].reference.canonical_url == (
@@ -179,6 +184,8 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
         "site:xiaohongshu.com 北海道必吃美食",
         "site:xiaohongshu.com 北海道自由行",
         "site:xiaohongshu.com 北海道避雷",
+        "site:xiaohongshu.com 北海道行程",
+        "site:xiaohongshu.com 北海道三日游",
     ]
 
 

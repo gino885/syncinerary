@@ -6,7 +6,8 @@ BUZZ_RATIO = 0.40
 PERSONAL_RATIO = 0.20
 
 # Pool size: days * POOL_PER_DAY. Acceptable range: 5 to 8.
-POOL_PER_DAY = 7
+# At the top of that range so the shortlist can fill complete days.
+POOL_PER_DAY = 8
 
 # Backbone mining
 BACKBONE_FREQ_THRESHOLD = 0.30

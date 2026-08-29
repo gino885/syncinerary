@@ -37,13 +37,28 @@ class BraveSocialSearchInput(BaseModel):
     platform: SocialPlatform
     destination: str = Field(min_length=1)
     destination_localized: str | None = None
-    max_results_per_query: int = Field(default=5, ge=1, le=20)
+    # Traveler interests, so discovery reflects what this group actually likes
+    # rather than the same generic destination feed for everyone.
+    interests: list[str] = Field(default_factory=list, max_length=8)
+    # The provider's maximum. Cross-source counting only means something with
+    # enough posts for a genuinely popular place to recur, and a larger page
+    # costs the same one request as a small one.
+    max_results_per_query: int = Field(default=20, ge=1, le=20)
 
 
 class DiscoveredSocialURL(BaseModel):
     reference: SocialReference
     query: str
     rank: int = Field(ge=1)
+    # Title and description as the search index already publishes them. This
+    # is the only post text read: nothing logs in and nothing fetches the
+    # post body from a platform that does not permit it.
+    title: str | None = None
+    description: str | None = None
+
+    @property
+    def indexed_text(self) -> str:
+        return "\n".join(part for part in (self.title, self.description) if part)
 
 
 class BraveSocialSearchOutput(BaseModel):
@@ -146,8 +161,19 @@ def build_discovery_queries(
     *,
     destination: str,
     destination_localized: str | None = None,
+    interests: list[str] | None = None,
 ) -> list[str]:
-    """Build a small, stable platform-native query set for one destination."""
+    """Build a small, stable platform-native query set for one destination.
+
+    The base queries are the same for every group, so the pool always has a
+    floor. Traveler interests are appended as extra queries rather than mixed
+    into the base ones, which keeps discovery reproducible for a given profile
+    and makes it obvious in a trace which query found which post.
+
+    The base set is deliberately wide. Cross-source counting only separates a
+    genuinely popular place from the long tail when enough posts are read for
+    the popular one to recur, and three queries a platform did not reach that.
+    """
     destination = destination.strip()
     if not destination:
         raise ValueError("destination cannot be empty")
@@ -156,31 +182,61 @@ def build_discovery_queries(
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("RedNote discovery requires a localized destination")
         local = destination_localized.strip()
-        return [
+        base = [
             f"{local}旅游攻略",
             f"{local}小众景点",
             f"{local}必吃美食",
             f"{local}自由行",
             f"{local}避雷",
+            f"{local}行程",
+            f"{local}三日游",
         ]
-
-    if platform is SocialPlatform.INSTAGRAM:
-        return [
+        interest_term = local
+        # The base RedNote queries are written unspaced, the way the platform's
+        # own Chinese search terms read. Interest queries match that.
+        joiner = ""
+    elif platform is SocialPlatform.INSTAGRAM:
+        base = [
             f"{destination} travel reels",
             f"{destination} hidden gems",
             f"{destination} food guide",
+            f"{destination} itinerary",
+            f"{destination} things to do",
+            f"{destination} must eat",
         ]
+        interest_term = destination
+        joiner = " "
+    else:
+        base = [
+            f"{destination} travel",
+            f"{destination} hidden gems",
+            f"{destination} food guide",
+            f"{destination} itinerary",
+            f"{destination} things to do",
+            f"{destination} must eat",
+        ]
+        interest_term = destination
+        joiner = " "
 
-    return [
-        f"{destination} travel",
-        f"{destination} hidden gems",
-        f"{destination} food guide",
-    ]
+    seen = {query.casefold() for query in base}
+    for interest in interests or []:
+        cleaned = interest.strip()
+        if not cleaned:
+            continue
+        query = f"{interest_term}{joiner}{cleaned}"
+        if query.casefold() in seen:
+            continue
+        seen.add(query.casefold())
+        base.append(query)
+    return base
 
 
+# Scoped to the host, not to a path prefix: "site:tiktok.com/@" matched nothing
+# at all, so TikTok contributed zero posts. The host scope returns both videos
+# and /discover/ pages, and normalize_social_url drops the latter.
 _SEARCH_SCOPE = {
     SocialPlatform.INSTAGRAM: "site:instagram.com/reel",
-    SocialPlatform.TIKTOK: "site:tiktok.com/@",
+    SocialPlatform.TIKTOK: "site:tiktok.com",
     SocialPlatform.REDNOTE: "site:xiaohongshu.com",
 }
 
@@ -198,6 +254,7 @@ async def _search_brave(
         value.platform,
         destination=value.destination,
         destination_localized=value.destination_localized,
+        interests=value.interests,
     )
     seen: set[str] = set()
     results: list[DiscoveredSocialURL] = []
@@ -231,6 +288,8 @@ async def _search_brave(
                     reference=reference,
                     query=scoped_query,
                     rank=rank,
+                    title=row.get("title"),
+                    description=row.get("description"),
                 )
             )
 
@@ -260,6 +319,94 @@ def make_brave_social_search_tool(
         input_model=BraveSocialSearchInput,
         output_model=BraveSocialSearchOutput,
         handler=search,
+    )
+
+
+class SocialLinkMetadataInput(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class SocialLinkMetadata(BaseModel):
+    """Public search-index metadata for one post URL."""
+
+    platform: SocialPlatform
+    canonical_url: str
+    platform_id: str
+    title: str | None = None
+    description: str | None = None
+
+    @property
+    def indexed_text(self) -> str:
+        return "\n".join(part for part in (self.title, self.description) if part)
+
+
+async def _lookup_link_metadata(
+    value: SocialLinkMetadataInput,
+    *,
+    client: httpx.AsyncClient,
+    api_key: str,
+) -> SocialLinkMetadata:
+    """Read one post's public title and description out of the search index.
+
+    Instagram and RedNote have no open oEmbed endpoint, and CLAUDE.md section
+    15 rules out logging in or scraping them. Asking a search API what it has
+    already indexed for a URL the traveler chose to share stays inside
+    platform-permitted public metadata access.
+    """
+    if not api_key:
+        raise RuntimeError("BRAVE_SEARCH_API_KEY is required for link metadata")
+
+    reference = normalize_social_url(value.url)
+    response = await client.get(
+        "https://api.search.brave.com/res/v1/web/search",
+        headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+        params={"q": reference.canonical_url, "count": 5},
+    )
+    response.raise_for_status()
+    for row in response.json().get("web", {}).get("results", []):
+        try:
+            found = normalize_social_url(row.get("url", ""))
+        except (TypeError, ValueError):
+            continue
+        if found.canonical_url != reference.canonical_url:
+            continue
+        return SocialLinkMetadata(
+            platform=reference.platform,
+            canonical_url=reference.canonical_url,
+            platform_id=reference.platform_id,
+            title=row.get("title"),
+            description=row.get("description"),
+        )
+
+    return SocialLinkMetadata(
+        platform=reference.platform,
+        canonical_url=reference.canonical_url,
+        platform_id=reference.platform_id,
+    )
+
+
+def make_social_link_metadata_tool(
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> ToolDefinition:
+    resolved_key = settings.brave_search_api_key if api_key is None else api_key
+
+    async def lookup(value: SocialLinkMetadataInput) -> SocialLinkMetadata:
+        if client is not None:
+            return await _lookup_link_metadata(value, client=client, api_key=resolved_key)
+        async with httpx.AsyncClient(timeout=20) as owned_client:
+            return await _lookup_link_metadata(
+                value,
+                client=owned_client,
+                api_key=resolved_key,
+            )
+
+    return ToolDefinition(
+        name="social_link_metadata",
+        input_model=SocialLinkMetadataInput,
+        output_model=SocialLinkMetadata,
+        handler=lookup,
     )
 
 
@@ -314,6 +461,8 @@ __all__ = [
     "BraveSocialSearchInput",
     "BraveSocialSearchOutput",
     "DiscoveredSocialURL",
+    "SocialLinkMetadata",
+    "SocialLinkMetadataInput",
     "SocialPlatform",
     "SocialPostPreview",
     "SocialReference",
@@ -321,6 +470,7 @@ __all__ = [
     "TikTokOEmbedInput",
     "build_discovery_queries",
     "make_brave_social_search_tool",
+    "make_social_link_metadata_tool",
     "make_tiktok_oembed_tool",
     "normalize_social_url",
 ]
