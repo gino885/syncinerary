@@ -13,6 +13,7 @@ from syncinerary.tools.places.google_places import (
     PlaceMatch,
     PlacePhotoInput,
     PlacePhotoOutput,
+    PlaceSearchBias,
     PlaceSearchInput,
     PlaceSearchOutput,
     make_place_photo_tool,
@@ -26,7 +27,8 @@ async def test_text_search_returns_typed_place_identity_and_location():
         assert request.headers["X-Goog-Api-Key"] == "test-key"
         assert request.headers["X-Goog-FieldMask"] == (
             "places.id,places.displayName,places.formattedAddress,"
-            "places.location,places.primaryType,places.types"
+            "places.addressComponents,places.location,places.primaryType,places.types,"
+            "places.editorialSummary,places.regularOpeningHours,places.priceLevel"
         )
         assert request.read() == b'{"textQuery":"Otaru Canal, Hokkaido"}'
         return httpx.Response(
@@ -37,9 +39,23 @@ async def test_text_search_returns_typed_place_identity_and_location():
                         "id": "ChIJ-test",
                         "displayName": {"text": "Otaru Canal", "languageCode": "en"},
                         "formattedAddress": "Otaru, Hokkaido, Japan",
+                        "addressComponents": [
+                            {"longText": "Otaru", "types": ["locality"]},
+                            {"longText": "Hokkaido", "types": ["administrative_area_level_1"]},
+                        ],
                         "location": {"latitude": 43.1987, "longitude": 140.9947},
                         "primaryType": "tourist_attraction",
                         "types": ["tourist_attraction", "point_of_interest"],
+                        "editorialSummary": {"text": "Canal-side warehouses glow after dark."},
+                        "regularOpeningHours": {
+                            "periods": [
+                                {
+                                    "open": {"day": 1, "hour": 9, "minute": 30},
+                                    "close": {"day": 1, "hour": 18, "minute": 15},
+                                }
+                            ]
+                        },
+                        "priceLevel": "PRICE_LEVEL_MODERATE",
                     }
                 ]
             },
@@ -59,6 +75,66 @@ async def test_text_search_returns_typed_place_identity_and_location():
     assert match.lat == 43.1987
     assert match.lng == 140.9947
     assert match.primary_type == "tourist_attraction"
+    assert match.area == "Otaru"
+    assert match.editorial_summary == "Canal-side warehouses glow after dark."
+    assert match.hours_by_weekday == {"mon": [[10, 18]]}
+    assert match.price_tier == 2
+
+
+async def test_text_search_can_require_a_real_restaurant_type():
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.read() == (
+            b'{"textQuery":"local restaurants, Hokkaido",'
+            b'"includedType":"restaurant","strictTypeFiltering":true}'
+        )
+        return httpx.Response(200, json={"places": []}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(
+                query="local restaurants",
+                destination="Hokkaido",
+                included_type="restaurant",
+            ),
+        )
+
+
+async def test_text_search_does_not_repeat_a_destination_already_in_the_query():
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.read() == b'{"textQuery":"top attractions in Hokkaido"}'
+        return httpx.Response(200, json={"places": []}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(
+                query="top attractions in Hokkaido",
+                destination="Hokkaido",
+            ),
+        )
+
+
+async def test_text_search_can_bias_results_to_a_day_cluster():
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.read() == (
+            b'{"textQuery":"local restaurants, Hokkaido",'
+            b'"includedType":"restaurant","strictTypeFiltering":true,'
+            b'"locationBias":{"circle":{"center":'
+            b'{"latitude":43.06,"longitude":141.35},"radius":15000.0}}}'
+        )
+        return httpx.Response(200, json={"places": []}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(
+                query="local restaurants",
+                destination="Hokkaido",
+                included_type="restaurant",
+                location_bias=PlaceSearchBias(lat=43.06, lng=141.35),
+            ),
+        )
 
 
 async def test_photo_lookup_gets_a_fresh_name_and_keeps_required_attribution():
@@ -248,3 +324,67 @@ async def test_candidate_photo_endpoint_prefers_permitted_platform_preview(
         "height_px": None,
         "attributions": [],
     }
+
+
+async def test_an_always_open_place_is_open_every_day_not_only_sunday():
+    """Places marks 24/7 with one period that opens on day 0 and never closes."""
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-odori",
+                        "displayName": {"text": "Odori Park"},
+                        "location": {"latitude": 43.0605, "longitude": 141.3544},
+                        "primaryType": "park",
+                        "types": ["park"],
+                        "regularOpeningHours": {
+                            "periods": [{"open": {"day": 0, "hour": 0, "minute": 0}}]
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(query="Odori Park", destination="Hokkaido"),
+        )
+
+    hours = result.matches[0].hours_by_weekday
+    assert set(hours) == {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+    assert all(window == [[0, 24]] for window in hours.values())
+
+
+async def test_a_malformed_period_without_a_close_is_not_treated_as_always_open():
+    """Only Google's exact Sunday-midnight sentinel means open 24/7."""
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-bad-hours",
+                        "displayName": {"text": "Mystery Museum"},
+                        "location": {"latitude": 43.06, "longitude": 141.35},
+                        "primaryType": "museum",
+                        "types": ["museum"],
+                        "regularOpeningHours": {
+                            "periods": [{"open": {"day": 2, "hour": 9, "minute": 0}}]
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(query="Mystery Museum", destination="Hokkaido"),
+        )
+
+    assert result.matches[0].hours_by_weekday == {}

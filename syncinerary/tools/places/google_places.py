@@ -11,13 +11,40 @@ from syncinerary.harness import ToolDefinition
 
 SEARCH_FIELD_MASK = (
     "places.id,places.displayName,places.formattedAddress,"
-    "places.location,places.primaryType,places.types"
+    "places.addressComponents,places.location,places.primaryType,places.types,"
+    "places.editorialSummary,places.regularOpeningHours,places.priceLevel"
 )
+
+_WEEKDAY_BY_GOOGLE_DAY = {
+    0: "sun",
+    1: "mon",
+    2: "tue",
+    3: "wed",
+    4: "thu",
+    5: "fri",
+    6: "sat",
+}
+
+_PRICE_TIER = {
+    "PRICE_LEVEL_FREE": 1,
+    "PRICE_LEVEL_INEXPENSIVE": 1,
+    "PRICE_LEVEL_MODERATE": 2,
+    "PRICE_LEVEL_EXPENSIVE": 3,
+    "PRICE_LEVEL_VERY_EXPENSIVE": 4,
+}
+
+
+class PlaceSearchBias(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    radius_m: float = Field(default=15_000, gt=0, le=50_000)
 
 
 class PlaceSearchInput(BaseModel):
     query: str = Field(min_length=1, max_length=300)
     destination: str = Field(min_length=1, max_length=200)
+    included_type: str | None = Field(default=None, min_length=1, max_length=100)
+    location_bias: PlaceSearchBias | None = None
 
 
 class PlaceMatch(BaseModel):
@@ -28,6 +55,10 @@ class PlaceMatch(BaseModel):
     lng: float
     primary_type: str | None = None
     types: list[str] = Field(default_factory=list)
+    area: str | None = None
+    editorial_summary: str | None = None
+    hours_by_weekday: dict[str, list[list[int]]] = Field(default_factory=dict)
+    price_tier: int | None = Field(default=None, ge=1, le=4)
 
 
 class PlaceSearchOutput(BaseModel):
@@ -58,6 +89,67 @@ def _require_key(api_key: str) -> None:
         raise RuntimeError("GOOGLE_MAPS_API_KEY is required for Places lookup")
 
 
+def _area(place: dict[str, Any]) -> str | None:
+    preferred_types = (
+        "locality",
+        "postal_town",
+        "administrative_area_level_2",
+        "administrative_area_level_1",
+    )
+    components = place.get("addressComponents", [])
+    for component_type in preferred_types:
+        for component in components:
+            if component_type in component.get("types", []) and component.get("longText"):
+                return component["longText"]
+    return None
+
+
+def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[int]]]:
+    """Convert Google minute-level periods into conservative whole-hour windows."""
+    by_day: dict[str, list[list[int]]] = {}
+    periods = place.get("regularOpeningHours", {}).get("periods", [])
+    always_open = (
+        len(periods) == 1
+        and periods[0].get("open") == {"day": 0, "hour": 0, "minute": 0}
+        and "close" not in periods[0]
+    )
+    if always_open:
+        return {weekday: [[0, 24]] for weekday in _WEEKDAY_BY_GOOGLE_DAY.values()}
+
+    for period in periods:
+        # Places represents an always-open location as a single period that
+        # opens on day 0 and never closes. Read literally that produced hours
+        # for Sunday alone, which made every public park in the pool look shut
+        # for six days a week and dropped it from the itinerary.
+        if "close" not in period:
+            continue
+
+        opened = period.get("open", {})
+        closed = period.get("close", {})
+        weekday = _WEEKDAY_BY_GOOGLE_DAY.get(opened.get("day"))
+        if weekday is None:
+            continue
+
+        open_hour = opened.get("hour")
+        if not isinstance(open_hour, int):
+            continue
+        open_minute = opened.get("minute", 0)
+        start = open_hour + (1 if open_minute else 0)
+
+        close_hour = closed.get("hour")
+        close_day = closed.get("day")
+        if not isinstance(close_hour, int) or close_day != opened.get("day"):
+            end = 24
+        else:
+            end = close_hour
+
+        if start == end and opened.get("day") == close_day:
+            start, end = 0, 24
+        if 0 <= start < end <= 24:
+            by_day.setdefault(weekday, []).append([start, end])
+    return by_day
+
+
 async def _search_place(
     value: PlaceSearchInput,
     *,
@@ -65,13 +157,30 @@ async def _search_place(
     api_key: str,
 ) -> PlaceSearchOutput:
     _require_key(api_key)
+    query = value.query.strip()
+    destination = value.destination.strip()
+    text_query = query if destination.casefold() in query.casefold() else f"{query}, {destination}"
+    body: dict[str, Any] = {"textQuery": text_query}
+    if value.included_type:
+        body["includedType"] = value.included_type
+        body["strictTypeFiltering"] = True
+    if value.location_bias:
+        body["locationBias"] = {
+            "circle": {
+                "center": {
+                    "latitude": value.location_bias.lat,
+                    "longitude": value.location_bias.lng,
+                },
+                "radius": value.location_bias.radius_m,
+            }
+        }
     response = await client.post(
         "https://places.googleapis.com/v1/places:searchText",
         headers={
             "X-Goog-Api-Key": api_key,
             "X-Goog-FieldMask": SEARCH_FIELD_MASK,
         },
-        json={"textQuery": f"{value.query.strip()}, {value.destination.strip()}"},
+        json=body,
     )
     response.raise_for_status()
     matches = []
@@ -91,6 +200,10 @@ async def _search_place(
                 lng=location["longitude"],
                 primary_type=place.get("primaryType"),
                 types=place.get("types", []),
+                area=_area(place),
+                editorial_summary=place.get("editorialSummary", {}).get("text"),
+                hours_by_weekday=_opening_hours(place),
+                price_tier=_PRICE_TIER.get(place.get("priceLevel")),
             )
         )
     return PlaceSearchOutput(matches=matches)
@@ -203,6 +316,7 @@ __all__ = [
     "PlaceMatch",
     "PlacePhotoInput",
     "PlacePhotoOutput",
+    "PlaceSearchBias",
     "PlaceSearchInput",
     "PlaceSearchOutput",
     "make_place_photo_tool",

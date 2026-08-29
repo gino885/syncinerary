@@ -1,12 +1,16 @@
-"""Gather stage.
-
-M1 ships one source: a hand-written fixture (fixture.py). M3 adds
-backbone.py, buzz.py, personal.py, dedup.py and enrich.py per CLAUDE.md §8.
-"""
-from syncinerary.agents.gather.fixture import (
-    FixtureNotFound,
+"""Gather stage backed by live destination discovery and user sources."""
+from syncinerary.agents.gather.live import (
+    LiveDiscoveryInsufficient,
+    build_search_queries,
+    discover_candidates,
     gather_node,
-    load_candidates,
+    select_dense_pool,
 )
 
-__all__ = ["FixtureNotFound", "gather_node", "load_candidates"]
+__all__ = [
+    "LiveDiscoveryInsufficient",
+    "build_search_queries",
+    "discover_candidates",
+    "gather_node",
+    "select_dense_pool",
+]
