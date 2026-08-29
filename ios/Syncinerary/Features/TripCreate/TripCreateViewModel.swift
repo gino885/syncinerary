@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class TripCreateViewModel {
-    var destination = "Hokkaido"
+    var selectedCity: HokkaidoCity = .sapporo
     var creatorName = ""
     var creatorHomeCity = ""
     var startDate: Date
@@ -29,8 +29,7 @@ final class TripCreateViewModel {
     }
 
     var canSubmit: Bool {
-        !destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !creatorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !creatorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && endDate >= startDate
             && minuteOfDay(dayEnd) > minuteOfDay(dayStart)
             && !isSubmitting
@@ -47,7 +46,7 @@ final class TripCreateViewModel {
         defer { isSubmitting = false }
 
         let request = TripCreateRequest(
-            destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            destination: selectedCity.rawValue,
             startDate: apiDate(startDate),
             endDate: apiDate(endDate),
             creatorName: creatorName.trimmingCharacters(in: .whitespacesAndNewlines),

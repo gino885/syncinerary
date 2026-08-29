@@ -10,8 +10,14 @@ struct TripCreateView: View {
 
         Form {
             Section("Trip") {
-                TextField("Destination", text: $viewModel.destination)
-                    .textContentType(.addressCity)
+                Picker("City", selection: $viewModel.selectedCity) {
+                    ForEach(HokkaidoCity.allCases) { city in
+                        Text(city.rawValue).tag(city)
+                    }
+                }
+                Text("For now, each trip stays in one city so the daily plan is realistic.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 DatePicker(
                     "Start date",
                     selection: $viewModel.startDate,

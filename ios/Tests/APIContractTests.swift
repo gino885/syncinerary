@@ -3,6 +3,7 @@ import Foundation
 @main
 enum APIContractTests {
     static func main() throws {
+        try selectPrototypeCity()
         try encodeTripCreateRequest()
         try decodeTripCreatedResponse()
         try decodeGatherResponse()
@@ -19,9 +20,22 @@ enum APIContractTests {
         print("iOS API contract tests passed")
     }
 
+    private static func selectPrototypeCity() throws {
+        try require(
+            HokkaidoCity.allCases.map(\.rawValue) == [
+                "Sapporo", "Otaru", "Hakodate", "Asahikawa", "Kushiro"
+            ],
+            "The prototype must plan one supported Hokkaido city at a time"
+        )
+        try require(
+            !HokkaidoCity.allCases.map(\.rawValue).contains("Hokkaido"),
+            "The whole prefecture is too broad for one prototype itinerary"
+        )
+    }
+
     private static func encodeTripCreateRequest() throws {
         let request = TripCreateRequest(
-            destination: "Hokkaido",
+            destination: HokkaidoCity.sapporo.rawValue,
             startDate: "2026-09-25",
             endDate: "2026-09-29",
             creatorName: "Gino",
@@ -34,6 +48,7 @@ enum APIContractTests {
 
         try require(payload["start_date"] as? String == "2026-09-25", "Trip request must encode start_date")
         try require(payload["creator_name"] as? String == "Gino", "Trip request must encode creator_name")
+        try require(payload["destination"] as? String == "Sapporo", "Trip request must encode the selected city")
     }
 
     private static func decodeTripCreatedResponse() throws {
