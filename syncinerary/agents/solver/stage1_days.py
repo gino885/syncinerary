@@ -5,7 +5,12 @@ from collections.abc import Sequence
 
 from ortools.sat.python import cp_model
 
-from syncinerary.domain.models import CandidatePlace
+from syncinerary.config.solver import (
+    ATTRACTIONS_PER_DAY_MIN,
+    FOOD_PER_DAY_MAX,
+    MEALS_PER_DAY_MIN,
+)
+from syncinerary.domain.models import CandidatePlace, CandidateType
 from syncinerary.tools.transit import TransitLocation, haversine_km
 
 
@@ -33,6 +38,14 @@ def cluster_nearby_evenly(
     places farthest from every existing seed, which spreads days across the
     destination before the optimizer assigns each remaining candidate to a
     nearby day. Shortlist rank and day index are deterministic tiebreaks.
+
+    Every day also receives a share of both kinds of candidate. Grouping on
+    distance alone let one day take every restaurant in an area and leave the
+    next with nothing to eat, and let food fill a day that was supposed to be
+    sightseeing. Food has a floor for lunch and dinner and a ceiling so it
+    cannot crowd out the sights; attractions have a floor of their own. Each
+    quota degrades to what the pool can supply, so an unbalanced shortlist
+    stays feasible instead of failing to solve.
     """
     capacities = [len(bucket) for bucket in chunk_evenly(candidates, bucket_count)]
     ranked = list(candidates)
@@ -78,6 +91,47 @@ def cluster_nearby_evenly(
         assignment.add(assigned_count <= target_capacity + 2)
     for bucket_index, seed in enumerate(seeds):
         assignment.add(choices[(rank_by_id[seed.id], bucket_index)] == 1)
+
+    food_indices = [
+        index
+        for index, candidate in enumerate(ranked)
+        if candidate.type is CandidateType.FOOD
+    ]
+    attraction_indices = [
+        index
+        for index, candidate in enumerate(ranked)
+        if candidate.type is not CandidateType.FOOD
+    ]
+
+    available_food = len(food_indices) // active_bucket_count
+    food_floor = min(MEALS_PER_DAY_MIN, available_food)
+    # Every candidate has to land somewhere, so the ceiling can never sit below
+    # the share a day must absorb. Capping under that made the model infeasible
+    # rather than balanced.
+    unavoidable_food = -(-len(food_indices) // active_bucket_count)
+    food_ceiling = max(food_floor, FOOD_PER_DAY_MAX, unavoidable_food)
+    attraction_floor = min(
+        ATTRACTIONS_PER_DAY_MIN,
+        len(attraction_indices) // active_bucket_count,
+    )
+
+    for bucket_index in range(active_bucket_count):
+        food_in_bucket = sum(
+            choices[(candidate_index, bucket_index)]
+            for candidate_index in food_indices
+        )
+        if food_floor >= 1:
+            assignment.add(food_in_bucket >= food_floor)
+        if food_indices:
+            assignment.add(food_in_bucket <= food_ceiling)
+        if attraction_floor >= 1:
+            assignment.add(
+                sum(
+                    choices[(candidate_index, bucket_index)]
+                    for candidate_index in attraction_indices
+                )
+                >= attraction_floor
+            )
 
     costs = []
     for candidate_index, candidate in enumerate(ranked):

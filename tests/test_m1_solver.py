@@ -353,6 +353,40 @@ async def test_solver_node_persists_active_append_only_itinerary(session, monkey
     assert len(await ItineraryNodeRepository(session).list_for_version(first.id)) == 2
 
 
+async def test_solver_node_never_schedules_a_card_the_group_excluded(
+    session,
+    monkeypatch,
+):
+    trip = await TripRepository(session).add(_trip())
+    selected, excluded = await CandidatePlaceRepository(session).add_many(
+        [
+            _place("Selected museum", 43.060, 141.350).model_copy(
+                update={"trip_id": trip.id}
+            ),
+            _place("Excluded annex", 43.061, 141.351).model_copy(
+                update={"trip_id": trip.id}
+            ),
+        ]
+    )
+    shortlist = await ShortlistStateRepository(session).upsert(
+        ShortlistState(
+            trip_id=trip.id,
+            selected_candidate_ids=[selected.id],
+            wishlist_excluded_ids=[excluded.id],
+        )
+    )
+    state = TripState(trip=trip, shortlist=shortlist)
+    _use_test_session(monkeypatch, session)
+    monkeypatch.setattr(solver_module, "_make_transit_client", StubTransitClient)
+
+    result = await solver_node(state)
+    nodes = await ItineraryNodeRepository(session).list_for_version(
+        result["current_itinerary"].id
+    )
+
+    assert [node.candidate_id for node in nodes] == [selected.id]
+
+
 def test_solver_module_has_no_llm_sdk_import():
     path = Path(solver_module.__file__)
     tree = ast.parse(path.read_text(encoding="utf-8"))
