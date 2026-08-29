@@ -81,6 +81,48 @@ async def test_text_search_returns_typed_place_identity_and_location():
     assert match.price_tier == 2
 
 
+async def test_text_search_rejects_results_from_another_city():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-odori",
+                        "displayName": {"text": "Odori Park"},
+                        "formattedAddress": "日本、北海道札幌市",
+                        "addressComponents": [
+                            {"longText": "札幌市", "types": ["locality"]},
+                            {
+                                "longText": "北海道",
+                                "types": ["administrative_area_level_1"],
+                            },
+                        ],
+                        "location": {"latitude": 43.0605, "longitude": 141.3544},
+                    },
+                    {
+                        "id": "ChIJ-central-park",
+                        "displayName": {"text": "Central Park"},
+                        "formattedAddress": "New York, NY, USA",
+                        "addressComponents": [
+                            {"longText": "New York", "types": ["locality"]},
+                        ],
+                        "location": {"latitude": 40.7829, "longitude": -73.9654},
+                    },
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_place_search_tool(client=client, api_key="test-key"),
+            PlaceSearchInput(query="popular parks", destination="Sapporo"),
+        )
+
+    assert [match.display_name for match in result.matches] == ["Odori Park"]
+
+
 async def test_text_search_can_require_a_real_restaurant_type():
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.read() == (
@@ -336,6 +378,7 @@ async def test_an_always_open_place_is_open_every_day_not_only_sunday():
                     {
                         "id": "ChIJ-odori",
                         "displayName": {"text": "Odori Park"},
+                        "formattedAddress": "Sapporo, Hokkaido, Japan",
                         "location": {"latitude": 43.0605, "longitude": 141.3544},
                         "primaryType": "park",
                         "types": ["park"],
@@ -369,6 +412,7 @@ async def test_a_malformed_period_without_a_close_is_not_treated_as_always_open(
                     {
                         "id": "ChIJ-bad-hours",
                         "displayName": {"text": "Mystery Museum"},
+                        "formattedAddress": "Sapporo, Hokkaido, Japan",
                         "location": {"latitude": 43.06, "longitude": 141.35},
                         "primaryType": "museum",
                         "types": ["museum"],

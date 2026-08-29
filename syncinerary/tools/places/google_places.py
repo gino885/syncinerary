@@ -33,6 +33,15 @@ _PRICE_TIER = {
     "PRICE_LEVEL_VERY_EXPENSIVE": 4,
 }
 
+_DESTINATION_ALIASES = {
+    "hokkaido": ("北海道",),
+    "sapporo": ("札幌",),
+    "otaru": ("小樽",),
+    "hakodate": ("函館",),
+    "asahikawa": ("旭川",),
+    "kushiro": ("釧路",),
+}
+
 
 class PlaceSearchBias(BaseModel):
     lat: float = Field(ge=-90, le=90)
@@ -102,6 +111,19 @@ def _area(place: dict[str, Any]) -> str | None:
             if component_type in component.get("types", []) and component.get("longText"):
                 return component["longText"]
     return None
+
+
+def _belongs_to_destination(place: dict[str, Any], destination: str) -> bool:
+    """Require returned address evidence for the requested city or region."""
+    destination_key = destination.strip().casefold()
+    accepted_names = {destination_key, *_DESTINATION_ALIASES.get(destination_key, ())}
+    address_parts = [place.get("formattedAddress", "")]
+    for component in place.get("addressComponents", []):
+        address_parts.extend(
+            [component.get("longText", ""), component.get("shortText", "")]
+        )
+    address = " ".join(part for part in address_parts if isinstance(part, str)).casefold()
+    return bool(address) and any(name.casefold() in address for name in accepted_names)
 
 
 def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[int]]]:
@@ -185,6 +207,8 @@ async def _search_place(
     response.raise_for_status()
     matches = []
     for place in response.json().get("places", []):
+        if not _belongs_to_destination(place, destination):
+            continue
         location = place.get("location", {})
         display_name = place.get("displayName", {}).get("text")
         if not place.get("id") or not display_name:
