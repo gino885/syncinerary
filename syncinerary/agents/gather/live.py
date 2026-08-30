@@ -285,7 +285,7 @@ async def discover_candidates(
     """Search the destination now, resolve real places, and build a dense pool.
 
     Two discovery paths feed one pool. The destination search supplies the
-    backbone of places the region is known for; Instagram, TikTok, and RedNote
+    foundation of real places in the city; Instagram, TikTok, and RedNote
     supply what people are currently posting about, steered by the group's
     stated interests. A place both paths find stays one card carrying both
     source rows (section 8.4).

@@ -146,7 +146,7 @@ class Constraint(BaseModel):
 
 class Source(BaseModel):
     """One row inside CandidatePlace.sources. Dedup unions these across sources."""
-    type: str  # 'backbone' | 'buzz' | 'personal'
+    type: str  # 'discovery' | 'buzz' | 'personal'
     score: float | None = None
     articles_count: int | None = None
     sources_count: int | None = None

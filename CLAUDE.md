@@ -99,7 +99,7 @@ flowchart TB
         H3[Step/Token budget circuit breaker]
     end
     subgraph ORCH["Agent Orchestration (LangGraph)"]
-        A1["Gather (LLM + tools)  - 3 sources: Backbone / Buzz / Personal"]
+        A1["Gather (LLM + tools)  - Google foundation / Social buzz / Personal"]
         A2["Delegate Badge Generator (LLM, batch)  - per traveler, per card"]
         A3["Note Parser (LLM)  - free text -> structured"]
         A4[["Consensus Aggregator (DETERMINISTIC)"]]
@@ -156,8 +156,8 @@ syncinerary/
   agents/                 LangGraph graph definition + nodes
     graph.py              wires nodes into a LangGraph StateGraph
     gather/
-      backbone.py         frequency-mined from itinerary articles
-      buzz.py             multi-source recency-weighted mining
+      live.py             Google Places foundation and pool composition
+      social.py           Instagram, TikTok, and RedNote public metadata mining
       personal.py         user-paste + profile-driven (limited)
       dedup.py            cross-source entity resolution
       enrich.py           geocode, hours, photos, fatigue_cost tagging
@@ -191,7 +191,7 @@ syncinerary/
     places/               Google Places, OSM
     transit/              Google Directions (with cache)
     weather/              Open-Meteo
-    fetch/                Reddit, YouTube Data, Wikivoyage, Dcard, generic URL fetch, screenshot OCR
+    fetch/                Instagram, TikTok, RedNote metadata and screenshot OCR
   config/                 env defaults, model ids, thresholds
   tests/                  unit + integration; eval/ is separate from these
 ios/                      SwiftUI app
@@ -239,7 +239,7 @@ candidate_place(
   reservation_required BOOL,
   fatigue_cost INT,                -- 1=low, 2=med, 3=high
   category TEXT,                   -- for diversity bonus: 'temple', 'museum', 'cafe', 'hike'
-  sources JSONB,                   -- [{type:'backbone', score:0.75}, {type:'buzz', score:0.62}, {type:'personal', by:'traveler_id', via:'instagram_link'}]
+  sources JSONB,                   -- [{type:'discovery', subtype:'google_places'}, {type:'buzz', score:0.62}, {type:'personal', by:'traveler_id', via:'instagram_link'}]
   enrichment JSONB,                -- photos, top reviews, why-loved summary
   trending_signals JSONB,          -- mentions, recency_score, engagement
   embedding vector(1536)           -- for dedup similarity
@@ -331,56 +331,60 @@ eval_result(
 
 ---
 
-## 8. Gather strategy: three sources
+## 8. Gather strategy: three inputs
 
-The candidate pool is built from three sources combined and deduplicated. **Default mix: 40% Backbone, 40% Buzz, 20% Personal.** Pool size defaults to `days * 7` (5-day trip => ~35 cards), configurable in the range `days * 5` to `days * 8`.
+The candidate pool combines a Google Places foundation, automatic social buzz,
+and traveler attachments. Automatic social content comes from **Instagram,
+TikTok, and RedNote only**. Reddit, YouTube, Wikivoyage, and Dcard are not data
+sources for this product. Google Maps is used to verify real places and obtain
+permitted place data, not as a social-content platform. Pool size defaults to
+`days * 8`, within the acceptable range `days * 5` to `days * 8`.
 
-### 8.1 Backbone (~40%)
+### 8.1 Google Places foundation (~60%)
 
-Locked-in, high-confidence candidates that ensure the trip covers what the destination is known for.
+Destination-specific place searches provide enough attractions, food, and
+lodging for complete days. Every returned address must match the selected city
+before the place can enter the pool. The foundation is deterministic query
+composition plus provider results, with no LLM free-association.
 
-**Method (no LLM free-association):**
+`sources[]` on a foundation candidate includes
+`{type:'discovery', subtype:'google_places'}`.
 
-1. Fetch 10 to 20 full itinerary articles / vlog descriptions for the destination from legal sources: Reddit (r/JapanTravel and destination-specific subs), YouTube Data API descriptions, Wikivoyage.
-2. For each article, run an LLM in NER mode only to extract place mentions.
-3. Geocode each mention via Google Places. Drop unresolvable mentions.
-4. Cross-article dedup.
-5. Compute `backbone_score = (articles_mentioning / total_articles)`.
-6. Keep candidates with `backbone_score >= 0.30`.
-7. Enrich (hours, photos, weather_dependent, fatigue_cost, category).
+### 8.2 Social buzz (up to ~40%)
 
-`sources[]` on a backbone candidate must include `{type:'backbone', score:<value>, articles_count:<n>}`.
-
-**Defense in interview:** Backbone selection is reproducible and explainable. We do not let the LLM hallucinate "must-see" places; we mine frequency from real travel content. The LLM only does NER. The 30% threshold is a configurable knob, not a vibes call.
-
-### 8.2 Buzz (~40%)
-
-What is currently being talked about. Avoids the trip feeling dated. Avoids niche noise.
+What travelers are currently posting about on Instagram, TikTok, and RedNote.
+Only official APIs or platform-permitted public metadata may be used.
 
 **Method:**
 
-1. Fetch from Reddit (last 6 months in destination subs), YouTube Data API (recent uploads above a view threshold), Dcard, optional Google Trends rising queries.
-2. LLM NER per item.
-3. Geocode + dedup.
-4. Cross-source mention count: **a candidate must appear in at least 3 sources** to be eligible. This single threshold kills the long tail.
-5. Score: `buzz_score = log(mentions + 1) * recency_decay * normalized_engagement`.
-6. Remove any candidate already in backbone.
-7. Take top-N to fill the buzz quota.
+1. Run one bounded search per platform and city. RedNote queries use Mandarin.
+2. Run LLM NER over the public title and description snippets.
+3. Geocode with Google Places and reject addresses outside the selected city.
+4. Require at least 3 independent post URLs before a candidate is eligible.
+5. Score with `buzz_score = log(mentions + 1)`. Do not invent unavailable
+   engagement or recency values.
+6. Merge a social match into the existing Google place instead of duplicating it.
+7. Limit social cards to the configured buzz share of the automatic pool.
 
 `sources[]` includes `{type:'buzz', score:<value>, sources_count:<n>}`.
 
-### 8.3 Personal (~20%)
+### 8.3 Personal attachments
 
 Two sub-sources.
 
-**C1 User-paste:** Each traveler can paste links (Xiaohongshu, Instagram, TikTok, blogs, anything) or upload screenshots.
+**C1 User-paste:** Each traveler can paste an Instagram, TikTok, or RedNote
+link. Screenshot extraction remains available at the API boundary when public
+link metadata does not identify the place.
 - Link: fetch public metadata + body text. Do not log in. Do not bypass paywalls. Do not scrape platforms that block scrapers; respect ToS.
 - Screenshot: OCR + vision model entity extraction.
 - Geocode extracted place names. Drop unresolvable extractions.
 - Append to candidate pool with `sources[]` containing `{type:'personal', subtype:'user_paste', by:<traveler_id>, via:<platform>}`.
 - Preserve whether the input was a link or screenshot and the contributing traveler. This provenance must survive dedup even when the same place is also found automatically.
 
-Automatic discovery runs alongside user-paste. Backbone and buzz search approved public sources without user input. Instagram and TikTok may participate in automatic discovery only through configured official APIs or public metadata access permitted by the platform. Never log in as a user, bypass access controls, or scrape a platform that prohibits it.
+Automatic discovery runs alongside user-paste. Instagram, TikTok, and RedNote
+may participate only through configured official APIs or public metadata access
+permitted by the platform. Never log in as a user, bypass access controls, or
+scrape a platform that prohibits it.
 
 **C2 Profile-driven:** From each traveler's `profile_json`, an LLM proposes a small number of candidates that match stated interests.
 - Hard cap: max 2 candidates per traveler per trip.
@@ -389,7 +393,8 @@ Automatic discovery runs alongside user-paste. Backbone and buzz search approved
 
 ### 8.4 Dedup with attribution
 
-A place mentioned by backbone + buzz + a user-paste must collapse to ONE candidate row whose `sources[]` retains all three entries.
+A place found by Google Places, social buzz, and a user-paste must collapse to
+ONE candidate row whose `sources[]` retains every applicable entry.
 
 Dedup pipeline:
 1. Normalize names (translit, lowercase, strip suffixes).
@@ -402,7 +407,7 @@ When merging, keep the richest enrichment; union the `sources[]`.
 ### 8.5 Card UI source badges
 
 Each card shows badges based on `sources[]`:
-- 📍 Classic (has backbone source)
+- 🗺️ Found on Google Maps (has discovery source)
 - 🔥 Trending (has buzz source)
 - ❤️ Attached by you (has a user-paste source from the current viewer)
 - 👥 Attached by group (has a user-paste source from another traveler; show the contributor's name in the accessible label and card details)
@@ -679,7 +684,7 @@ Goal: one end-to-end trip plans through all 6 pipeline stages with simplified co
 - **Done when:** an empty graph run produces a trace in Phoenix; iOS connects to backend health endpoint.
 
 **M1. Thin vertical slice**
-- Gather: ONE source only. Use Wikivoyage + a hardcoded JSON fixture for the destination's candidates. Skip backbone/buzz/personal split for now.
+- Gather: ONE source only. Use a hardcoded JSON fixture for the destination's candidates. Skip the full source mix for now.
 - Swipe: two buttons (like/dislike only). No badges yet.
 - Aggregate: deterministic acceptance score (Section 10.1, ignoring must_have).
 - Shortlist: simple top-N, no confirmation screen yet; auto-proceeds.
@@ -699,15 +704,15 @@ Goal: one end-to-end trip plans through all 6 pipeline stages with simplified co
 Goal: ship the real product including the three interview-headline features.
 
 **M3. Full gather strategy**
-- Implement backbone mining (Reddit + YouTube + Wikivoyage NER + frequency).
-- Implement buzz scoring (multi-source recency + 3-source threshold).
-- Implement personal: user-paste (including Instagram and TikTok links, screenshot OCR, contributor provenance) and profile-driven (limited to cap).
-- Run automatic discovery alongside user attachments. Optional Instagram and TikTok automatic discovery must use configured official APIs or platform-permitted public metadata access.
+- Implement a city-scoped Google Places foundation for attractions, food, and lodging.
+- Implement Instagram, TikTok, and RedNote buzz mining with a 3-post threshold.
+- Implement personal user-paste for those same three platforms, contributor provenance, and profile-driven candidates limited to the configured cap.
+- Run automatic discovery alongside user attachments. Social discovery must use configured official APIs or platform-permitted public metadata access.
 - Implement cross-source dedup with attribution.
 - Card UI primary images and explicit source badges (📍 🔥 ❤️ 👥), including who attached user-submitted content.
 - Lodging path: solver-driven top 3 + group picks (not swipe).
 - Food pre-filter on hard dietary constraints before showing in swipe.
-- **Done when:** Hokkaido test trip produces a balanced 40/40/20 pool with correct attribution; dedup test passes (same place from 3 sources collapses to one card with all three source entries); every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
+- **Done when:** a selected Hokkaido city produces a complete Google foundation plus eligible social and personal cards with correct attribution; dedup tests pass; no candidate address falls outside the selected city; every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
 
 **M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
 - Batched badge generation per traveler per card (cheap model).
@@ -808,13 +813,11 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 
 | Default | Value | Where it lives |
 |---|---|---|
-| Source mix | 40% backbone / 40% buzz / 20% personal | `config/gather.py` |
-| Candidate pool size | `days * 7` (acceptable range: `days * 5` to `days * 8`) | `config/gather.py` |
-| Backbone frequency threshold | 30% of source articles | `config/gather.py` |
-| Backbone source articles count | 10 to 20 per destination | `config/gather.py` |
+| Automatic source mix | 60% Google foundation / up to 40% social buzz; personal attachments are additive | `config/gather.py` |
+| Candidate pool size | `days * 8` (acceptable range: `days * 5` to `days * 8`) | `config/gather.py` |
 | Buzz min source count | 3 | `config/gather.py` |
 | C2 profile-driven cap | 2 candidates per traveler | `config/gather.py` |
-| Pipeline philosophy | "Backbone IS the template" (no pre-built itinerary) | architectural, Section 8.1 |
+| Social platforms | Instagram / TikTok / RedNote only | `agents/gather/social.py` |
 | Slots per day for shortlist target | 6 | `config/aggregate.py` |
 | Must-go cap | `days` cards | `config/aggregate.py` |
 | Dislike weight in aggregator | 1.5x | `config/aggregate.py` |
@@ -838,8 +841,8 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 
 ## 17. Glossary
 
-- **Backbone:** candidates frequency-mined from full itinerary articles; the "should not miss" set.
-- **Buzz:** candidates currently trending across multiple sources.
+- **Foundation:** city-matched Google Places candidates that keep the pool usable.
+- **Buzz:** candidates mentioned by at least three Instagram, TikTok, or RedNote posts.
 - **Personal:** candidates from user paste (C1) or driven by the traveler's profile (C2).
 - **Delegate:** a per-traveler LLM context that produces badges and parses notes for THAT traveler only. Does not negotiate. Does not vote. Does not decide.
 - **Shortlist:** the group-confirmed subset of candidates that proceeds to scheduling.
@@ -849,7 +852,7 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 - **Anchor:** a node the solver cannot move (reservation, check-in, user-pinned).
 - **Wishlist not-placed:** shortlisted cards the solver could not fit, surfaced with reasons.
 - **Trace:** structured JSON record of decisions an agent made; persisted for replan (F4) and eval (F2).
-- **Source badge:** the 📍 🔥 ❤️ 👥 icons on a card indicating provenance (backbone / buzz / your personal / group personal). Separate from delegate badge.
+- **Source badge:** the 🗺️ 🔥 ❤️ 👥 icons on a card indicating provenance (Google discovery / buzz / your personal / group personal). Separate from delegate badge.
 - **Delegate badge:** the per-person warning or confirm chip on a card.
 
 ---
