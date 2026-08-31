@@ -713,6 +713,7 @@ Goal: one end-to-end trip plans through all 6 pipeline stages with simplified co
 Goal: ship the real product including the three interview-headline features.
 
 **M3. Full gather strategy**
+- Let travelers type up to four cities in one country, with at least one trip day per city.
 - Implement a city-scoped Google Places foundation for attractions, food, and lodging.
 - Implement Instagram, TikTok, and RedNote buzz mining with a 3-post threshold.
 - Implement personal user-paste for those same three platforms and contributor provenance.
@@ -722,7 +723,7 @@ Goal: ship the real product including the three interview-headline features.
 - Run automatic discovery alongside user attachments. Social discovery must use configured official APIs or platform-permitted public metadata access.
 - Implement cross-source dedup with attribution.
 - Card UI primary images and explicit source badges (📍 🔥 ❤️ 👥), including who attached user-submitted content.
-- **Done when:** a selected Hokkaido city produces a complete Google foundation plus eligible social and personal cards with correct attribution; dedup tests pass; no candidate address falls outside the selected city; every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
+- **Done when:** the selected cities produce a complete Google foundation plus eligible social and personal cards with correct attribution; dedup tests pass; no candidate falls outside its resolved city; cities receive consecutive itinerary days; every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
 
 **M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
 - Batched badge generation per traveler per card (cheap model).

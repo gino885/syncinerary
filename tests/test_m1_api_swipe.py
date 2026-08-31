@@ -20,7 +20,8 @@ from syncinerary.store.repositories import (
 )
 
 TRIP_BODY = {
-    "destination": "Hokkaido",
+    "cities": ["Hokkaido"],
+    "country": "Japan",
     "start_date": "2026-05-21",
     "end_date": "2026-05-25",
     "creator_name": "Gino",
@@ -82,9 +83,40 @@ async def test_end_date_before_start_date_is_rejected(client):
     assert response.status_code == 422
 
 
-async def test_blank_destination_is_rejected(client):
-    response = await client.post("/trips", json={**TRIP_BODY, "destination": ""})
+async def test_a_trip_with_no_city_is_rejected(client):
+    response = await client.post("/trips", json={**TRIP_BODY, "cities": []})
     assert response.status_code == 422
+
+
+async def test_a_blank_city_name_is_rejected(client):
+    response = await client.post("/trips", json={**TRIP_BODY, "cities": ["   "]})
+    assert response.status_code == 422
+
+
+async def test_several_typed_cities_become_the_trip_label(client):
+    response = await client.post(
+        "/trips",
+        json={**TRIP_BODY, "cities": ["Sapporo", " Otaru ", "sapporo"]},
+    )
+    assert response.status_code == 201
+    trip = response.json()["trip"]
+    # Trimmed, de-duplicated, and kept in the order they were typed.
+    assert trip["cities"] == ["Sapporo", "Otaru"]
+    assert trip["destination"] == "Sapporo, Otaru"
+
+
+async def test_a_trip_cannot_name_more_cities_than_days(client):
+    response = await client.post(
+        "/trips",
+        json={
+            **TRIP_BODY,
+            "cities": ["Sapporo", "Otaru"],
+            "end_date": TRIP_BODY["start_date"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "one day per city" in response.json()["detail"]
 
 
 async def test_creator_is_recorded_on_the_trip(client, session):

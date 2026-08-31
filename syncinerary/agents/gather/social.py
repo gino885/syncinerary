@@ -21,6 +21,7 @@ from typing import Any
 from opentelemetry import trace
 from pydantic import BaseModel, Field, ValidationError
 
+from syncinerary.agents.gather.cities import resolve_trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.config import settings
 from syncinerary.config.gather import BUZZ_MIN_SOURCE_COUNT
@@ -48,7 +49,13 @@ from syncinerary.tools.fetch.social import (
     DiscoveredSocialURL,
     make_brave_social_search_tool,
 )
-from syncinerary.tools.places import PlaceMatch, PlaceSearchInput, make_place_search_tool
+from syncinerary.tools.places import (
+    PlaceMatch,
+    PlaceSearchBias,
+    PlaceSearchInput,
+    ResolvedCity,
+    make_place_search_tool,
+)
 
 DISCOVERY_PLATFORMS = (
     SocialPlatform.INSTAGRAM,
@@ -161,23 +168,25 @@ def traveler_interests(travelers: list[Traveler]) -> list[str]:
 async def _search_platform(
     platform: SocialPlatform,
     *,
-    trip: Trip,
+    destination: str,
     interests: list[str],
 ) -> list[DiscoveredSocialURL]:
     destination_localized = None
     if platform is SocialPlatform.REDNOTE:
-        destination_localized = await translate_destination_to_mandarin(
-            trip.destination
-        )
+        destination_localized = await translate_destination_to_mandarin(destination)
     result = await run_tool(
         make_brave_social_search_tool(),
         BraveSocialSearchInput(
             platform=platform,
-            destination=trip.destination,
+            destination=destination,
             destination_localized=destination_localized,
             interests=interests,
         ),
-        state={"node": "gather_social", "platform": platform.value},
+        state={
+            "node": "gather_social",
+            "platform": platform.value,
+            "destination": destination,
+        },
     )
     return list(result.results)[:MAX_POSTS_PER_PLATFORM]
 
@@ -313,7 +322,13 @@ def _candidate_type(place: PlaceMatch) -> CandidateType:
     return CandidateType.ATTRACTION
 
 
-def to_candidate(place: PlaceMatch, mined: MinedPlace, trip: Trip) -> CandidatePlace:
+def to_candidate(
+    place: PlaceMatch,
+    mined: MinedPlace,
+    trip: Trip,
+    *,
+    city: ResolvedCity | None = None,
+) -> CandidatePlace:
     candidate_type = _candidate_type(place)
     place_types = [*place.types]
     if place.primary_type:
@@ -342,6 +357,7 @@ def to_candidate(place: PlaceMatch, mined: MinedPlace, trip: Trip) -> CandidateP
         ],
         enrichment={
             "google_place_id": place.place_id,
+            "city": city.name if city else None,
             "discovery_provider": "social_public_search",
             "discovery_queries": mined.queries,
             "social_platforms": mined.platforms,
@@ -375,8 +391,15 @@ def eligible_places(mined: dict[str, MinedPlace]) -> list[MinedPlace]:
 async def discover_social_candidates(
     trip: Trip,
     travelers: list[Traveler],
+    cities: list[ResolvedCity] | None = None,
 ) -> list[CandidatePlace]:
     """Mine the three platforms for places this group would plausibly like.
+
+    Mining runs per city rather than once for the whole trip. A post about one
+    city is not evidence about another, and the cross-source threshold only
+    means something when the posts it counts are about the same place. Each
+    city also geocodes against its own centre, so a two city trip cannot pull a
+    card from the wrong one.
 
     Provider failures are not hidden as an empty buzz result. The caller sees
     the real error, so a broken key or request shape cannot silently ship.
@@ -384,35 +407,48 @@ async def discover_social_candidates(
     span = trace.get_current_span()
     interests = traveler_interests(travelers)
     span.set_attribute("gather.social.interest_count", len(interests))
-    mined: dict[str, MinedPlace] = {}
+    resolved = cities if cities is not None else await resolve_trip_cities(trip)
 
-    for platform in DISCOVERY_PLATFORMS:
-        posts = await _search_platform(platform, trip=trip, interests=interests)
-        span.set_attribute(f"gather.social.{platform.value}.posts", len(posts))
-        if not posts:
-            continue
-        mentions = await extract_post_places(
-            posts,
-            platform=platform,
-            destination=trip.destination,
-        )
-        merge_mentions(mined, mentions, posts, platform)
-
-    span.set_attribute("gather.social.mined_names", len(mined))
     candidates: list[CandidatePlace] = []
     unresolved = 0
-    for place in eligible_places(mined):
-        result = await run_tool(
-            make_place_search_tool(),
-            PlaceSearchInput(query=place.name, destination=trip.destination),
-            state={"node": "gather_social_geocode", "name": place.name},
-        )
-        # Section 8.3: a name that does not resolve to a real place never
-        # reaches the pool, whatever the posts claimed about it.
-        if not result.matches:
-            unresolved += 1
-            continue
-        candidates.append(to_candidate(result.matches[0], place, trip))
+    for city in resolved:
+        mined: dict[str, MinedPlace] = {}
+        for platform in DISCOVERY_PLATFORMS:
+            posts = await _search_platform(
+                platform,
+                destination=city.name,
+                interests=interests,
+            )
+            span.set_attribute(
+                f"gather.social.{city.name}.{platform.value}.posts", len(posts)
+            )
+            if not posts:
+                continue
+            mentions = await extract_post_places(
+                posts,
+                platform=platform,
+                destination=city.name,
+            )
+            merge_mentions(mined, mentions, posts, platform)
+
+        span.set_attribute(f"gather.social.{city.name}.mined_names", len(mined))
+        for place in eligible_places(mined):
+            result = await run_tool(
+                make_place_search_tool(),
+                PlaceSearchInput(
+                    query=place.name,
+                    destination=city.name,
+                    city_center=PlaceSearchBias(lat=city.lat, lng=city.lng),
+                    city_radius_km=city.radius_km,
+                ),
+                state={"node": "gather_social_geocode", "name": place.name},
+            )
+            # Section 8.3: a name that does not resolve to a real place never
+            # reaches the pool, whatever the posts claimed about it.
+            if not result.matches:
+                unresolved += 1
+                continue
+            candidates.append(to_candidate(result.matches[0], place, trip, city=city))
 
     span.set_attribute("gather.social.unresolved_names", unresolved)
     span.set_attribute("gather.social.candidate_count", len(candidates))

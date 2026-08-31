@@ -20,6 +20,7 @@ from syncinerary.store.repositories.base import BaseRepository
 class TripRepository(BaseRepository[tables.Trip, Trip]):
     table = tables.Trip
     model = Trip
+    jsonb_fields = frozenset({"resolved_cities"})
 
     async def set_created_by(self, trip_id: UUID, traveler_id: UUID) -> Trip | None:
         """Set the creator after the traveler row exists.

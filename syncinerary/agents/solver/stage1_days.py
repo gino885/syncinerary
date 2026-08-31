@@ -162,6 +162,96 @@ def cluster_nearby_evenly(
     return buckets
 
 
+def allocate_days(
+    counts: list[int],
+    days: int,
+) -> list[int]:
+    """Split the trip's days between cities, proportional to their candidates.
+
+    Every city with candidates gets at least one day: a city worth typing is
+    worth a day, and a city with zero days would have its cards quietly
+    dropped. Remainders go to the cities with the largest fractional claim,
+    with the earlier city winning a tie so the split is reproducible.
+    """
+    if days <= 0 or not counts:
+        return [0] * len(counts)
+
+    active = [index for index, count in enumerate(counts) if count > 0]
+    if not active:
+        return [0] * len(counts)
+    # More cities than days: the trip can only visit the first `days` of them.
+    active = active[:days]
+
+    total = sum(counts[index] for index in active)
+    allocation = [0] * len(counts)
+    remainders: list[tuple[float, int]] = []
+    for index in active:
+        exact = counts[index] / total * days
+        allocation[index] = max(1, int(exact))
+        remainders.append((exact - int(exact), index))
+
+    # max(1, ...) can overshoot; take days back from the largest allocations.
+    while sum(allocation) > days:
+        index = max(active, key=lambda i: (allocation[i], -i))
+        if allocation[index] <= 1:
+            break
+        allocation[index] -= 1
+
+    remainders.sort(key=lambda item: (-item[0], item[1]))
+    position = 0
+    while sum(allocation) < days and remainders:
+        allocation[remainders[position % len(remainders)][1]] += 1
+        position += 1
+
+    return allocation
+
+
+def assign_days_by_city(
+    candidates: Sequence[CandidatePlace],
+    days: int,
+    city_names: list[str],
+) -> list[list[CandidatePlace]]:
+    """Give each city a consecutive block of days, then cluster inside it.
+
+    Grouping on distance alone let a two city trip alternate: Lisbon, Porto,
+    Lisbon, Porto. Each of those hops is a few hundred kilometres, which no
+    itinerary should ask for daily. Cities keep the order they were typed, so
+    the trip reads as a route rather than a shuffle.
+    """
+    if not city_names:
+        return cluster_nearby_evenly(candidates, days)
+
+    by_city: dict[str, list[CandidatePlace]] = {name: [] for name in city_names}
+    unplaced: list[CandidatePlace] = []
+    for candidate in candidates:
+        city = candidate.enrichment.get("city")
+        if isinstance(city, str) and city in by_city:
+            by_city[city].append(candidate)
+        else:
+            unplaced.append(candidate)
+
+    # A card with no city recorded joins whichever city it is nearest to, so
+    # nothing is lost just because its provenance is thin.
+    for candidate in unplaced:
+        nearest = min(
+            (name for name in city_names if by_city[name]),
+            key=lambda name: min(
+                _distance_km(candidate, other) for other in by_city[name]
+            ),
+            default=None,
+        )
+        by_city[nearest or city_names[0]].append(candidate)
+
+    allocation = allocate_days([len(by_city[name]) for name in city_names], days)
+
+    buckets: list[list[CandidatePlace]] = []
+    for name, day_count in zip(city_names, allocation, strict=True):
+        if day_count == 0:
+            continue
+        buckets.extend(cluster_nearby_evenly(by_city[name], day_count))
+    return buckets
+
+
 def _distance_km(origin: CandidatePlace, destination: CandidatePlace) -> float:
     return haversine_km(
         TransitLocation(lat=origin.lat, lng=origin.lng),
@@ -169,4 +259,9 @@ def _distance_km(origin: CandidatePlace, destination: CandidatePlace) -> float:
     )
 
 
-__all__ = ["chunk_evenly", "cluster_nearby_evenly"]
+__all__ = [
+    "allocate_days",
+    "assign_days_by_city",
+    "chunk_evenly",
+    "cluster_nearby_evenly",
+]

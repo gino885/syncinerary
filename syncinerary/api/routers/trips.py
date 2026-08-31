@@ -20,6 +20,14 @@ from syncinerary.agents.gather.attachments import (
     ScreenshotExtractionUnavailable,
     extract_screenshot,
 )
+from syncinerary.agents.gather.cities import (
+    CityOutsideCountry,
+    UnknownCity,
+    destination_label,
+    normalize_city_names,
+    resolve_cities,
+    resolve_timezone,
+)
 from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
@@ -81,6 +89,7 @@ from syncinerary.tools.places import (
     make_place_photo_tool,
     make_place_search_tool,
 )
+from syncinerary.tools.timezone import TimezoneUnavailable
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -103,9 +112,37 @@ async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreat
     """
     days = (payload.end_date - payload.start_date).days + 1
 
+    cities = normalize_city_names(payload.cities)
+    if not cities:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Enter at least one city to search",
+        )
+    if len(cities) > days:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "A trip needs at least one day per city",
+        )
+
+    # Resolved here rather than during gather so a misspelled city comes back
+    # while the traveler is still looking at the form.
+    try:
+        resolved = await resolve_cities(cities, payload.country)
+        timezone = await resolve_timezone(resolved[0])
+    except (CityOutsideCountry, UnknownCity) as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
+        ) from exc
+    except TimezoneUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
     trip = await TripRepository(session).add(
         Trip(
-            destination=payload.destination,
+            destination=destination_label([city.name for city in resolved]),
+            cities=[city.name for city in resolved],
+            country=payload.country,
+            resolved_cities=[city.model_dump(mode="json") for city in resolved],
+            timezone=timezone,
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=days,
@@ -530,10 +567,15 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
     if not snapshot.values:
         travelers = await TravelerRepository(session).list_for_trip(trip_id)
         constraints = await ConstraintRepository(session).list_for_trip(trip_id)
-        await graph.ainvoke(
-            TripState(trip=trip, travelers=travelers, constraints=constraints),
-            config,
-        )
+        try:
+            await graph.ainvoke(
+                TripState(trip=trip, travelers=travelers, constraints=constraints),
+                config,
+            )
+        except UnknownCity as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
+            ) from exc
 
     deck = await CandidatePlaceRepository(session).list_swipeable(trip_id)
     await TripRepository(session).set_status(trip_id, TripStatus.SWIPING)

@@ -9,6 +9,7 @@ from syncinerary.domain.models import CandidatePlace, CandidateType
 from syncinerary.harness import run_tool
 from syncinerary.store.repositories import CandidatePlaceRepository
 from syncinerary.tools.places.google_places import (
+    CityResolveInput,
     PhotoAttribution,
     PlaceMatch,
     PlacePhotoInput,
@@ -16,6 +17,7 @@ from syncinerary.tools.places.google_places import (
     PlaceSearchBias,
     PlaceSearchInput,
     PlaceSearchOutput,
+    make_city_resolve_tool,
     make_place_photo_tool,
     make_place_search_tool,
 )
@@ -117,9 +119,16 @@ async def test_text_search_rejects_results_from_another_city():
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         result = await run_tool(
             make_place_search_tool(client=client, api_key="test-key"),
-            PlaceSearchInput(query="popular parks", destination="Sapporo"),
+            PlaceSearchInput(
+                query="popular parks",
+                destination="Sapporo",
+                city_center=PlaceSearchBias(lat=43.0618, lng=141.3545),
+                city_radius_km=20,
+            ),
         )
 
+    # The typed name is Latin and the address is Japanese, so no string rule
+    # would have matched. Distance from the resolved city does.
     assert [match.display_name for match in result.matches] == ["Odori Park"]
 
 
@@ -250,7 +259,8 @@ async def test_candidate_photo_endpoint_searches_by_name_and_returns_attribution
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -326,7 +336,8 @@ async def test_candidate_photo_endpoint_prefers_permitted_platform_preview(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -432,3 +443,89 @@ async def test_a_malformed_period_without_a_close_is_not_treated_as_always_open(
         )
 
     assert result.matches[0].hours_by_weekday == {}
+
+
+async def test_a_city_name_is_resolved_to_a_real_place_with_an_extent():
+    """Typed cities are resolved, so nothing depends on a supported-city list."""
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert b'"includedType":"locality"' in request.read()
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-sapporo",
+                        "displayName": {"text": "Sapporo"},
+                        "primaryType": "locality",
+                        "types": ["locality", "political"],
+                        "formattedAddress": "Sapporo, Hokkaido, Japan",
+                        "location": {"latitude": 43.0618, "longitude": 141.3545},
+                        "viewport": {
+                            "low": {"latitude": 42.95, "longitude": 141.20},
+                            "high": {"latitude": 43.17, "longitude": 141.50},
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_resolve_tool(client=client, api_key="test-key"),
+            CityResolveInput(name="  Sapporo  "),
+        )
+
+    city = result.city
+    assert city is not None
+    assert city.name == "Sapporo"
+    assert city.query == "Sapporo"
+    assert 5 <= city.radius_km <= 60
+
+
+async def test_city_resolution_skips_a_non_city_result():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-neighborhood",
+                        "displayName": {"text": "Downtown"},
+                        "primaryType": "neighborhood",
+                        "types": ["neighborhood", "political"],
+                        "location": {"latitude": 43.05, "longitude": 141.35},
+                    },
+                    {
+                        "id": "ChIJ-sapporo",
+                        "displayName": {"text": "Sapporo"},
+                        "primaryType": "locality",
+                        "types": ["locality", "political"],
+                        "location": {"latitude": 43.0618, "longitude": 141.3545},
+                    },
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_resolve_tool(client=client, api_key="test-key"),
+            CityResolveInput(name="Sapporo"),
+        )
+
+    assert result.city is not None
+    assert result.city.name == "Sapporo"
+
+
+async def test_a_city_nobody_can_resolve_comes_back_empty_rather_than_guessed():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"places": []}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_resolve_tool(client=client, api_key="test-key"),
+            CityResolveInput(name="Zzzqqx"),
+        )
+
+    assert result.city is None

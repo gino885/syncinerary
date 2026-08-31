@@ -78,7 +78,8 @@ async def test_post_reel_link_strips_tracking_and_identifies_contributor(client)
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -116,7 +117,8 @@ async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -139,7 +141,8 @@ async def test_post_rednote_short_link_is_preserved_for_enrichment(client):
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -191,7 +194,8 @@ async def test_pending_link_can_be_resubmitted_with_a_place_name(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -249,7 +253,8 @@ async def test_link_place_name_becomes_a_personal_candidate_without_a_picture(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -289,11 +294,65 @@ async def test_link_place_name_becomes_a_personal_candidate_without_a_picture(
     }
 
 
+async def test_link_place_name_is_checked_in_each_selected_city(
+    client,
+    session,
+    monkeypatch,
+):
+    searched: list[str] = []
+
+    async def fake_run_tool(_tool, arguments, **_kwargs):
+        searched.append(arguments.destination)
+        if arguments.destination == "Otaru":
+            return PlaceSearchOutput(
+                matches=[
+                    PlaceMatch(
+                        place_id="ChIJ-otaru",
+                        display_name="Otaru Canal",
+                        lat=43.1987,
+                        lng=140.9947,
+                        primary_type="tourist_attraction",
+                    )
+                ]
+            )
+        return PlaceSearchOutput(matches=[])
+
+    monkeypatch.setattr(personal_module, "run_tool", fake_run_tool)
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Sapporo", "Otaru"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.instagram.com/reel/Da2UDmNtLvp/",
+            "place_name": "Otaru Canal",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "ready"
+    assert searched == ["Sapporo", "Otaru"]
+    candidates = await CandidatePlaceRepository(session).list_for_trip(
+        created.json()["trip"]["id"]
+    )
+    assert candidates[0].enrichment["city"] == "Otaru"
+
+
 async def test_link_rejects_a_whitespace_only_place_name(client):
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -316,7 +375,8 @@ async def test_tiktok_discovery_page_is_rejected_as_an_attachment(client):
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -344,7 +404,8 @@ async def test_attachment_cannot_claim_a_traveler_from_another_trip(client):
     first = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -353,7 +414,8 @@ async def test_attachment_cannot_claim_a_traveler_from_another_trip(client):
     second = await client.post(
         "/trips",
         json={
-            "destination": "Tokyo",
+            "cities": ["Tokyo"],
+            "country": "Japan",
             "start_date": "2026-06-01",
             "end_date": "2026-06-03",
             "creator_name": "Ana",
@@ -460,7 +522,8 @@ async def test_tiktok_link_uses_official_preview_then_google_place(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -548,7 +611,8 @@ async def test_upload_screenshot_extracts_evidence_and_preserves_contributor(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",
@@ -613,7 +677,8 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
     created = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-25",
             "creator_name": "Gino",

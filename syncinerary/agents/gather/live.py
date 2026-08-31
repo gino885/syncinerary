@@ -3,6 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from syncinerary.agents.gather.cities import (
+    destination_label,
+    resolve_trip_cities,
+    search_bias,
+)
 from syncinerary.agents.gather.dedup import dedup_candidates
 from syncinerary.agents.gather.dietary import (
     dietary_tags_from_place_types,
@@ -32,6 +37,7 @@ from syncinerary.tools.places import (
     PlaceMatch,
     PlaceSearchBias,
     PlaceSearchInput,
+    ResolvedCity,
     make_place_search_tool,
 )
 from syncinerary.tools.transit import TransitLocation, haversine_km
@@ -138,7 +144,24 @@ def _hours(place: PlaceMatch) -> dict[str, list[list[int]]]:
     return {weekday: [[8, 20]] for weekday in _WEEKDAYS}
 
 
-def _to_candidate(place: PlaceMatch, trip: Trip, query: str) -> CandidatePlace:
+def _nearest_city(lat: float, lng: float, cities: list[ResolvedCity]) -> ResolvedCity:
+    """Which of the trip's cities a day cluster sits in."""
+    return min(
+        cities,
+        key=lambda city: haversine_km(
+            TransitLocation(lat=lat, lng=lng),
+            TransitLocation(lat=city.lat, lng=city.lng),
+        ),
+    )
+
+
+def _to_candidate(
+    place: PlaceMatch,
+    trip: Trip,
+    query: str,
+    *,
+    city: ResolvedCity | None = None,
+) -> CandidatePlace:
     candidate_type = _candidate_type(place)
     place_types = [*place.types]
     if place.primary_type:
@@ -168,6 +191,7 @@ def _to_candidate(place: PlaceMatch, trip: Trip, query: str) -> CandidatePlace:
             "google_place_id": place.place_id,
             "discovery_provider": "google_places",
             "discovery_queries": [query],
+            "city": city.name if city else None,
             "hours_assumed": not bool(place.hours_by_weekday),
             "source_description": place.editorial_summary,
         },
@@ -299,37 +323,42 @@ async def discover_candidates(
     stated interests. A place both paths find stays one card carrying both
     source rows (section 8.4).
     """
+    cities = await resolve_trip_cities(trip)
     by_place_id: dict[str, CandidatePlace] = {}
-    for query in build_search_queries(trip.destination):
-        included_type = None
-        if "restaurant" in query.lower():
-            included_type = "restaurant"
-        elif "hotel" in query.lower():
-            included_type = "hotel"
-        result = await run_tool(
-            make_place_search_tool(),
-            PlaceSearchInput(
-                query=query,
-                destination=trip.destination,
-                included_type=included_type,
-            ),
-        )
-        for place in result.matches:
-            existing = by_place_id.get(place.place_id)
-            if existing is not None:
-                queries = list(existing.enrichment.get("discovery_queries", []))
-                if query not in queries:
-                    queries.append(query)
-                    by_place_id[place.place_id] = existing.model_copy(
-                        update={
-                            "enrichment": {
-                                **existing.enrichment,
-                                "discovery_queries": queries,
+    for city in cities:
+        for query in build_search_queries(city.name):
+            included_type = None
+            if "restaurant" in query.lower():
+                included_type = "restaurant"
+            elif "hotel" in query.lower():
+                included_type = "hotel"
+            result = await run_tool(
+                make_place_search_tool(),
+                PlaceSearchInput(
+                    query=query,
+                    destination=city.name,
+                    included_type=included_type,
+                    location_bias=search_bias(city),
+                    city_center=PlaceSearchBias(lat=city.lat, lng=city.lng),
+                    city_radius_km=city.radius_km,
+                ),
+            )
+            for place in result.matches:
+                existing = by_place_id.get(place.place_id)
+                if existing is not None:
+                    queries = list(existing.enrichment.get("discovery_queries", []))
+                    if query not in queries:
+                        queries.append(query)
+                        by_place_id[place.place_id] = existing.model_copy(
+                            update={
+                                "enrichment": {
+                                    **existing.enrichment,
+                                    "discovery_queries": queries,
+                                }
                             }
-                        }
-                    )
-                continue
-            by_place_id[place.place_id] = _to_candidate(place, trip, query)
+                        )
+                    continue
+                by_place_id[place.place_id] = _to_candidate(place, trip, query, city=city)
 
     activity_clusters = _dense_clusters(
         [
@@ -350,26 +379,31 @@ async def discover_candidates(
                 candidate.name_canonical,
             ),
         )
+        city = _nearest_city(center_lat, center_lng, cities)
         for query_template, included_type in CLUSTER_FOOD_QUERIES:
             query = query_template.format(anchor=anchor.name_canonical)
             result = await run_tool(
                 make_place_search_tool(),
                 PlaceSearchInput(
                     query=query,
-                    destination=trip.destination,
+                    destination=city.name,
                     included_type=included_type,
                     location_bias=PlaceSearchBias(lat=center_lat, lng=center_lng),
+                    city_center=PlaceSearchBias(lat=city.lat, lng=city.lng),
+                    city_radius_km=city.radius_km,
                 ),
             )
             for place in result.matches:
                 if place.place_id not in by_place_id:
-                    by_place_id[place.place_id] = _to_candidate(place, trip, query)
+                    by_place_id[place.place_id] = _to_candidate(
+                        place, trip, query, city=city
+                    )
 
     target = trip.days * POOL_PER_DAY
 
     # Social buzz enters the same pool, capped at its configured share so a
     # loud destination cannot crowd out the places the region is known for.
-    social = await discover_social_candidates(trip, list(travelers or []))
+    social = await discover_social_candidates(trip, list(travelers or []), cities)
     social_quota = max(0, round(target * BUZZ_RATIO))
     social = social[:social_quota]
     merge_into_pool(by_place_id, social)
@@ -443,7 +477,8 @@ async def discover_candidates(
     if len(selected) < minimum:
         raise LiveDiscoveryInsufficient(
             f"Google Places returned {len(selected)} usable places for "
-            f"{trip.destination!r}; at least {minimum} are required"
+            f"{destination_label([city.name for city in cities])!r}; "
+            f"at least {minimum} are required"
         )
     lodging.sort(
         key=lambda candidate: (

@@ -21,7 +21,7 @@ from syncinerary.domain.models import (
     TripState,
 )
 from syncinerary.store.repositories import CandidatePlaceRepository, TripRepository
-from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput
+from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput, ResolvedCity
 
 
 def _candidate(name: str, lat: float, lng: float) -> CandidatePlace:
@@ -36,6 +36,26 @@ def _candidate(name: str, lat: float, lng: float) -> CandidatePlace:
 
 
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _stub_cities(monkeypatch, *cities: tuple[str, float, float]) -> None:
+    """Resolve the trip's typed cities without calling the places provider."""
+    resolved = [
+        ResolvedCity(
+            query=name,
+            place_id=f"city-{name.casefold()}",
+            name=name,
+            lat=lat,
+            lng=lng,
+            radius_km=25.0,
+        )
+        for name, lat, lng in (cities or (("Sapporo", 43.0618, 141.3545),))
+    ]
+
+    async def resolve(_trip):
+        return resolved
+
+    monkeypatch.setattr(live_module, "resolve_trip_cities", resolve)
 
 
 def test_search_queries_are_destination_specific_and_cover_a_full_day_mix():
@@ -142,10 +162,14 @@ async def test_live_discovery_uses_google_results_without_preset_candidates(monk
         days=2,
     )
     calls: list[str] = []
+    # Foundation queries now carry a city-wide bias too, so the cluster food
+    # lookups are told apart by their query, not by the presence of a bias.
+    foundation_queries = set(build_search_queries("Hokkaido"))
 
     async def fake_run_tool(_tool, arguments, **_kwargs):
         calls.append(arguments.query)
         query_index = len(calls)
+        assert arguments.city_center is not None, "every search must be city scoped"
         is_food = "restaurant" in arguments.query.lower()
         is_lodging = "hotel" in arguments.query.lower()
         assert arguments.included_type == (
@@ -154,7 +178,7 @@ async def test_live_discovery_uses_google_results_without_preset_candidates(monk
         primary_type = (
             "hotel" if is_lodging else "restaurant" if is_food else "tourist_attraction"
         )
-        if arguments.location_bias is not None:
+        if arguments.query not in foundation_queries:
             return PlaceSearchOutput(
                 matches=[
                     PlaceMatch(
@@ -195,9 +219,10 @@ async def test_live_discovery_uses_google_results_without_preset_candidates(monk
             ]
         )
 
-    async def no_social(_trip, _travelers):
+    async def no_social(_trip, _travelers, _cities=None):
         return []
 
+    _stub_cities(monkeypatch, ("Hokkaido", 43.061, 141.354))
     monkeypatch.setattr("syncinerary.agents.gather.live.run_tool", fake_run_tool)
     # Social buzz has its own tests and its own network calls; this one is
     # about what the destination search alone produces.
@@ -341,7 +366,7 @@ async def test_a_buzz_place_joins_the_pool_and_keeps_both_source_rows(monkeypatc
             ]
         )
 
-    async def fake_social(trip_arg, _travelers):
+    async def fake_social(trip_arg, _travelers, _cities=None):
         return [
             CandidatePlace(
                 trip_id=trip_arg.id,
@@ -358,6 +383,7 @@ async def test_a_buzz_place_joins_the_pool_and_keeps_both_source_rows(monkeypatc
             )
         ]
 
+    _stub_cities(monkeypatch)
     monkeypatch.setattr("syncinerary.agents.gather.live.run_tool", fake_run_tool)
     monkeypatch.setattr(live_module, "discover_social_candidates", fake_social)
 
@@ -395,7 +421,7 @@ async def test_a_profile_place_merges_with_google_and_survives_pool_selection(mo
             ]
         )
 
-    async def no_social(_trip, _travelers):
+    async def no_social(_trip, _travelers, _cities=None):
         return []
 
     async def fake_profile(trip_arg, _travelers):
@@ -417,6 +443,7 @@ async def test_a_profile_place_merges_with_google_and_survives_pool_selection(mo
             )
         ]
 
+    _stub_cities(monkeypatch)
     monkeypatch.setattr(live_module, "run_tool", fake_run_tool)
     monkeypatch.setattr(live_module, "discover_social_candidates", no_social)
     monkeypatch.setattr(live_module, "discover_profile_candidates", fake_profile)
@@ -453,7 +480,7 @@ async def test_a_buzz_card_survives_even_when_it_stands_alone_geographically(mon
             ]
         )
 
-    async def fake_social(trip_arg, _travelers):
+    async def fake_social(trip_arg, _travelers, _cities=None):
         return [
             CandidatePlace(
                 trip_id=trip_arg.id,
@@ -470,6 +497,7 @@ async def test_a_buzz_card_survives_even_when_it_stands_alone_geographically(mon
             )
         ]
 
+    _stub_cities(monkeypatch)
     monkeypatch.setattr("syncinerary.agents.gather.live.run_tool", fake_run_tool)
     monkeypatch.setattr(live_module, "discover_social_candidates", fake_social)
 

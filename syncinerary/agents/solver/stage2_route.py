@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
-from syncinerary.agents.solver.stage1_days import cluster_nearby_evenly
+from syncinerary.agents.solver.stage1_days import assign_days_by_city
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
@@ -697,7 +697,11 @@ async def solve_routes(
     never make an itinerary worse than the plain shortlist run.
     """
     options = options or SolverOptions()
-    buckets = cluster_nearby_evenly(candidates, state.trip.days)
+    buckets = assign_days_by_city(
+        candidates,
+        state.trip.days,
+        state.trip.cities,
+    )
     candidate_by_id = {candidate.id: candidate for candidate in candidates}
     candidate_rank = {
         candidate.id: index for index, candidate in enumerate(candidates)
@@ -812,7 +816,13 @@ async def solver_node(state: TripState) -> dict[str, Any]:
             repo = CandidatePlaceRepository(session)
             candidates = await repo.list_by_ids(shortlist.selected_candidate_ids)
 
-        options = SolverOptions(day_start=state.day_start, day_end=state.day_end)
+        options = SolverOptions(
+            day_start=state.day_start,
+            day_end=state.day_end,
+            # The destination's own clock, resolved when the trip was created.
+            # Older trips predate the column and keep the previous constant.
+            timezone=trip.timezone or M1_DESTINATION_TIMEZONE,
+        )
         async with _make_transit_client() as transit_client:
             result = await solve_routes(
                 state,

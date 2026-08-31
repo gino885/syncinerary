@@ -75,3 +75,48 @@ async def client(session: AsyncSession) -> AsyncClient:
             yield http
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def offline_city_resolution(monkeypatch):
+    """Resolve typed cities without calling Google.
+
+    Trip creation resolves every city and looks up a timezone, so without this
+    the whole API suite would make live calls just to create a fixture trip.
+    Coordinates are derived from the name so they are stable across runs and
+    different cities land in different places.
+    """
+    from syncinerary.agents.gather.cities import normalize_city_names
+    from syncinerary.tools.places import ResolvedCity
+
+    known = {
+        "sapporo": (43.0618, 141.3545),
+        "otaru": (43.1907, 140.9947),
+        "hokkaido": (43.0618, 141.3545),
+        "lisbon": (38.7223, -9.1393),
+        "porto": (41.1579, -8.6291),
+    }
+
+    async def resolve(names, country):
+        resolved = []
+        for index, name in enumerate(normalize_city_names(names)):
+            lat, lng = known.get(name.casefold(), (43.0 + index, 141.0 + index))
+            resolved.append(
+                ResolvedCity(
+                    query=name,
+                    place_id=f"city-{name.casefold()}",
+                    name=name,
+                    lat=lat,
+                    lng=lng,
+                    radius_km=25.0,
+                    country=country,
+                    country_code=country[:2].upper(),
+                )
+            )
+        return resolved
+
+    async def timezone(_city):
+        return "Asia/Tokyo"
+
+    monkeypatch.setattr("syncinerary.api.routers.trips.resolve_cities", resolve)
+    monkeypatch.setattr("syncinerary.api.routers.trips.resolve_timezone", timezone)

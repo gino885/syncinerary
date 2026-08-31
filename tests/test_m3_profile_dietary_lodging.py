@@ -29,7 +29,7 @@ from syncinerary.store.repositories import (
     TravelerRepository,
     TripRepository,
 )
-from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput
+from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput, ResolvedCity
 
 
 class StubMessages:
@@ -150,6 +150,78 @@ async def test_profile_suggestions_are_batched_capped_and_verified(monkeypatch):
     ]
     assert all(candidate.sources[0].subtype == "profile_driven" for candidate in candidates)
     assert all(candidate.enrichment["google_place_id"] for candidate in candidates)
+
+
+async def test_profile_suggestion_is_checked_in_each_selected_city(monkeypatch):
+    cities = [
+        ResolvedCity(
+            query="Sapporo",
+            place_id="city-sapporo",
+            name="Sapporo",
+            lat=43.0618,
+            lng=141.3545,
+            radius_km=25,
+        ),
+        ResolvedCity(
+            query="Otaru",
+            place_id="city-otaru",
+            name="Otaru",
+            lat=43.1907,
+            lng=140.9947,
+            radius_km=20,
+        ),
+    ]
+    trip = Trip(
+        destination="Sapporo, Otaru",
+        cities=["Sapporo", "Otaru"],
+        resolved_cities=[city.model_dump(mode="json") for city in cities],
+        start_date=date(2026, 9, 27),
+        end_date=date(2026, 10, 1),
+        days=5,
+    )
+    traveler = Traveler(
+        trip_id=trip.id,
+        name="Gino",
+        profile={"interests": ["canals"]},
+    )
+    messages = StubMessages(
+        {
+            "travelers": [
+                {
+                    "traveler_id": str(traveler.id),
+                    "place_names": ["Otaru Canal"],
+                }
+            ]
+        }
+    )
+    searched: list[str] = []
+
+    async def fake_run_tool(_tool, arguments, **_kwargs):
+        searched.append(arguments.destination)
+        if arguments.destination == "Otaru":
+            return PlaceSearchOutput(
+                matches=[
+                    PlaceMatch(
+                        place_id="place-otaru-canal",
+                        display_name="Otaru Canal",
+                        lat=43.1987,
+                        lng=140.9947,
+                        primary_type="tourist_attraction",
+                    )
+                ]
+            )
+        return PlaceSearchOutput(matches=[])
+
+    monkeypatch.setattr(personal_module, "run_tool", fake_run_tool)
+
+    candidates = await discover_profile_candidates(
+        trip,
+        [traveler],
+        client=messages,
+    )
+
+    assert searched == ["Sapporo", "Otaru"]
+    assert candidates[0].enrichment["city"] == "Otaru"
 
 
 def test_known_dietary_conflicts_are_removed_but_unknown_food_is_kept():
@@ -290,7 +362,8 @@ async def test_trip_setup_persists_interests_and_hard_dietary_exclusions(client,
     response = await client.post(
         "/trips",
         json={
-            "destination": "Sapporo",
+            "cities": ["Sapporo"],
+            "country": "Japan",
             "start_date": "2026-09-27",
             "end_date": "2026-10-01",
             "creator_name": "Gino",
@@ -315,7 +388,8 @@ async def test_deck_removes_known_conflicts_and_warns_on_unknown_food(client, se
     created = await client.post(
         "/trips",
         json={
-            "destination": "Sapporo",
+            "cities": ["Sapporo"],
+            "country": "Japan",
             "start_date": "2026-09-27",
             "end_date": "2026-10-01",
             "creator_name": "Gino",
@@ -362,7 +436,8 @@ async def test_lodging_options_can_be_compared_and_selected(client, session):
     created = await client.post(
         "/trips",
         json={
-            "destination": "Sapporo",
+            "cities": ["Sapporo"],
+            "country": "Japan",
             "start_date": "2026-09-27",
             "end_date": "2026-10-01",
             "creator_name": "Gino",

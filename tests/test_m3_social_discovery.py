@@ -43,12 +43,26 @@ from syncinerary.tools.fetch.social import (
     make_social_link_metadata_tool,
     normalize_social_url,
 )
-from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput
+from syncinerary.tools.places import PlaceMatch, PlaceSearchOutput, ResolvedCity
 
 
 def _trip() -> Trip:
+    city = ResolvedCity(
+        query="Hokkaido",
+        place_id="city-hokkaido",
+        name="Hokkaido",
+        lat=43.0618,
+        lng=141.3545,
+        radius_km=25,
+        country="Japan",
+        country_code="JP",
+    )
     return Trip(
         destination="Hokkaido",
+        cities=["Hokkaido"],
+        country="Japan",
+        resolved_cities=[city.model_dump(mode="json")],
+        timezone="Asia/Tokyo",
         start_date=date(2026, 9, 27),
         end_date=date(2026, 10, 1),
         days=5,
@@ -209,7 +223,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     trip = _trip()
     posts = [_tiktok(index) for index in range(3)]
 
-    async def fake_search(_platform, *, trip, interests):
+    async def fake_search(_platform, *, destination, interests):
         return posts
 
     async def fake_extract(_posts, *, platform, destination, client=None):
@@ -255,6 +269,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     assert candidate.type is CandidateType.FOOD
     assert [source.type for source in candidate.sources] == ["buzz"]
     assert candidate.sources[0].sources_count == 3
+    assert candidate.enrichment["city"] == "Hokkaido"
     assert candidate.enrichment["social_platforms"] == ["tiktok"]
     assert len(candidate.enrichment["social_post_urls"]) == 3
 
@@ -262,7 +277,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
 async def test_a_platform_failure_is_not_hidden_as_an_empty_result(monkeypatch):
     trip = _trip()
 
-    async def exploding_search(platform, *, trip, interests):
+    async def exploding_search(platform, *, destination, interests):
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
 
     monkeypatch.setattr(social_module, "_search_platform", exploding_search)
@@ -294,7 +309,7 @@ async def test_rednote_automatic_search_translates_the_destination_to_mandarin(
 
     await social_module._search_platform(
         SocialPlatform.REDNOTE,
-        trip=_trip(),
+        destination=_trip().destination,
         interests=[],
     )
 

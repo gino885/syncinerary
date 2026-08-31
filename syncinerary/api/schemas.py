@@ -15,6 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
+from syncinerary.agents.gather.cities import MAX_CITIES_PER_TRIP
 from syncinerary.agents.gather.dietary import dietary_notice
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
@@ -45,7 +46,21 @@ ProfileValue = Annotated[
 
 
 class TripCreateRequest(BaseModel):
-    destination: str = Field(min_length=1, examples=["Hokkaido"])
+    # One country per trip. It disambiguates repeated city names and keeps the
+    # day plan to distances a traveler can actually cover.
+    country: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+    ]
+    # The cities the traveler typed, in order. There is no supported-city list:
+    # each name is resolved against the places provider when the trip is created, and
+    # one that resolves to nothing comes back as a 422 naming it.
+    cities: list[
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+        ]
+    ] = Field(min_length=1, max_length=MAX_CITIES_PER_TRIP)
     start_date: date
     end_date: date
     # M1 has no invite flow, so the creator is the only traveler (§15 keeps
@@ -78,6 +93,9 @@ class TripCreateRequest(BaseModel):
 class TripOut(BaseModel):
     id: UUID
     destination: str
+    cities: list[str]
+    country: str | None
+    timezone: str | None
     start_date: date
     end_date: date
     days: int
@@ -88,6 +106,9 @@ class TripOut(BaseModel):
         return cls(
             id=trip.id,
             destination=trip.destination,
+            cities=trip.cities or [trip.destination],
+            country=trip.country,
+            timezone=trip.timezone,
             start_date=trip.start_date,
             end_date=trip.end_date,
             days=trip.days,

@@ -128,7 +128,8 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
     created_response = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-22",
             "creator_name": "Gino",
@@ -221,7 +222,8 @@ async def test_plan_before_gather_is_a_conflict(client, graph_runtime):
         await client.post(
             "/trips",
             json={
-                "destination": "Hokkaido",
+                "cities": ["Hokkaido"],
+                "country": "Japan",
                 "start_date": "2026-05-21",
                 "end_date": "2026-05-21",
                 "creator_name": "Gino",
@@ -241,7 +243,8 @@ async def test_itinerary_before_plan_is_not_found(client, graph_runtime):
         await client.post(
             "/trips",
             json={
-                "destination": "Hokkaido",
+                "cities": ["Hokkaido"],
+                "country": "Japan",
                 "start_date": "2026-05-21",
                 "end_date": "2026-05-21",
                 "creator_name": "Gino",

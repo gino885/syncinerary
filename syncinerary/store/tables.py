@@ -96,6 +96,14 @@ class Trip(Base):
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
     destination: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    cities: Mapped[list[str]] = mapped_column(
+        ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    country: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    resolved_cities: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    timezone: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     start_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     end_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     days: Mapped[int] = mapped_column(sa.Integer, nullable=False)

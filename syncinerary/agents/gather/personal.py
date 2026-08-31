@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from syncinerary.agents.gather.attachments import ExtractedPlaceMention
+from syncinerary.agents.gather.cities import search_bias, trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.config import settings
 from syncinerary.config.gather import PROFILE_DRIVEN_CAP_PER_TRAVELER
@@ -40,7 +41,12 @@ from syncinerary.tools.fetch.social import (
     make_social_link_metadata_tool,
     make_tiktok_oembed_tool,
 )
-from syncinerary.tools.places import PlaceMatch, PlaceSearchInput, make_place_search_tool
+from syncinerary.tools.places import (
+    PlaceMatch,
+    PlaceSearchBias,
+    PlaceSearchInput,
+    make_place_search_tool,
+)
 
 TEXT_EXTRACTION_PROMPT = """Extract place or restaurant names from a social caption.
 
@@ -120,6 +126,35 @@ class ProfileSuggestionInput(BaseModel):
 
 class TextPlaceExtractionUnavailable(RuntimeError):
     """A caption could not be converted into typed place evidence."""
+
+
+async def _find_place_for_trip(
+    place_name: str,
+    trip: Trip,
+) -> tuple[PlaceMatch, str | None] | None:
+    """Find a named place inside one of the trip's selected cities."""
+    cities = trip_cities(trip)
+    if not cities:
+        result = await run_tool(
+            make_place_search_tool(),
+            PlaceSearchInput(query=place_name, destination=trip.destination),
+        )
+        return (result.matches[0], None) if result.matches else None
+
+    for city in cities:
+        result = await run_tool(
+            make_place_search_tool(),
+            PlaceSearchInput(
+                query=place_name,
+                destination=city.name,
+                location_bias=search_bias(city),
+                city_center=PlaceSearchBias(lat=city.lat, lng=city.lng),
+                city_radius_km=city.radius_km,
+            ),
+        )
+        if result.matches:
+            return result.matches[0], city.name
+    return None
 
 
 async def discover_profile_candidates(
@@ -212,13 +247,10 @@ async def discover_profile_candidates(
             )
 
         for name in names:
-            result = await run_tool(
-                make_place_search_tool(),
-                PlaceSearchInput(query=name, destination=trip.destination),
-            )
-            if not result.matches:
+            found = await _find_place_for_trip(name, trip)
+            if found is None:
                 continue
-            match = result.matches[0]
+            match, city_name = found
             source = Source(
                 type="personal",
                 subtype="profile_driven",
@@ -251,6 +283,7 @@ async def discover_profile_candidates(
                 sources=[source],
                 enrichment={
                     "google_place_id": match.place_id,
+                    "city": city_name,
                     "discovery_provider": "profile_driven_google_verification",
                     "source_description": match.editorial_summary,
                 },
@@ -345,14 +378,11 @@ async def _resolve_place_name(
     trip: Trip,
     session: AsyncSession,
 ) -> SourceAttachment:
-    result = await run_tool(
-        make_place_search_tool(),
-        PlaceSearchInput(query=place_name, destination=trip.destination),
-    )
-    if not result.matches:
+    found = await _find_place_for_trip(place_name, trip)
+    if found is None:
         return attachment
 
-    match = result.matches[0]
+    match, city_name = found
     place_types = [*match.types]
     if match.primary_type:
         place_types.append(match.primary_type)
@@ -376,6 +406,7 @@ async def _resolve_place_name(
             ],
             enrichment={
                 "google_place_id": match.place_id,
+                "city": city_name,
                 "attachment_id": str(attachment.id),
                 "input_type": attachment.input_type.value,
                 "platform": attachment.platform.value,

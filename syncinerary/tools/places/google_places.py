@@ -1,6 +1,7 @@
 """Typed Places API (New) search and uncached photo lookup tools."""
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import httpx
@@ -14,6 +15,18 @@ SEARCH_FIELD_MASK = (
     "places.addressComponents,places.location,places.primaryType,places.types,"
     "places.editorialSummary,places.regularOpeningHours,places.priceLevel"
 )
+
+# Resolving a typed city needs its extent, not its hours or price.
+CITY_FIELD_MASK = (
+    "places.id,places.displayName,places.formattedAddress,"
+    "places.addressComponents,places.location,places.viewport,"
+    "places.primaryType,places.types"
+)
+
+# Fallback extent for a city whose viewport the provider does not return.
+DEFAULT_CITY_RADIUS_KM = 20.0
+MIN_CITY_RADIUS_KM = 5.0
+MAX_CITY_RADIUS_KM = 60.0
 
 _WEEKDAY_BY_GOOGLE_DAY = {
     0: "sun",
@@ -33,14 +46,6 @@ _PRICE_TIER = {
     "PRICE_LEVEL_VERY_EXPENSIVE": 4,
 }
 
-_DESTINATION_ALIASES = {
-    "hokkaido": ("北海道",),
-    "sapporo": ("札幌",),
-    "otaru": ("小樽",),
-    "hakodate": ("函館",),
-    "asahikawa": ("旭川",),
-    "kushiro": ("釧路",),
-}
 
 
 class PlaceSearchBias(BaseModel):
@@ -54,6 +59,35 @@ class PlaceSearchInput(BaseModel):
     destination: str = Field(min_length=1, max_length=200)
     included_type: str | None = Field(default=None, min_length=1, max_length=100)
     location_bias: PlaceSearchBias | None = None
+    # Where the destination actually is, resolved from what the traveler typed.
+    # When present a result belongs to the city if it sits inside this circle,
+    # which works for any city in any language. Without it the check falls back
+    # to looking for the destination name in the returned address.
+    city_center: PlaceSearchBias | None = None
+    city_radius_km: float | None = Field(default=None, gt=0, le=200)
+
+
+class CityResolveInput(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    country: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class ResolvedCity(BaseModel):
+    """A typed city name resolved to a real place with a real extent."""
+
+    query: str
+    place_id: str
+    name: str
+    formatted_address: str | None = None
+    lat: float
+    lng: float
+    radius_km: float
+    country: str | None = None
+    country_code: str | None = None
+
+
+class CityResolveOutput(BaseModel):
+    city: ResolvedCity | None = None
 
 
 class PlaceMatch(BaseModel):
@@ -113,17 +147,85 @@ def _area(place: dict[str, Any]) -> str | None:
     return None
 
 
-def _belongs_to_destination(place: dict[str, Any], destination: str) -> bool:
-    """Require returned address evidence for the requested city or region."""
+def _belongs_to_destination(
+    place: dict[str, Any],
+    destination: str,
+    *,
+    city_center: PlaceSearchBias | None = None,
+    city_radius_km: float | None = None,
+) -> bool:
+    """Keep only results that really sit in the destination.
+
+    Google text search happily ranks a globally famous place above a local one
+    even with the city in the query, so results have to be checked.
+
+    When the city has been resolved to a point, membership is distance from
+    that point. That is what lets a traveler type any city in any language: a
+    name-matching rule needs a table of local-language aliases per city, and
+    that table is exactly the hardcoding this replaced.
+    """
+    if city_center is not None:
+        location = place.get("location", {})
+        if "latitude" not in location or "longitude" not in location:
+            return False
+        distance_km = haversine_km(
+            (city_center.lat, city_center.lng),
+            (location["latitude"], location["longitude"]),
+        )
+        return distance_km <= (city_radius_km or DEFAULT_CITY_RADIUS_KM)
+
+    # No resolved centre: fall back to the destination name appearing in the
+    # address. Weaker, and only used by callers that look a single place up by
+    # name rather than building a pool.
     destination_key = destination.strip().casefold()
-    accepted_names = {destination_key, *_DESTINATION_ALIASES.get(destination_key, ())}
     address_parts = [place.get("formattedAddress", "")]
     for component in place.get("addressComponents", []):
         address_parts.extend(
             [component.get("longText", ""), component.get("shortText", "")]
         )
     address = " ".join(part for part in address_parts if isinstance(part, str)).casefold()
-    return bool(address) and any(name.casefold() in address for name in accepted_names)
+    return bool(address) and destination_key in address
+
+
+def haversine_km(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> float:
+    """Great-circle distance in kilometres.
+
+    Local to this module on purpose: importing the transit package here would
+    make a provider wrapper depend on the routing stack.
+    """
+    lat1, lng1 = (math.radians(value) for value in origin)
+    lat2, lng2 = (math.radians(value) for value in destination)
+    d_lat = lat2 - lat1
+    d_lng = lng2 - lng1
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(d_lng / 2) ** 2
+    )
+    return 2 * 6371.0088 * math.asin(math.sqrt(a))
+
+
+def _country_of(place: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The country name and ISO code Google recorded for this place."""
+    for component in place.get("addressComponents", []):
+        if "country" in component.get("types", []):
+            return component.get("longText"), component.get("shortText")
+    return None, None
+
+
+def _radius_from_viewport(viewport: dict[str, Any]) -> float:
+    """Half the viewport diagonal, clamped to a sane city size."""
+    low = viewport.get("low", {})
+    high = viewport.get("high", {})
+    if not {"latitude", "longitude"} <= low.keys() or not {"latitude", "longitude"} <= high.keys():
+        return DEFAULT_CITY_RADIUS_KM
+    diagonal = haversine_km(
+        (low["latitude"], low["longitude"]),
+        (high["latitude"], high["longitude"]),
+    )
+    return min(MAX_CITY_RADIUS_KM, max(MIN_CITY_RADIUS_KM, diagonal / 2))
 
 
 def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[int]]]:
@@ -207,7 +309,12 @@ async def _search_place(
     response.raise_for_status()
     matches = []
     for place in response.json().get("places", []):
-        if not _belongs_to_destination(place, destination):
+        if not _belongs_to_destination(
+            place,
+            destination,
+            city_center=value.city_center,
+            city_radius_km=value.city_radius_km,
+        ):
             continue
         location = place.get("location", {})
         display_name = place.get("displayName", {}).get("text")
@@ -231,6 +338,77 @@ async def _search_place(
             )
         )
     return PlaceSearchOutput(matches=matches)
+
+
+async def _resolve_city(
+    value: CityResolveInput,
+    *,
+    client: httpx.AsyncClient,
+    api_key: str,
+) -> CityResolveOutput:
+    """Turn whatever the traveler typed into one real city with an extent."""
+    _require_key(api_key)
+    # The country goes into the query as well as being checked afterwards:
+    # "Springfield" alone is ambiguous, "Springfield, United States" is not.
+    query = value.name.strip()
+    if value.country:
+        query = f"{query}, {value.country.strip()}"
+    response = await client.post(
+        "https://places.googleapis.com/v1/places:searchText",
+        headers={"X-Goog-Api-Key": api_key, "X-Goog-FieldMask": CITY_FIELD_MASK},
+        json={"textQuery": query, "includedType": "locality"},
+    )
+    response.raise_for_status()
+    for place in response.json().get("places", []):
+        if (
+            place.get("primaryType") != "locality"
+            and "locality" not in place.get("types", [])
+        ):
+            continue
+        location = place.get("location", {})
+        display_name = place.get("displayName", {}).get("text")
+        if not place.get("id") or not display_name:
+            continue
+        if "latitude" not in location or "longitude" not in location:
+            continue
+        country_name, country_code = _country_of(place)
+        return CityResolveOutput(
+            city=ResolvedCity(
+                query=value.name.strip(),
+                place_id=place["id"],
+                name=display_name,
+                formatted_address=place.get("formattedAddress"),
+                lat=location["latitude"],
+                lng=location["longitude"],
+                radius_km=_radius_from_viewport(place.get("viewport", {})),
+                country=country_name,
+                country_code=country_code,
+            )
+        )
+    # A name nothing matches is reported as unresolved rather than guessed at,
+    # so the caller can tell the traveler instead of searching somewhere else.
+    return CityResolveOutput()
+
+
+def make_city_resolve_tool(
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> ToolDefinition:
+    resolved_key = settings.google_maps_api_key if api_key is None else api_key
+
+    async def resolve(value: CityResolveInput) -> CityResolveOutput:
+        if client is not None:
+            return await _resolve_city(value, client=client, api_key=resolved_key)
+        async with httpx.AsyncClient(timeout=20) as owned_client:
+            return await _resolve_city(value, client=owned_client, api_key=resolved_key)
+
+    return ToolDefinition(
+        name="google_places_city_resolve",
+        input_model=CityResolveInput,
+        output_model=CityResolveOutput,
+        handler=resolve,
+    )
 
 
 def _attributions(photo: dict[str, Any]) -> list[PhotoAttribution]:
