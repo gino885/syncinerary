@@ -1,9 +1,9 @@
 # TODO
 
-## Deferred from M3
+## Completed before M4
 
-Owner-approved on 2026-08-31. These items do not block starting M4.
+Restored to M3 scope and completed on 2026-08-31.
 
-- [ ] Add profile-driven place suggestions, capped per traveler.
-- [ ] Filter food cards against every hard dietary constraint.
-- [ ] Add the solver-driven top-three lodging comparison and group pick flow.
+- [x] Add profile-driven place suggestions, capped per traveler.
+- [x] Filter explicit hard dietary conflicts and warn on unknown information.
+- [x] Add the solver-driven top-three lodging comparison and group pick flow.

@@ -11,6 +11,8 @@ enum APIContractTests {
         try decodeSourceAttachmentResponse()
         try decodeCandidateCard()
         try decodeCandidatePhoto()
+        try decodeLodgingOptions()
+        try encodeLodgingSelection()
         try encodeVoteRequest()
         try decodeVoteResponse()
         try encodePlanRequest()
@@ -39,7 +41,9 @@ enum APIContractTests {
             startDate: "2026-09-25",
             endDate: "2026-09-29",
             creatorName: "Gino",
-            creatorHomeCity: nil
+            creatorHomeCity: nil,
+            creatorInterests: ["coffee", "architecture"],
+            creatorDietaryExcludes: ["seafood"]
         )
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
         guard let payload = object as? [String: Any] else {
@@ -49,6 +53,8 @@ enum APIContractTests {
         try require(payload["start_date"] as? String == "2026-09-25", "Trip request must encode start_date")
         try require(payload["creator_name"] as? String == "Gino", "Trip request must encode creator_name")
         try require(payload["destination"] as? String == "Sapporo", "Trip request must encode the selected city")
+        try require(payload["creator_interests"] as? [String] == ["coffee", "architecture"], "Trip request must encode interests")
+        try require(payload["creator_dietary_excludes"] as? [String] == ["seafood"], "Trip request must encode dietary exclusions")
     }
 
     private static func decodeTripCreatedResponse() throws {
@@ -132,6 +138,7 @@ enum APIContractTests {
                 "price_tier": 0,
                 "duration_estimate_min": 60,
                 "dietary_tags": [],
+                "dietary_notice": null,
                 "source_badges": [{
                     "kind": "attached_by_you",
                     "label": "Attached by you",
@@ -145,6 +152,28 @@ enum APIContractTests {
         try require(response.nameCanonical == "Odori Park", "Candidate names must decode")
         try require(response.durationEstimateMin == 60, "Candidate durations must decode")
         try require(response.sourceBadges[0].label == "Attached by you", "Source badges must decode")
+        try require(response.dietaryNotice == nil, "A non-food card has no dietary notice")
+    }
+
+    private static func decodeLodgingOptions() throws {
+        let data = Data(
+            #"[{"candidate_id":"66666666-6666-6666-6666-666666666666","name":"Central Hotel","area":"Sapporo Station","address":"Sapporo","price_tier":2,"trip_start_date":"2026-09-25","trip_end_date":"2026-09-29","availability_note":"Confirm availability."}]"#.utf8
+        )
+        let options = try JSONDecoder().decode([LodgingOption].self, from: data)
+        try require(options[0].name == "Central Hotel", "Lodging option names must decode")
+        try require(options[0].priceTier == 2, "Lodging price tiers must decode")
+    }
+
+    private static func encodeLodgingSelection() throws {
+        let request = LodgingSelectionRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            candidateID: try uuid("66666666-6666-6666-6666-666666666666")
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Lodging selection must encode as a JSON object")
+        }
+        try require(payload["candidate_id"] as? String == "66666666-6666-6666-6666-666666666666", "Lodging selection must encode candidate_id")
     }
 
     private static func decodeCandidatePhoto() throws {

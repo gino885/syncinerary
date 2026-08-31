@@ -68,6 +68,17 @@ actor APIClient {
         try await get(path: "trips/\(tripID)/candidates/\(candidateID)/photo")
     }
 
+    func lodgingOptions(tripID: UUID) async throws -> [LodgingOption] {
+        try await get(path: "trips/\(tripID)/lodging-options")
+    }
+
+    func selectLodging(
+        tripID: UUID,
+        request: LodgingSelectionRequest
+    ) async throws -> LodgingOption {
+        try await post(path: "trips/\(tripID)/lodging-selection", body: request)
+    }
+
     func vote(tripID: UUID, request: VoteRequest) async throws -> VoteResponse {
         try await post(path: "trips/\(tripID)/votes", body: request)
     }

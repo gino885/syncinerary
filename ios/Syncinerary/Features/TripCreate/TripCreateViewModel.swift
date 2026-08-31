@@ -7,6 +7,8 @@ final class TripCreateViewModel {
     var selectedCity: HokkaidoCity = .sapporo
     var creatorName = ""
     var creatorHomeCity = ""
+    var interests = ""
+    var dietaryExcludes = ""
     var startDate: Date
     var endDate: Date
     var dayStart: Date
@@ -50,7 +52,9 @@ final class TripCreateViewModel {
             startDate: apiDate(startDate),
             endDate: apiDate(endDate),
             creatorName: creatorName.trimmingCharacters(in: .whitespacesAndNewlines),
-            creatorHomeCity: optionalText(creatorHomeCity)
+            creatorHomeCity: optionalText(creatorHomeCity),
+            creatorInterests: commaSeparated(interests),
+            creatorDietaryExcludes: commaSeparated(dietaryExcludes)
         )
 
         do {
@@ -91,6 +95,17 @@ final class TripCreateViewModel {
     private func optionalText(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func commaSeparated(_ value: String) -> [String] {
+        var seen: Set<String> = []
+        return value
+            .split(separator: ",")
+            .compactMap { part in
+                let normalized = part.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+                return normalized
+            }
     }
 
     private func show(_ error: Error) {

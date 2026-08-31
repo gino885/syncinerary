@@ -4,6 +4,11 @@ from __future__ import annotations
 from typing import Any
 
 from syncinerary.agents.gather.dedup import dedup_candidates
+from syncinerary.agents.gather.dietary import (
+    dietary_tags_from_place_types,
+    filter_dietary_conflicts,
+)
+from syncinerary.agents.gather.personal import discover_profile_candidates
 from syncinerary.agents.gather.social import discover_social_candidates, merge_into_pool
 from syncinerary.config.gather import BUZZ_RATIO, POOL_PER_DAY
 from syncinerary.config.solver import (
@@ -135,6 +140,9 @@ def _hours(place: PlaceMatch) -> dict[str, list[list[int]]]:
 
 def _to_candidate(place: PlaceMatch, trip: Trip, query: str) -> CandidatePlace:
     candidate_type = _candidate_type(place)
+    place_types = [*place.types]
+    if place.primary_type:
+        place_types.append(place.primary_type)
     return CandidatePlace(
         trip_id=trip.id,
         type=candidate_type,
@@ -146,6 +154,7 @@ def _to_candidate(place: PlaceMatch, trip: Trip, query: str) -> CandidatePlace:
         hours_by_weekday=_hours(place),
         price_tier=place.price_tier or 2,
         duration_estimate_min=_duration_minutes(candidate_type, place.primary_type),
+        dietary_tags=dietary_tags_from_place_types(place_types),
         weather_dependent=bool(set(place.types) & _OUTDOOR_TYPES),
         category=place.primary_type,
         sources=[
@@ -366,6 +375,29 @@ async def discover_candidates(
     merge_into_pool(by_place_id, social)
     social_ids = {candidate.enrichment["google_place_id"] for candidate in social}
 
+    profile = await discover_profile_candidates(trip, list(travelers or []))
+    profile_ids: set[str] = set()
+    for candidate in profile:
+        place_id = candidate.enrichment["google_place_id"]
+        profile_ids.add(place_id)
+        existing = by_place_id.get(place_id)
+        if existing is None:
+            by_place_id[place_id] = candidate
+            continue
+        by_place_id[place_id] = existing.model_copy(
+            update={
+                "sources": [*existing.sources, *candidate.sources],
+                "enrichment": {
+                    **candidate.enrichment,
+                    **existing.enrichment,
+                    "source_description": (
+                        existing.enrichment.get("source_description")
+                        or candidate.enrichment.get("source_description")
+                    ),
+                },
+            }
+        )
+
     minimum = trip.days * 5
     # Buzz first, so the share the pool limit keeps is the share configured
     # above rather than whatever happened to be appended last.
@@ -393,22 +425,32 @@ async def discover_candidates(
     # often the reason to leave the city for a day, so it sits alone in its own
     # sparse cluster and the filter threw it away: an Otaru card mined from
     # Instagram and TikTok never reached a Sapporo deck.
-    buzz = [
+    priority = [
         candidate
         for candidate in swipeable
-        if any(source.type == "buzz" for source in candidate.sources)
+        if any(
+            source.type == "buzz"
+            or (source.type == "personal" and source.subtype == "profile_driven")
+            for source in candidate.sources
+        )
     ]
-    buzz_ids = {candidate.id for candidate in buzz}
-    selected = buzz + select_dense_pool(
-        [candidate for candidate in swipeable if candidate.id not in buzz_ids],
+    priority_ids = {candidate.id for candidate in priority}
+    selected = priority + select_dense_pool(
+        [candidate for candidate in swipeable if candidate.id not in priority_ids],
         days=trip.days,
-        limit=max(0, target - len(buzz)),
+        limit=max(0, target - len(priority)),
     )
     if len(selected) < minimum:
         raise LiveDiscoveryInsufficient(
             f"Google Places returned {len(selected)} usable places for "
             f"{trip.destination!r}; at least {minimum} are required"
         )
+    lodging.sort(
+        key=lambda candidate: (
+            candidate.enrichment.get("google_place_id") not in profile_ids,
+            candidate.name_canonical,
+        )
+    )
     return selected + lodging[:3]
 
 
@@ -425,17 +467,21 @@ async def gather_node(state: TripState) -> dict[str, Any]:
             repo = CandidatePlaceRepository(session)
             existing = await repo.list_for_trip(trip.id)
             if existing:
+                existing = filter_dietary_conflicts(existing, state.constraints)
                 span.set_attribute("gather.reused_existing", True)
                 span.set_attribute("gather.candidate_count", len(existing))
                 return {"candidates": existing}
 
-        candidates = await discover_candidates(trip, state.travelers)
+        candidates = filter_dietary_conflicts(
+            await discover_candidates(trip, state.travelers),
+            state.constraints,
+        )
 
         async with session_scope() as session:
             repo = CandidatePlaceRepository(session)
             existing = await repo.list_for_trip(trip.id)
             if existing:
-                saved = existing
+                saved = filter_dietary_conflicts(existing, state.constraints)
                 reused = True
             else:
                 saved = await repo.add_many(candidates)

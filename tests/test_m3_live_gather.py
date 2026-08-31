@@ -369,6 +369,65 @@ async def test_a_buzz_place_joins_the_pool_and_keeps_both_source_rows(monkeypatc
     assert shared[0].enrichment["social_platforms"] == ["tiktok"]
 
 
+async def test_a_profile_place_merges_with_google_and_survives_pool_selection(monkeypatch):
+    trip = Trip(
+        destination="Sapporo",
+        start_date=date(2026, 9, 27),
+        end_date=date(2026, 9, 28),
+        days=2,
+    )
+    traveler_id = uuid4()
+
+    async def fake_run_tool(_tool, _arguments, **_kwargs):
+        return PlaceSearchOutput(
+            matches=[
+                PlaceMatch(
+                    place_id=f"shared-{index}",
+                    display_name=f"Place {index}",
+                    formatted_address="Sapporo, Hokkaido, Japan",
+                    lat=43.061 + index * 0.001,
+                    lng=141.354 + index * 0.001,
+                    primary_type="tourist_attraction",
+                    types=["tourist_attraction"],
+                    hours_by_weekday={day: [[9, 20]] for day in _WEEKDAYS},
+                )
+                for index in range(16)
+            ]
+        )
+
+    async def no_social(_trip, _travelers):
+        return []
+
+    async def fake_profile(trip_arg, _travelers):
+        return [
+            CandidatePlace(
+                trip_id=trip_arg.id,
+                type=CandidateType.ATTRACTION,
+                name_canonical="Place 0",
+                lat=43.061,
+                lng=141.354,
+                sources=[
+                    Source(
+                        type="personal",
+                        subtype="profile_driven",
+                        by=traveler_id,
+                    )
+                ],
+                enrichment={"google_place_id": "shared-0"},
+            )
+        ]
+
+    monkeypatch.setattr(live_module, "run_tool", fake_run_tool)
+    monkeypatch.setattr(live_module, "discover_social_candidates", no_social)
+    monkeypatch.setattr(live_module, "discover_profile_candidates", fake_profile)
+
+    candidates = await discover_candidates(trip, [])
+
+    shared = [c for c in candidates if c.enrichment.get("google_place_id") == "shared-0"]
+    assert len(shared) == 1
+    assert {source.type for source in shared[0].sources} == {"discovery", "personal"}
+
+
 async def test_a_buzz_card_survives_even_when_it_stands_alone_geographically(monkeypatch):
     """The reason to leave the city for a day sits in its own sparse cluster."""
     trip = Trip(

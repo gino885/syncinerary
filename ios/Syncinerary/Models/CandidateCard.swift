@@ -13,6 +13,7 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
     let priceTier: Int
     let durationEstimateMin: Int
     let dietaryTags: [String]
+    let dietaryNotice: String?
     let sourceBadges: [SourceBadge]
 
     enum CodingKeys: String, CodingKey {
@@ -28,6 +29,7 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
         case priceTier = "price_tier"
         case durationEstimateMin = "duration_estimate_min"
         case dietaryTags = "dietary_tags"
+        case dietaryNotice = "dietary_notice"
         case sourceBadges = "source_badges"
     }
 }

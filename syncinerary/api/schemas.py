@@ -13,8 +13,9 @@ from enum import Enum
 from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
+from syncinerary.agents.gather.dietary import dietary_notice
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
@@ -25,6 +26,7 @@ from syncinerary.domain.models import (
     AttachmentStatus,
     CandidatePlace,
     CandidateType,
+    Constraint,
     ItineraryNode,
     ItineraryStatus,
     SocialPlatform,
@@ -36,6 +38,11 @@ from syncinerary.domain.models import (
     WishlistNotPlaced,
 )
 
+ProfileValue = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+]
+
 
 class TripCreateRequest(BaseModel):
     destination: str = Field(min_length=1, examples=["Hokkaido"])
@@ -45,6 +52,21 @@ class TripCreateRequest(BaseModel):
     # auth to a stub). M4 adds the rest of the group.
     creator_name: str = Field(min_length=1, examples=["Gino"])
     creator_home_city: str | None = None
+    creator_interests: list[ProfileValue] = Field(default_factory=list, max_length=12)
+    creator_dietary_excludes: list[ProfileValue] = Field(default_factory=list, max_length=12)
+
+    @field_validator("creator_interests", "creator_dietary_excludes")
+    @classmethod
+    def _clean_profile_values(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = value.strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            cleaned.append(normalized)
+        return cleaned
 
     @model_validator(mode="after")
     def _check_dates(self) -> TripCreateRequest:
@@ -234,6 +256,7 @@ class CandidateCardOut(BaseModel):
     price_tier: int
     duration_estimate_min: int
     dietary_tags: list[str]
+    dietary_notice: str | None
     source_badges: list[SourceBadgeOut]
 
     @classmethod
@@ -243,6 +266,7 @@ class CandidateCardOut(BaseModel):
         *,
         viewer_id: UUID | None = None,
         contributor_names: dict[UUID, str] | None = None,
+        constraints: list[Constraint] | None = None,
     ) -> CandidateCardOut:
         badges = source_badges(
             candidate,
@@ -263,8 +287,39 @@ class CandidateCardOut(BaseModel):
             price_tier=candidate.price_tier,
             duration_estimate_min=candidate.duration_estimate_min,
             dietary_tags=candidate.dietary_tags,
+            dietary_notice=dietary_notice(candidate, constraints or []),
             source_badges=badges,
         )
+
+
+class LodgingOptionOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    area: str | None
+    address: str | None
+    price_tier: int
+    trip_start_date: date
+    trip_end_date: date
+    availability_note: str = (
+        "Room availability is not verified. Confirm dates with the hotel before booking."
+    )
+
+    @classmethod
+    def of(cls, candidate: CandidatePlace, trip: Trip) -> LodgingOptionOut:
+        return cls(
+            candidate_id=candidate.id,
+            name=candidate.name_canonical,
+            area=candidate.area,
+            address=candidate.address,
+            price_tier=candidate.price_tier,
+            trip_start_date=trip.start_date,
+            trip_end_date=trip.end_date,
+        )
+
+
+class LodgingSelectionRequest(BaseModel):
+    traveler_id: UUID
+    candidate_id: UUID
 
 
 class CandidatePhotoAttributionOut(BaseModel):

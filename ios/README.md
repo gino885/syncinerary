@@ -54,6 +54,11 @@ and real transit time: one city for 1 to 3 days, up to two nearby cities for 4
 to 6 days, and up to three for longer trips. The traveler can change the
 suggestion before gathering begins.
 
+Trip setup also accepts comma-separated interests and foods to avoid. Known
+hard conflicts are removed from the swipe deck, while restaurants with unknown
+dietary details remain visible with a confirmation reminder. After voting, the
+prototype compares up to three Google Places lodging results before planning.
+
 Run the Swift API contract regression test from the repository root:
 
 ```bash

@@ -38,6 +38,24 @@ struct TripCreateView: View {
                     .textContentType(.addressCity)
             }
 
+            Section("Your travel style") {
+                TextField(
+                    "Interests, separated by commas",
+                    text: $viewModel.interests,
+                    axis: .vertical
+                )
+                .lineLimit(2...4)
+                TextField(
+                    "Foods to avoid, separated by commas",
+                    text: $viewModel.dietaryExcludes,
+                    axis: .vertical
+                )
+                .lineLimit(2...4)
+                Text("Examples: coffee, architecture, seafood, peanuts. Unknown restaurant details will be shown with a reminder to confirm directly.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Daily schedule") {
                 DatePicker(
                     "Start exploring",

@@ -10,7 +10,6 @@ final class SwipeViewModel {
     var currentIndex = 0
     var isLoading = false
     var isSubmittingVote = false
-    var isPlanning = false
     var isShowingError = false
     var errorMessage = ""
     var currentPhoto: CandidatePhoto?
@@ -82,23 +81,6 @@ final class SwipeViewModel {
             tripID: session.trip.id,
             candidateID: candidate.id
         )
-    }
-
-    func plan() async -> Bool {
-        guard isComplete, !isPlanning else { return false }
-        isPlanning = true
-        defer { isPlanning = false }
-
-        do {
-            _ = try await apiClient.plan(
-                tripID: session.trip.id,
-                request: session.planRequest
-            )
-            return true
-        } catch {
-            show(error)
-            return false
-        }
     }
 
     private func show(_ error: Error) {

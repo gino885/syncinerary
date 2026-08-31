@@ -20,8 +20,10 @@ from syncinerary.agents.gather.attachments import (
     ScreenshotExtractionUnavailable,
     extract_screenshot,
 )
+from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
+from syncinerary.agents.solver.lodging import rank_lodging_options
 from syncinerary.api.deps import Session
 from syncinerary.api.schemas import (
     AttachmentLinkRequest,
@@ -32,6 +34,8 @@ from syncinerary.api.schemas import (
     ItineraryDayOut,
     ItineraryOut,
     ItineraryStopOut,
+    LodgingOptionOut,
+    LodgingSelectionRequest,
     PlanRequest,
     PlanResponse,
     SourceAttachmentOut,
@@ -47,6 +51,9 @@ from syncinerary.config import settings
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
+    CandidateType,
+    Constraint,
+    ConstraintKind,
     SourceAttachment,
     Traveler,
     Trip,
@@ -110,8 +117,24 @@ async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreat
             trip_id=trip.id,
             name=payload.creator_name,
             home_city=payload.creator_home_city,
+            profile=(
+                {"interests": payload.creator_interests}
+                if payload.creator_interests
+                else {}
+            ),
         )
     )
+    if payload.creator_dietary_excludes:
+        await ConstraintRepository(session).add(
+            Constraint(
+                trip_id=trip.id,
+                traveler_id=traveler.id,
+                type="dietary",
+                value={"excludes": payload.creator_dietary_excludes},
+                priority=10,
+                kind=ConstraintKind.HARD,
+            )
+        )
     # created_by points at the traveler and carries no FK, since traveler
     # points back at the trip (see store/tables.py).
     trip = await TripRepository(session).set_created_by(trip.id, traveler.id)
@@ -144,6 +167,8 @@ async def list_candidates(
                 f"Traveler {traveler_id} is not on trip {trip_id}",
             )
     candidates = await CandidatePlaceRepository(session).list_swipeable(trip_id)
+    constraints = await ConstraintRepository(session).list_for_trip(trip_id)
+    candidates = filter_dietary_conflicts(candidates, constraints)
     travelers = await TravelerRepository(session).list_for_trip(trip_id)
     contributor_names = {traveler.id: traveler.name for traveler in travelers}
     return [
@@ -151,9 +176,57 @@ async def list_candidates(
             candidate,
             viewer_id=traveler_id,
             contributor_names=contributor_names,
+            constraints=constraints,
         )
         for candidate in candidates
     ]
+
+
+@router.get("/{trip_id}/lodging-options")
+async def lodging_options(trip_id: UUID, session: Session) -> list[LodgingOptionOut]:
+    """Return up to three deterministic hotel comparisons for this trip."""
+    trip = await _load_trip(session, trip_id)
+    repo = CandidatePlaceRepository(session)
+    lodging = await repo.list_by_type(trip_id, CandidateType.LODGING)
+    activities = await repo.list_swipeable(trip_id)
+    return [
+        LodgingOptionOut.of(candidate, trip)
+        for candidate in rank_lodging_options(lodging, activities)
+    ]
+
+
+@router.post("/{trip_id}/lodging-selection")
+async def select_lodging(
+    trip_id: UUID,
+    payload: LodgingSelectionRequest,
+    session: Session,
+) -> LodgingOptionOut:
+    """Persist the group's chosen hotel as a hard solver anchor."""
+    trip = await _load_trip(session, trip_id)
+    traveler = await TravelerRepository(session).get(payload.traveler_id)
+    if traveler is None or traveler.trip_id != trip_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Traveler {payload.traveler_id} is not on trip {trip_id}",
+        )
+    candidate = await CandidatePlaceRepository(session).get(payload.candidate_id)
+    if (
+        candidate is None
+        or candidate.trip_id != trip_id
+        or candidate.type is not CandidateType.LODGING
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Lodging {payload.candidate_id} is not in trip {trip_id}",
+        )
+    await ConstraintRepository(session).set_group_constraint(
+        trip_id,
+        constraint_type="selected_lodging",
+        value={"candidate_id": str(candidate.id)},
+        priority=100,
+        kind=ConstraintKind.HARD,
+    )
+    return LodgingOptionOut.of(candidate, trip)
 
 
 @router.get("/{trip_id}/candidates/{candidate_id}/photo")
@@ -425,7 +498,16 @@ async def vote_progress(
     this to decide when to offer planning."""
     await _load_trip(session, trip_id)
 
+    traveler = await TravelerRepository(session).get(traveler_id)
+    if traveler is None or traveler.trip_id != trip_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Traveler {traveler_id} is not on trip {trip_id}",
+        )
+
     deck = await CandidatePlaceRepository(session).list_swipeable(trip_id)
+    constraints = await ConstraintRepository(session).list_for_trip(trip_id)
+    deck = filter_dietary_conflicts(deck, constraints)
     deck_ids = {c.id for c in deck}
     votes = await VoteRepository(session).list_for_traveler(traveler_id)
     voted = sum(1 for v in votes if v.candidate_id in deck_ids)
@@ -476,9 +558,14 @@ async def plan_trip(
         )
 
     if snapshot.next:
+        constraints = await ConstraintRepository(session).list_for_trip(trip_id)
         await graph.aupdate_state(
             config,
-            {"day_start": payload.day_start, "day_end": payload.day_end},
+            {
+                "day_start": payload.day_start,
+                "day_end": payload.day_end,
+                "constraints": constraints,
+            },
         )
         async with tracked_run(trip_id=trip_id, kind="plan"):
             result = await graph.ainvoke(None, config)

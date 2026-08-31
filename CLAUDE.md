@@ -426,6 +426,15 @@ Every swipe card includes a primary image when a permitted image is available. F
 
 Transit is never a candidate. It is derived during Stage-2 routing (Section 11).
 
+Google Places does not always publish dietary evidence. A food candidate with
+an explicit tag that conflicts with a hard exclusion is removed. A candidate
+with unknown dietary details stays in the deck with a reminder to confirm with
+the restaurant. The app must not claim that unknown information is safe.
+
+The lodging comparison may rank Places results by proximity and price tier,
+and it shows the trip dates. It must not claim room availability until a
+booking or availability provider is added.
+
 ---
 
 ## 9. Delegate badges + voting
@@ -707,14 +716,13 @@ Goal: ship the real product including the three interview-headline features.
 - Implement a city-scoped Google Places foundation for attractions, food, and lodging.
 - Implement Instagram, TikTok, and RedNote buzz mining with a 3-post threshold.
 - Implement personal user-paste for those same three platforms and contributor provenance.
+- Implement profile-driven suggestions, capped at 2 per traveler and verified through Google Places.
+- Remove food with explicit hard-diet conflicts and warn when dietary details are unknown.
+- Compare up to 3 lodging options and persist the group's selection as a hard solver anchor.
 - Run automatic discovery alongside user attachments. Social discovery must use configured official APIs or platform-permitted public metadata access.
 - Implement cross-source dedup with attribution.
 - Card UI primary images and explicit source badges (📍 🔥 ❤️ 👥), including who attached user-submitted content.
 - **Done when:** a selected Hokkaido city produces a complete Google foundation plus eligible social and personal cards with correct attribution; dedup tests pass; no candidate address falls outside the selected city; every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
-
-Owner-approved scope exception (2026-08-31): profile-driven suggestions,
-hard-dietary food filtering, and the lodging comparison/pick flow are deferred
-in `TODO.md`. M4 may start before these three items land.
 
 **M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
 - Batched badge generation per traveler per card (cheap model).

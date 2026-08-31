@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct SwipeView: View {
-    let onPlanned: (TripSession) -> Void
+    let onVotingComplete: (TripSession) -> Void
 
     @State private var viewModel: SwipeViewModel
 
-    init(session: TripSession, onPlanned: @escaping (TripSession) -> Void) {
-        self.onPlanned = onPlanned
+    init(session: TripSession, onVotingComplete: @escaping (TripSession) -> Void) {
+        self.onVotingComplete = onVotingComplete
         _viewModel = State(initialValue: SwipeViewModel(session: session))
     }
 
@@ -44,9 +44,8 @@ struct SwipeView: View {
                 } description: {
                     Text("Build the itinerary from the group’s votes.")
                 } actions: {
-                    Button("Build itinerary", systemImage: "calendar.badge.clock", action: plan)
+                    Button("Choose lodging", systemImage: "bed.double", action: continueToLodging)
                         .buttonStyle(.borderedProminent)
-                        .disabled(viewModel.isPlanning)
                 }
             } else {
                 ContentUnavailableView(
@@ -74,11 +73,7 @@ struct SwipeView: View {
         Task { await viewModel.vote(.like) }
     }
 
-    private func plan() {
-        Task {
-            if await viewModel.plan() {
-                onPlanned(viewModel.session)
-            }
-        }
+    private func continueToLodging() {
+        onVotingComplete(viewModel.session)
     }
 }

@@ -21,6 +21,7 @@ from typing import Any
 from opentelemetry import trace
 from pydantic import BaseModel, Field, ValidationError
 
+from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.config import settings
 from syncinerary.config.gather import BUZZ_MIN_SOURCE_COUNT
 from syncinerary.domain.models import (
@@ -314,6 +315,9 @@ def _candidate_type(place: PlaceMatch) -> CandidateType:
 
 def to_candidate(place: PlaceMatch, mined: MinedPlace, trip: Trip) -> CandidatePlace:
     candidate_type = _candidate_type(place)
+    place_types = [*place.types]
+    if place.primary_type:
+        place_types.append(place.primary_type)
     return CandidatePlace(
         trip_id=trip.id,
         type=candidate_type,
@@ -326,6 +330,7 @@ def to_candidate(place: PlaceMatch, mined: MinedPlace, trip: Trip) -> CandidateP
         hours_by_weekday=place.hours_by_weekday,
         price_tier=place.price_tier or 2,
         duration_estimate_min=75 if candidate_type is CandidateType.FOOD else 60,
+        dietary_tags=dietary_tags_from_place_types(place_types),
         category=place.primary_type,
         sources=[
             Source(

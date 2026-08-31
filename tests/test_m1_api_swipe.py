@@ -143,6 +143,7 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
         "price_tier",
         "duration_estimate_min",
         "dietary_tags",
+        "dietary_notice",
         "source_badges",
     }
     # Raw provenance and enrichment stay behind the display-safe badges.

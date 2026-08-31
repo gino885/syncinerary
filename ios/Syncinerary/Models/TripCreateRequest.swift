@@ -4,6 +4,8 @@ struct TripCreateRequest: Encodable, Sendable {
     let endDate: String
     let creatorName: String
     let creatorHomeCity: String?
+    let creatorInterests: [String]
+    let creatorDietaryExcludes: [String]
 
     enum CodingKeys: String, CodingKey {
         case destination
@@ -11,5 +13,7 @@ struct TripCreateRequest: Encodable, Sendable {
         case endDate = "end_date"
         case creatorName = "creator_name"
         case creatorHomeCity = "creator_home_city"
+        case creatorInterests = "creator_interests"
+        case creatorDietaryExcludes = "creator_dietary_excludes"
     }
 }

@@ -41,6 +41,13 @@ struct CandidateCardView: View {
                     Text(address)
                         .foregroundStyle(.secondary)
                 }
+
+
+                if let notice = candidate.dietaryNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Dietary information: \(notice)")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
@@ -66,6 +73,7 @@ struct CandidateCardView: View {
             priceTier: 1,
             durationEstimateMin: 60,
             dietaryTags: [],
+            dietaryNotice: nil,
             sourceBadges: [
                 SourceBadge(
                     kind: "attached_by_you",
