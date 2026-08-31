@@ -108,6 +108,33 @@ async def test_post_reel_link_strips_tracking_and_identifies_contributor(client)
     assert response.json()["contributor"] == {"id": traveler_id, "name": "Gino"}
 
 
+async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(personal_module.settings, "brave_search_api_key", "")
+    created = await client.post(
+        "/trips",
+        json={
+            "destination": "Hokkaido",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.instagram.com/reel/DcbEs5IpTCt/",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "pending"
+
+
 async def test_post_rednote_short_link_is_preserved_for_enrichment(client):
     created = await client.post(
         "/trips",

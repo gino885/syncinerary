@@ -421,6 +421,9 @@ async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
             "platform_preview_url": preview.thumbnail_url,
         }
 
+    if not settings.brave_search_api_key:
+        return {}
+
     indexed = await run_tool(
         make_social_link_metadata_tool(),
         SocialLinkMetadataInput(url=url),
