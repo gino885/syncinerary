@@ -10,12 +10,18 @@ struct TripCreateView: View {
 
         Form {
             Section("Trip") {
-                Picker("City", selection: $viewModel.selectedCity) {
-                    ForEach(HokkaidoCity.allCases) { city in
-                        Text(city.rawValue).tag(city)
-                    }
-                }
-                Text("For now, each trip stays in one city so the daily plan is realistic.")
+                TextField("Country", text: $viewModel.country)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                TextField(
+                    "Cities, separated by commas",
+                    text: $viewModel.cities,
+                    axis: .vertical
+                )
+                .lineLimit(1...3)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                Text("One country per trip, then the cities in it, for example: Japan, then Sapporo, Otaru. Each city gets its own run of days rather than being visited on alternate days.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 DatePicker(

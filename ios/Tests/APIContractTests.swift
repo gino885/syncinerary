@@ -3,7 +3,7 @@ import Foundation
 @main
 enum APIContractTests {
     static func main() throws {
-        try selectPrototypeCity()
+        try encodeSeveralTypedCities()
         try encodeTripCreateRequest()
         try decodeTripCreatedResponse()
         try decodeGatherResponse()
@@ -22,22 +22,42 @@ enum APIContractTests {
         print("iOS API contract tests passed")
     }
 
-    private static func selectPrototypeCity() throws {
+    /// Cities are typed, so the request carries a list and must not
+    /// reintroduce a single chosen destination.
+    private static func encodeSeveralTypedCities() throws {
+        let request = TripCreateRequest(
+            cities: ["Sapporo", "Otaru"],
+            country: "Japan",
+            startDate: "2026-09-25",
+            endDate: "2026-09-29",
+            creatorName: "Gino",
+            creatorHomeCity: nil,
+            creatorInterests: [],
+            creatorDietaryExcludes: []
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Trip request must encode as a JSON object")
+        }
+
         try require(
-            HokkaidoCity.allCases.map(\.rawValue) == [
-                "Sapporo", "Otaru", "Hakodate", "Asahikawa", "Kushiro"
-            ],
-            "The prototype must plan one supported Hokkaido city at a time"
+            payload["cities"] as? [String] == ["Sapporo", "Otaru"],
+            "A trip must be able to search more than one typed city"
         )
         try require(
-            !HokkaidoCity.allCases.map(\.rawValue).contains("Hokkaido"),
-            "The whole prefecture is too broad for one prototype itinerary"
+            payload["country"] as? String == "Japan",
+            "A trip must name the one country its cities are in"
+        )
+        try require(
+            payload["destination"] == nil,
+            "The client must not send a destination: the backend derives it"
         )
     }
 
     private static func encodeTripCreateRequest() throws {
         let request = TripCreateRequest(
-            destination: HokkaidoCity.sapporo.rawValue,
+            cities: ["Sapporo"],
+            country: "Japan",
             startDate: "2026-09-25",
             endDate: "2026-09-29",
             creatorName: "Gino",
@@ -52,7 +72,7 @@ enum APIContractTests {
 
         try require(payload["start_date"] as? String == "2026-09-25", "Trip request must encode start_date")
         try require(payload["creator_name"] as? String == "Gino", "Trip request must encode creator_name")
-        try require(payload["destination"] as? String == "Sapporo", "Trip request must encode the selected city")
+        try require(payload["cities"] as? [String] == ["Sapporo"], "Trip request must encode the typed cities")
         try require(payload["creator_interests"] as? [String] == ["coffee", "architecture"], "Trip request must encode interests")
         try require(payload["creator_dietary_excludes"] as? [String] == ["seafood"], "Trip request must encode dietary exclusions")
     }
@@ -63,7 +83,10 @@ enum APIContractTests {
             {
                 "trip": {
                     "id": "11111111-1111-1111-1111-111111111111",
-                    "destination": "Hokkaido",
+                    "destination": "Sapporo, Otaru",
+                    "cities": ["Sapporo", "Otaru"],
+                    "country": "Japan",
+                    "timezone": "Asia/Tokyo",
                     "start_date": "2026-09-25",
                     "end_date": "2026-09-29",
                     "days": 5,
@@ -80,6 +103,14 @@ enum APIContractTests {
             "POST /trips must decode traveler_id"
         )
         try require(response.trip.startDate == "2026-09-25", "Trip dates must decode")
+        try require(
+            response.trip.cities == ["Sapporo", "Otaru"],
+            "A trip must decode every city it is searching"
+        )
+        try require(
+            response.trip.timezone == "Asia/Tokyo",
+            "A trip must decode the destination's own timezone"
+        )
     }
 
     private static func decodeGatherResponse() throws {

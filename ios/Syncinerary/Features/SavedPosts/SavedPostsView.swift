@@ -70,7 +70,10 @@ struct SavedPostsView: View {
             session: TripSession(
                 trip: TripSummary(
                     id: UUID(),
-                    destination: "Hokkaido",
+                    destination: "Sapporo, Otaru",
+                    cities: ["Sapporo", "Otaru"],
+                    country: "Japan",
+                    timezone: "Asia/Tokyo",
                     startDate: "2026-09-25",
                     endDate: "2026-09-29",
                     days: 5,

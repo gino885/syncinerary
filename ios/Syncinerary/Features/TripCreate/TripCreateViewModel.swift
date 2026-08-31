@@ -4,7 +4,11 @@ import Observation
 @MainActor
 @Observable
 final class TripCreateViewModel {
-    var selectedCity: HokkaidoCity = .sapporo
+    /// Both start empty on purpose: there is no default destination for the
+    /// traveler to plan around by accident.
+    var country = ""
+    /// Free text, comma separated.
+    var cities = ""
     var creatorName = ""
     var creatorHomeCity = ""
     var interests = ""
@@ -30,8 +34,16 @@ final class TripCreateViewModel {
         dayEnd = calendar.date(bySettingHour: 21, minute: 0, second: 0, of: .now) ?? .now
     }
 
+    var cityNames: [String] { commaSeparated(cities) }
+
+    var trimmedCountry: String {
+        country.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var canSubmit: Bool {
-        !creatorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !trimmedCountry.isEmpty
+            && !cityNames.isEmpty
+            && !creatorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && endDate >= startDate
             && minuteOfDay(dayEnd) > minuteOfDay(dayStart)
             && !isSubmitting
@@ -48,7 +60,8 @@ final class TripCreateViewModel {
         defer { isSubmitting = false }
 
         let request = TripCreateRequest(
-            destination: selectedCity.rawValue,
+            cities: cityNames,
+            country: trimmedCountry,
             startDate: apiDate(startDate),
             endDate: apiDate(endDate),
             creatorName: creatorName.trimmingCharacters(in: .whitespacesAndNewlines),
