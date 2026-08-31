@@ -124,14 +124,12 @@ def test_like_with_note_counts_the_same_as_a_plain_like():
     assert b.votes_pos == 2
 
 
-def test_must_have_is_ignored_in_m1():
-    """§13 M1: acceptance score ignoring must_have."""
+def test_must_have_uses_the_configured_m4_bonus():
     cid = uuid4()
     with_must = score_candidate(cid, _votes(cid, VoteSignal.MUST_HAVE), traveler_count=2)
     assert with_must.votes_must == 1
-    # Counted and visible, but contributing nothing yet.
-    assert with_must.must_have_bonus == 0.0
-    assert with_must.score == with_must.acceptance
+    assert with_must.must_have_bonus == pytest.approx(0.3)
+    assert with_must.score == pytest.approx(with_must.acceptance + 0.3)
 
 
 def test_must_have_arm_works_when_the_weight_is_turned_on():
