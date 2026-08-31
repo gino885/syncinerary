@@ -18,10 +18,8 @@ The formula, from §10.1:
     must_have_bonus = votes_must * must_have_weight
     score           = acceptance + must_have_bonus
 
-M1 scope: §13 says the thin slice uses the acceptance score "ignoring
-must_have". The must_have arm is computed and carried anyway, with its weight
-forced to zero, so M4 turns it on by changing one constant rather than
-reshaping the model that the shortlist and the solver already read.
+M4 enables the configured must-have bonus after the thin slice carried the
+field with a zero weight.
 """
 from __future__ import annotations
 
@@ -45,9 +43,6 @@ from syncinerary.store.repositories import (
     VoteRepository,
 )
 
-# M1 ignores must_have (§13). M4 drops this and uses MUST_HAVE_WEIGHT.
-M1_MUST_HAVE_WEIGHT = 0.0
-
 POSITIVE_SIGNALS = frozenset({VoteSignal.LIKE, VoteSignal.LIKE_WITH_NOTE})
 
 
@@ -57,7 +52,7 @@ def score_candidate(
     traveler_count: int,
     *,
     dislike_weight: float = DISLIKE_WEIGHT,
-    must_have_weight: float = M1_MUST_HAVE_WEIGHT,
+    must_have_weight: float = MUST_HAVE_WEIGHT,
 ) -> CandidateScore:
     """Score one candidate. Pure function: no I/O, no clock, no randomness.
 
@@ -99,7 +94,7 @@ def score_candidates(
     traveler_count: int,
     *,
     dislike_weight: float = DISLIKE_WEIGHT,
-    must_have_weight: float = M1_MUST_HAVE_WEIGHT,
+    must_have_weight: float = MUST_HAVE_WEIGHT,
 ) -> list[CandidateScore]:
     """Score a whole pool, highest first.
 
@@ -158,7 +153,7 @@ async def aggregate_node(state: TripState) -> dict[str, Any]:
         span.set_attribute("aggregate.vote_count", len(votes))
         span.set_attribute("aggregate.scored_count", len(scores))
         span.set_attribute("aggregate.dislike_weight", DISLIKE_WEIGHT)
-        span.set_attribute("aggregate.must_have_weight", M1_MUST_HAVE_WEIGHT)
+        span.set_attribute("aggregate.must_have_weight", MUST_HAVE_WEIGHT)
         if scores:
             span.set_attribute("aggregate.top_score", scores[0].score)
 

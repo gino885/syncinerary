@@ -11,7 +11,9 @@ struct ContentView: View {
                     case let .savedPosts(session):
                         SavedPostsView(session: session, onContinue: showSwipe)
                     case let .swipe(session):
-                        SwipeView(session: session, onVotingComplete: showLodging)
+                        SwipeView(session: session, onVotingComplete: showShortlist)
+                    case let .shortlist(session):
+                        ShortlistView(session: session, onConfirmed: showLodging)
                     case let .lodging(session):
                         LodgingView(session: session, onPlanned: showItinerary)
                     case let .itinerary(session):
@@ -36,6 +38,10 @@ struct ContentView: View {
 
     private func showLodging(_ session: TripSession) {
         path.append(.lodging(session))
+    }
+
+    private func showShortlist(_ session: TripSession) {
+        path.append(.shortlist(session))
     }
 }
 

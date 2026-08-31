@@ -83,6 +83,28 @@ actor APIClient {
         try await post(path: "trips/\(tripID)/votes", body: request)
     }
 
+    func buildShortlist(tripID: UUID) async throws -> ShortlistStateResponse {
+        try await post(path: "trips/\(tripID)/shortlist/build", body: EmptyRequest())
+    }
+
+    func shortlist(tripID: UUID) async throws -> ShortlistStateResponse {
+        try await get(path: "trips/\(tripID)/shortlist")
+    }
+
+    func editShortlist(
+        tripID: UUID,
+        request: ShortlistEditRequest
+    ) async throws -> ShortlistStateResponse {
+        try await put(path: "trips/\(tripID)/shortlist", body: request)
+    }
+
+    func confirmShortlist(
+        tripID: UUID,
+        request: ShortlistConfirmRequest
+    ) async throws -> ShortlistStateResponse {
+        try await post(path: "trips/\(tripID)/shortlist/confirm", body: request)
+    }
+
     func plan(tripID: UUID, request: PlanRequest) async throws -> PlanResponse {
         try await post(path: "trips/\(tripID)/plan", body: request)
     }
@@ -120,6 +142,17 @@ actor APIClient {
     ) async throws -> Response {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        return try await send(request)
+    }
+
+    private func put<Response: Decodable & Sendable, Body: Encodable & Sendable>(
+        path: String,
+        body: Body
+    ) async throws -> Response {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
         return try await send(request)

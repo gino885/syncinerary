@@ -10,10 +10,17 @@ import pytest_asyncio
 from syncinerary.agents import aggregate as aggregate_module
 from syncinerary.agents import explain as explain_module
 from syncinerary.agents import shortlist as shortlist_module
+from syncinerary.agents.delegate import badge as badge_module
 from syncinerary.agents.gather import live as gather_module
 from syncinerary.agents.graph import dispose_graph, graph_config, init_graph
 from syncinerary.agents.solver import stage2_route as solver_module
-from syncinerary.domain.models import CandidatePlace, CandidateType, TripState
+from syncinerary.domain.models import (
+    BadgeType,
+    CandidateBadge,
+    CandidatePlace,
+    CandidateType,
+    TripState,
+)
 from syncinerary.harness import wrapper as harness_wrapper_module
 from syncinerary.store.repositories import AgentRunRepository
 from syncinerary.tools.transit import (
@@ -64,6 +71,7 @@ def _use_test_session(monkeypatch, session) -> None:
 
     for module in (
         gather_module,
+        badge_module,
         aggregate_module,
         shortlist_module,
         solver_module,
@@ -104,6 +112,19 @@ def _use_test_session(monkeypatch, session) -> None:
         return swipeable + lodging
 
     monkeypatch.setattr(gather_module, "discover_candidates", discover)
+
+    async def generate_badges(traveler, candidates, _constraints, **_kwargs):
+        return [
+            CandidateBadge(
+                candidate_id=candidates[0].id,
+                traveler_id=traveler.id,
+                badge_type=BadgeType.CONFIRM,
+                badge_text="Matches your travel style",
+                reasoning="Graph integration test badge.",
+            )
+        ]
+
+    monkeypatch.setattr(badge_module, "generate_badges_for_traveler", generate_badges)
 
 
 @pytest_asyncio.fixture
@@ -151,6 +172,7 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         assert interrupted.next == ("aggregate",)
         interrupted_state = TripState.model_validate(interrupted.values)
         assert len(interrupted_state.candidates) == 17
+        assert len(interrupted_state.badges) == 1
 
         # Gather is idempotent and must not accidentally resume planning.
         gathered_again = await client.post(f"/trips/{trip_id}/gather")
@@ -169,6 +191,23 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
                 },
             )
             assert vote.status_code == 201
+
+        shortlisted = await client.post(f"/trips/{trip_id}/shortlist/build")
+        assert shortlisted.status_code == 200, shortlisted.text
+        assert shortlisted.json()["selected_candidate_ids"]
+        awaiting_confirmation = await graph_runtime.aget_state(config)
+        assert awaiting_confirmation.next == ("solver",)
+
+        blocked_plan = await client.post(f"/trips/{trip_id}/plan", json={})
+        assert blocked_plan.status_code == 409
+        assert "confirmation quorum" in blocked_plan.json()["detail"]
+
+        confirmed = await client.post(
+            f"/trips/{trip_id}/shortlist/confirm",
+            json={"traveler_id": traveler_id},
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["is_confirmed"] is True
 
         planned = await client.post(
             f"/trips/{trip_id}/plan",
@@ -200,12 +239,12 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         )
 
         runs = await AgentRunRepository(session).list_for_trip(trip_id)
-        assert len(runs) == 1
-        assert runs[0].kind == "plan"
-        assert runs[0].status == "ok"
+        assert {run.kind for run in runs} == {"gather", "plan"}
+        assert all(run.status == "ok" for run in runs)
+        plan_run = next(run for run in runs if run.kind == "plan")
         # Two day-level transit tool calls plus the explainer LLM call. No
         # make-up re-solve: both days fill from the shortlist on the first pass.
-        assert runs[0].step_count == 3
+        assert plan_run.step_count == 3
 
         # A completed thread returns the same version instead of appending one.
         planned_again = await client.post(

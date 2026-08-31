@@ -28,6 +28,10 @@ struct CandidateCardView: View {
 
                 SourceBadgesView(badges: candidate.sourceBadges)
 
+                if let delegateBadge = candidate.delegateBadge {
+                    DelegateBadgeView(badge: delegateBadge)
+                }
+
                 Label(
                     "^[\(candidate.durationEstimateMin) minute](inflect: true)",
                     systemImage: "clock"
@@ -80,7 +84,8 @@ struct CandidateCardView: View {
                     label: "Attached by you",
                     contributorName: "Gino"
                 )
-            ]
+            ],
+            delegateBadge: nil
         ),
         photo: nil
     )

@@ -16,6 +16,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from syncinerary.agents.aggregate import aggregate_node
+from syncinerary.agents.delegate.badge import badge_node
 from syncinerary.agents.explain import explain_node
 from syncinerary.agents.gather.live import gather_node
 from syncinerary.agents.shortlist import shortlist_node
@@ -89,18 +90,23 @@ CHECKPOINT_TYPES = (
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph = StateGraph(TripState)
     graph.add_node("gather", gather_node)
+    graph.add_node("badges", badge_node)
     graph.add_node("aggregate", aggregate_node)
     graph.add_node("shortlist", shortlist_node)
     graph.add_node("solver", solver_node)
     graph.add_node("explain", explain_node)
 
     graph.add_edge(START, "gather")
-    graph.add_edge("gather", "aggregate")
+    graph.add_edge("gather", "badges")
+    graph.add_edge("badges", "aggregate")
     graph.add_edge("aggregate", "shortlist")
     graph.add_edge("shortlist", "solver")
     graph.add_edge("solver", "explain")
     graph.add_edge("explain", END)
-    return graph.compile(checkpointer=checkpointer, interrupt_after=["gather"])
+    return graph.compile(
+        checkpointer=checkpointer,
+        interrupt_after=["badges", "shortlist"],
+    )
 
 
 def graph_config(trip_id: object) -> dict[str, dict[str, str]]:

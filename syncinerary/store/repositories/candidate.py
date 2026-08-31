@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import ClassVar
 from uuid import UUID
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -138,3 +139,24 @@ class CandidateBadgeRepository(BaseRepository[tables.CandidateBadge, CandidateBa
     async def list_for_traveler_on_trip(self, traveler_id: UUID) -> list[CandidateBadge]:
         """A traveler sees only their own badges, never anyone else's."""
         return await self.list_where(tables.CandidateBadge.traveler_id == traveler_id)
+
+    async def replace_for_trip(
+        self,
+        trip_id: UUID,
+        badges: list[CandidateBadge],
+    ) -> list[CandidateBadge]:
+        """Replace one trip's pre-swipe badge batch atomically.
+
+        Removing the old rows first matters when a refreshed model response
+        changes a previous warning to no badge. Both statements run in the
+        caller's short write transaction, after all model calls have ended.
+        """
+        candidate_ids = select(tables.CandidatePlace.id).where(
+            tables.CandidatePlace.trip_id == trip_id
+        )
+        await self.session.execute(
+            sa_delete(tables.CandidateBadge).where(
+                tables.CandidateBadge.candidate_id.in_(candidate_ids)
+            )
+        )
+        return await self.add_many(badges)

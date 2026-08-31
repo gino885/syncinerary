@@ -6,7 +6,8 @@ confirmation and replan arrive in later milestones.
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from math import ceil
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -14,6 +15,7 @@ from uuid import UUID
 import anyio
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 
+from syncinerary.agents.delegate.note import NoteParsingUnavailable, parse_vote_note
 from syncinerary.agents.gather.attachments import (
     MAX_SCREENSHOT_BYTES,
     SUPPORTED_IMAGE_TYPES,
@@ -46,6 +48,9 @@ from syncinerary.api.schemas import (
     LodgingSelectionRequest,
     PlanRequest,
     PlanResponse,
+    ShortlistConfirmRequest,
+    ShortlistEditRequest,
+    ShortlistOut,
     SourceAttachmentOut,
     TripCreatedResponse,
     TripCreateRequest,
@@ -56,12 +61,14 @@ from syncinerary.api.schemas import (
     WishlistNotPlacedOut,
 )
 from syncinerary.config import settings
+from syncinerary.config.aggregate import MUST_GO_CAP_PER_DAY
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
     CandidateType,
     Constraint,
     ConstraintKind,
+    ShortlistState,
     SourceAttachment,
     Traveler,
     Trip,
@@ -72,10 +79,12 @@ from syncinerary.domain.models import (
 )
 from syncinerary.harness import run_tool, tracked_run
 from syncinerary.store.repositories import (
+    CandidateBadgeRepository,
     CandidatePlaceRepository,
     ConstraintRepository,
     ItineraryNodeRepository,
     ItineraryVersionRepository,
+    ShortlistStateRepository,
     SourceAttachmentRepository,
     TravelerRepository,
     TripRepository,
@@ -99,6 +108,38 @@ async def _load_trip(session: Session, trip_id: UUID) -> Trip:
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No trip {trip_id}")
     return trip
+
+
+async def _load_trip_traveler(
+    session: Session,
+    trip_id: UUID,
+    traveler_id: UUID,
+) -> Traveler:
+    traveler = await TravelerRepository(session).get(traveler_id)
+    if traveler is None or traveler.trip_id != trip_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Traveler {traveler_id} is not on trip {trip_id}",
+        )
+    return traveler
+
+
+def _shortlist_out(shortlist, traveler_count: int) -> ShortlistOut:
+    required = max(1, ceil(traveler_count * 0.5))
+    return ShortlistOut(
+        trip_id=shortlist.trip_id,
+        selected_candidate_ids=shortlist.selected_candidate_ids,
+        must_go_candidate_ids=shortlist.must_go_candidate_ids,
+        wishlist_excluded_ids=shortlist.wishlist_excluded_ids,
+        confirmed_by=shortlist.confirmed_by,
+        confirmed_at=shortlist.confirmed_at,
+        confirmations_required=required,
+        traveler_count=traveler_count,
+        is_confirmed=(
+            shortlist.confirmed_at is not None
+            and len(set(shortlist.confirmed_by)) >= required
+        ),
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -208,12 +249,21 @@ async def list_candidates(
     candidates = filter_dietary_conflicts(candidates, constraints)
     travelers = await TravelerRepository(session).list_for_trip(trip_id)
     contributor_names = {traveler.id: traveler.name for traveler in travelers}
+    delegate_badges = (
+        await CandidateBadgeRepository(session).list_for_traveler_on_trip(traveler_id)
+        if traveler_id is not None
+        else []
+    )
+    delegate_badge_by_candidate = {
+        badge.candidate_id: badge for badge in delegate_badges
+    }
     return [
         CandidateCardOut.of(
             candidate,
             viewer_id=traveler_id,
             contributor_names=contributor_names,
             constraints=constraints,
+            delegate_badge=delegate_badge_by_candidate.get(candidate.id),
         )
         for candidate in candidates
     ]
@@ -488,9 +538,6 @@ async def attach_screenshot(
 async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> VoteOut:
     """Record one swipe.
 
-    M1 accepts like and dislike only; the request schema rejects anything
-    else with a 422 before reaching here.
-
     Re-voting on the same card replaces the earlier vote rather than adding
     one, so a traveler who changes their mind still counts once in §10.1.
     """
@@ -510,11 +557,20 @@ async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> Vo
             f"Candidate {payload.candidate_id} is not in trip {trip_id}",
         )
 
+    note_parsed = None
+    if payload.signal.value == VoteSignal.LIKE_WITH_NOTE.value:
+        try:
+            note_parsed = await parse_vote_note(payload.note_text or "")
+        except NoteParsingUnavailable as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
     vote = await VoteRepository(session).upsert(
         Vote(
             candidate_id=payload.candidate_id,
             traveler_id=payload.traveler_id,
             signal=VoteSignal(payload.signal.value),
+            note_text=payload.note_text,
+            note_parsed=note_parsed,
         )
     )
 
@@ -556,6 +612,140 @@ async def vote_progress(
     )
 
 
+@router.get("/{trip_id}/shortlist")
+async def get_shortlist(trip_id: UUID, session: Session) -> ShortlistOut:
+    await _load_trip(session, trip_id)
+    shortlist = await ShortlistStateRepository(session).get_for_trip(trip_id)
+    if shortlist is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Shortlist has not been built")
+    traveler_count = await TravelerRepository(session).count_for_trip(trip_id)
+    return _shortlist_out(shortlist, traveler_count)
+
+
+@router.post("/{trip_id}/shortlist/build")
+async def build_trip_shortlist(trip_id: UUID, session: Session) -> ShortlistOut:
+    """Resume consensus scoring and stop before scheduling for group review."""
+    await _load_trip(session, trip_id)
+    graph = get_graph()
+    config = graph_config(trip_id)
+    snapshot = await graph.aget_state(config)
+    if not snapshot.values:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Gather must run before shortlisting")
+
+    if snapshot.next == ("aggregate",):
+        await graph.ainvoke(None, config)
+    elif snapshot.next not in {("solver",), ()}:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Trip is not ready to build a shortlist",
+        )
+
+    shortlist = await ShortlistStateRepository(session).get_for_trip(trip_id)
+    if shortlist is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Planner produced no shortlist",
+        )
+    await TripRepository(session).set_status(trip_id, TripStatus.SHORTLISTING)
+    traveler_count = await TravelerRepository(session).count_for_trip(trip_id)
+    return _shortlist_out(shortlist, traveler_count)
+
+
+@router.put("/{trip_id}/shortlist")
+async def edit_shortlist(
+    trip_id: UUID,
+    payload: ShortlistEditRequest,
+    session: Session,
+) -> ShortlistOut:
+    """Replace the editable shortlist and invalidate earlier acknowledgments."""
+    trip = await _load_trip(session, trip_id)
+    await _load_trip_traveler(session, trip_id, payload.traveler_id)
+    current = await ShortlistStateRepository(session).get_for_trip(trip_id)
+    if current is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Shortlist has not been built")
+
+    selected = payload.selected_candidate_ids
+    must_go = payload.must_go_candidate_ids
+    if len(set(selected)) != len(selected) or len(set(must_go)) != len(must_go):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Candidate ids must be unique")
+    if not set(must_go).issubset(selected):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Must-go cards must also be selected",
+        )
+    if len(must_go) > trip.days * MUST_GO_CAP_PER_DAY:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"This trip can mark at most {trip.days * MUST_GO_CAP_PER_DAY} must-go cards",
+        )
+
+    candidates = await CandidatePlaceRepository(session).list_swipeable(trip_id)
+    all_ids = [candidate.id for candidate in candidates]
+    if not set(selected).issubset(all_ids):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Shortlist contains a card outside this trip",
+        )
+    selected_set = set(selected)
+    ranked_ids = list(
+        dict.fromkeys(
+            [
+                *current.selected_candidate_ids,
+                *current.wishlist_excluded_ids,
+                *all_ids,
+            ]
+        )
+    )
+    selection_changed = (
+        selected != current.selected_candidate_ids
+        or must_go != current.must_go_candidate_ids
+    )
+    saved = await ShortlistStateRepository(session).upsert(
+        ShortlistState(
+            trip_id=trip_id,
+            selected_candidate_ids=selected,
+            must_go_candidate_ids=must_go,
+            confirmed_by=current.confirmed_by if not selection_changed else [],
+            confirmed_at=current.confirmed_at if not selection_changed else None,
+            wishlist_excluded_ids=[
+                candidate_id
+                for candidate_id in ranked_ids
+                if candidate_id not in selected_set
+            ],
+        )
+    )
+    await TripRepository(session).set_status(trip_id, TripStatus.SHORTLISTING)
+    return _shortlist_out(saved, await TravelerRepository(session).count_for_trip(trip_id))
+
+
+@router.post("/{trip_id}/shortlist/confirm")
+async def confirm_shortlist(
+    trip_id: UUID,
+    payload: ShortlistConfirmRequest,
+    session: Session,
+) -> ShortlistOut:
+    """Acknowledge the current shortlist and close it once quorum is met."""
+    await _load_trip(session, trip_id)
+    await _load_trip_traveler(session, trip_id, payload.traveler_id)
+    repo = ShortlistStateRepository(session)
+    current = await repo.get_for_trip_for_update(trip_id)
+    if current is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Shortlist has not been built")
+
+    confirmed_by = list(dict.fromkeys([*current.confirmed_by, payload.traveler_id]))
+    traveler_count = await TravelerRepository(session).count_for_trip(trip_id)
+    required = max(1, ceil(traveler_count * 0.5))
+    confirmed_at = None
+    if len(confirmed_by) >= required:
+        confirmed_at = current.confirmed_at or datetime.now(UTC)
+    saved = await repo.upsert(
+        current.model_copy(
+            update={"confirmed_by": confirmed_by, "confirmed_at": confirmed_at}
+        )
+    )
+    return _shortlist_out(saved, traveler_count)
+
+
 @router.post("/{trip_id}/gather")
 async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
     """Run the graph to its swipe interrupt and return the deck size."""
@@ -568,10 +758,11 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
         travelers = await TravelerRepository(session).list_for_trip(trip_id)
         constraints = await ConstraintRepository(session).list_for_trip(trip_id)
         try:
-            await graph.ainvoke(
-                TripState(trip=trip, travelers=travelers, constraints=constraints),
-                config,
-            )
+            async with tracked_run(trip_id=trip_id, kind="gather"):
+                await graph.ainvoke(
+                    TripState(trip=trip, travelers=travelers, constraints=constraints),
+                    config,
+                )
         except UnknownCity as exc:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
@@ -599,7 +790,24 @@ async def plan_trip(
             "Gather must run before planning",
         )
 
+    shortlist = await ShortlistStateRepository(session).get_for_trip(trip_id)
+    if shortlist is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Build and confirm the shortlist before planning",
+        )
+    traveler_count = await TravelerRepository(session).count_for_trip(trip_id)
+    if not _shortlist_out(shortlist, traveler_count).is_confirmed:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The shortlist has not reached confirmation quorum",
+        )
     if snapshot.next:
+        if snapshot.next != ("solver",):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Build the shortlist before planning",
+            )
         constraints = await ConstraintRepository(session).list_for_trip(trip_id)
         await graph.aupdate_state(
             config,
@@ -607,6 +815,7 @@ async def plan_trip(
                 "day_start": payload.day_start,
                 "day_end": payload.day_end,
                 "constraints": constraints,
+                "shortlist": shortlist,
             },
         )
         async with tracked_run(trip_id=trip_id, kind="plan"):

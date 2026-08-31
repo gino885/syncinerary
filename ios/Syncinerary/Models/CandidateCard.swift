@@ -15,6 +15,7 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
     let dietaryTags: [String]
     let dietaryNotice: String?
     let sourceBadges: [SourceBadge]
+    let delegateBadge: DelegateBadge?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -31,5 +32,6 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
         case dietaryTags = "dietary_tags"
         case dietaryNotice = "dietary_notice"
         case sourceBadges = "source_badges"
+        case delegateBadge = "delegate_badge"
     }
 }
