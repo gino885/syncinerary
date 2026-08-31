@@ -53,7 +53,7 @@ final class SwipeViewModel {
         }
     }
 
-    func vote(_ signal: VoteSignal) async {
+    func vote(_ signal: VoteSignal, noteText: String? = nil) async {
         guard let candidate = currentCandidate, !isSubmittingVote else { return }
         isSubmittingVote = true
         defer { isSubmittingVote = false }
@@ -64,7 +64,8 @@ final class SwipeViewModel {
                 request: VoteRequest(
                     travelerID: session.travelerID,
                     candidateID: candidate.id,
-                    signal: signal
+                    signal: signal,
+                    noteText: noteText
                 )
             )
             currentIndex += 1

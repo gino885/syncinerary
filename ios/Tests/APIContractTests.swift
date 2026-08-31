@@ -14,7 +14,10 @@ enum APIContractTests {
         try decodeLodgingOptions()
         try encodeLodgingSelection()
         try encodeVoteRequest()
+        try encodeLikeWithNoteRequest()
         try decodeVoteResponse()
+        try encodeShortlistEditRequest()
+        try decodeShortlistState()
         try encodePlanRequest()
         try decodePlanResponse()
         try buildItineraryViewerQuery()
@@ -174,7 +177,12 @@ enum APIContractTests {
                     "kind": "attached_by_you",
                     "label": "Attached by you",
                     "contributor_name": "Gino"
-                }]
+                }],
+                "delegate_badge": {
+                    "type": "confirm",
+                    "text": "Matches your love of parks",
+                    "reasoning": "You listed parks as an interest."
+                }
             }
             """#.utf8
         )
@@ -184,6 +192,7 @@ enum APIContractTests {
         try require(response.durationEstimateMin == 60, "Candidate durations must decode")
         try require(response.sourceBadges[0].label == "Attached by you", "Source badges must decode")
         try require(response.dietaryNotice == nil, "A non-food card has no dietary notice")
+        try require(response.delegateBadge?.type == "confirm", "Personal delegate badges must decode")
     }
 
     private static func decodeLodgingOptions() throws {
@@ -236,6 +245,22 @@ enum APIContractTests {
             payload["candidate_id"] as? String == "33333333-3333-3333-3333-333333333333",
             "Vote request must encode candidate_id"
         )
+        try require(payload["note_text"] == nil, "A plain like must omit note_text")
+    }
+
+    private static func encodeLikeWithNoteRequest() throws {
+        let request = VoteRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            candidateID: try uuid("33333333-3333-3333-3333-333333333333"),
+            signal: .likeWithNote,
+            noteText: "Only if the weather is good"
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Noted vote must encode as a JSON object")
+        }
+        try require(payload["signal"] as? String == "like_with_note", "Noted vote must use like_with_note")
+        try require(payload["note_text"] as? String == "Only if the weather is good", "Noted vote must encode its text")
     }
 
     private static func decodeVoteResponse() throws {
@@ -245,7 +270,9 @@ enum APIContractTests {
                 "id": "44444444-4444-4444-4444-444444444444",
                 "candidate_id": "33333333-3333-3333-3333-333333333333",
                 "traveler_id": "22222222-2222-2222-2222-222222222222",
-                "signal": "like"
+                "signal": "like",
+                "note_text": null,
+                "note_parsed": null
             }
             """#.utf8
         )
@@ -255,6 +282,28 @@ enum APIContractTests {
             response.candidateID.uuidString == "33333333-3333-3333-3333-333333333333",
             "Vote response must decode candidate_id"
         )
+    }
+
+    private static func encodeShortlistEditRequest() throws {
+        let request = ShortlistEditRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            selectedCandidateIDs: [try uuid("33333333-3333-3333-3333-333333333333")],
+            mustGoCandidateIDs: [try uuid("33333333-3333-3333-3333-333333333333")]
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Shortlist edit must encode as a JSON object")
+        }
+        try require((payload["must_go_candidate_ids"] as? [String])?.count == 1, "Shortlist edit must encode must-go ids")
+    }
+
+    private static func decodeShortlistState() throws {
+        let data = Data(
+            #"{"trip_id":"11111111-1111-1111-1111-111111111111","selected_candidate_ids":["33333333-3333-3333-3333-333333333333"],"must_go_candidate_ids":[],"wishlist_excluded_ids":[],"confirmed_by":["22222222-2222-2222-2222-222222222222"],"confirmed_at":"2026-09-01T12:00:00Z","confirmations_required":1,"traveler_count":1,"is_confirmed":true}"#.utf8
+        )
+        let response = try JSONDecoder().decode(ShortlistStateResponse.self, from: data)
+        try require(response.isConfirmed, "Shortlist confirmation state must decode")
+        try require(response.confirmationsRequired == 1, "Shortlist quorum must decode")
     }
 
     private static func encodePlanRequest() throws {
