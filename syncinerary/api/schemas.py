@@ -8,7 +8,7 @@ iOS app decodes.
 """
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Annotated, Any
 from uuid import UUID
@@ -25,6 +25,7 @@ from syncinerary.config.solver import (
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
+    CandidateBadge,
     CandidatePlace,
     CandidateType,
     Constraint,
@@ -262,6 +263,20 @@ def source_badges(
     return badges
 
 
+class DelegateBadgeOut(BaseModel):
+    type: str
+    text: str
+    reasoning: str
+
+    @classmethod
+    def of(cls, badge: CandidateBadge) -> DelegateBadgeOut:
+        return cls(
+            type=badge.badge_type.value,
+            text=badge.badge_text,
+            reasoning=badge.reasoning,
+        )
+
+
 class CandidateCardOut(BaseModel):
     """One swipe card with display-safe provenance badges."""
 
@@ -279,6 +294,7 @@ class CandidateCardOut(BaseModel):
     dietary_tags: list[str]
     dietary_notice: str | None
     source_badges: list[SourceBadgeOut]
+    delegate_badge: DelegateBadgeOut | None
 
     @classmethod
     def of(
@@ -288,6 +304,7 @@ class CandidateCardOut(BaseModel):
         viewer_id: UUID | None = None,
         contributor_names: dict[UUID, str] | None = None,
         constraints: list[Constraint] | None = None,
+        delegate_badge: CandidateBadge | None = None,
     ) -> CandidateCardOut:
         badges = source_badges(
             candidate,
@@ -310,6 +327,11 @@ class CandidateCardOut(BaseModel):
             dietary_tags=candidate.dietary_tags,
             dietary_notice=dietary_notice(candidate, constraints or []),
             source_badges=badges,
+            delegate_badge=(
+                DelegateBadgeOut.of(delegate_badge)
+                if delegate_badge is not None
+                else None
+            ),
         )
 
 
@@ -358,22 +380,27 @@ class CandidatePhotoOut(BaseModel):
 
 
 class SwipeSignal(str, Enum):
-    """M1 swipe vocabulary: two buttons only (§13 M1).
-
-    Deliberately narrower than domain VoteSignal. like_with_note and
-    must_have are real signals that arrive in M4 together with the note
-    parser and the long-press gesture; accepting them now would mean storing
-    a note nothing parses and a must_have the aggregator ignores.
-    """
-
     LIKE = "like"
     DISLIKE = "dislike"
+    LIKE_WITH_NOTE = "like_with_note"
+    MUST_HAVE = "must_have"
 
 
 class VoteRequest(BaseModel):
     traveler_id: UUID
     candidate_id: UUID
     signal: SwipeSignal
+    note_text: str | None = Field(default=None, max_length=1_000)
+
+    @model_validator(mode="after")
+    def _check_note(self) -> VoteRequest:
+        if self.signal is SwipeSignal.LIKE_WITH_NOTE:
+            if self.note_text is None or not self.note_text.strip():
+                raise ValueError("like_with_note requires note_text")
+            self.note_text = self.note_text.strip()
+        elif self.note_text is not None:
+            raise ValueError("note_text is only valid with like_with_note")
+        return self
 
 
 class VoteOut(BaseModel):
@@ -381,6 +408,8 @@ class VoteOut(BaseModel):
     candidate_id: UUID
     traveler_id: UUID
     signal: str
+    note_text: str | None
+    note_parsed: dict[str, Any] | None
 
     @classmethod
     def of(cls, vote: Vote) -> VoteOut:
@@ -389,6 +418,8 @@ class VoteOut(BaseModel):
             candidate_id=vote.candidate_id,
             traveler_id=vote.traveler_id,
             signal=vote.signal.value,
+            note_text=vote.note_text,
+            note_parsed=vote.note_parsed,
         )
 
 
@@ -398,6 +429,28 @@ class VoteProgressOut(BaseModel):
     total_candidates: int
     voted: int
     remaining: int
+
+
+class ShortlistEditRequest(BaseModel):
+    traveler_id: UUID
+    selected_candidate_ids: list[UUID]
+    must_go_candidate_ids: list[UUID]
+
+
+class ShortlistConfirmRequest(BaseModel):
+    traveler_id: UUID
+
+
+class ShortlistOut(BaseModel):
+    trip_id: UUID
+    selected_candidate_ids: list[UUID]
+    must_go_candidate_ids: list[UUID]
+    wishlist_excluded_ids: list[UUID]
+    confirmed_by: list[UUID]
+    confirmed_at: datetime | None
+    confirmations_required: int
+    traveler_count: int
+    is_confirmed: bool
 
 
 class GatherResponse(BaseModel):

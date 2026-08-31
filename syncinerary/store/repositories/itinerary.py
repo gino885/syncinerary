@@ -45,6 +45,19 @@ class ShortlistStateRepository(BaseRepository[tables.ShortlistState, ShortlistSt
         row = await self.session.get(self.table, trip_id)
         return self.to_model(row) if row is not None else None
 
+    async def get_for_trip_for_update(self, trip_id: UUID) -> ShortlistState | None:
+        """Lock the row while one traveler appends a confirmation.
+
+        Without the lock, two simultaneous confirmations can both read the
+        same list and the later write can erase the earlier traveler.
+        """
+        row = await self.session.scalar(
+            select(tables.ShortlistState)
+            .where(tables.ShortlistState.trip_id == trip_id)
+            .with_for_update()
+        )
+        return self.to_model(row) if row is not None else None
+
     async def upsert(self, state: ShortlistState) -> ShortlistState:
         """Write the shortlist, replacing any earlier one for this trip.
 

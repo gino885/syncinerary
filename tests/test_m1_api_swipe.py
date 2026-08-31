@@ -4,7 +4,10 @@ from __future__ import annotations
 from uuid import uuid4
 
 from syncinerary.agents.gather import gather_node
+from syncinerary.api.routers import trips as trips_router_module
 from syncinerary.domain.models import (
+    BadgeType,
+    CandidateBadge,
     CandidatePlace,
     CandidateType,
     Traveler,
@@ -13,6 +16,7 @@ from syncinerary.domain.models import (
     VoteSignal,
 )
 from syncinerary.store.repositories import (
+    CandidateBadgeRepository,
     CandidatePlaceRepository,
     TravelerRepository,
     TripRepository,
@@ -177,10 +181,66 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
         "dietary_tags",
         "dietary_notice",
         "source_badges",
+        "delegate_badge",
     }
     # Raw provenance and enrichment stay behind the display-safe badges.
     assert "sources" not in card
     assert "enrichment" not in card
+
+
+async def test_deck_shows_only_the_current_travelers_delegate_badge(client, session):
+    body = await _created_trip(client)
+    trip_id = body["trip"]["id"]
+    gino_id = body["traveler_id"]
+    ana = await TravelerRepository(session).add(
+        Traveler(trip_id=trip_id, name="Ana")
+    )
+    candidate = await CandidatePlaceRepository(session).add(
+        CandidatePlace(
+            trip_id=trip_id,
+            type="attraction",
+            name_canonical="Sapporo Art Park",
+            lat=42.9403,
+            lng=141.3407,
+        )
+    )
+    badges = CandidateBadgeRepository(session)
+    await badges.add(
+        CandidateBadge(
+            candidate_id=candidate.id,
+            traveler_id=gino_id,
+            badge_type=BadgeType.CONFIRM,
+            badge_text="Matches your interest in sculpture",
+            reasoning="Gino listed sculpture gardens as an interest.",
+        )
+    )
+    await badges.add(
+        CandidateBadge(
+            candidate_id=candidate.id,
+            traveler_id=ana.id,
+            badge_type=BadgeType.WARNING,
+            badge_text="This visit involves a long outdoor walk",
+            reasoning="Ana asked to avoid long walks.",
+        )
+    )
+
+    gino_response = await client.get(
+        f"/trips/{trip_id}/candidates",
+        params={"traveler_id": gino_id},
+    )
+    ana_response = await client.get(
+        f"/trips/{trip_id}/candidates",
+        params={"traveler_id": str(ana.id)},
+    )
+
+    gino_card = next(item for item in gino_response.json() if item["id"] == str(candidate.id))
+    ana_card = next(item for item in ana_response.json() if item["id"] == str(candidate.id))
+    assert gino_card["delegate_badge"] == {
+        "type": "confirm",
+        "text": "Matches your interest in sculpture",
+        "reasoning": "Gino listed sculpture gardens as an interest.",
+    }
+    assert ana_card["delegate_badge"]["type"] == "warning"
 
 
 async def test_deck_labels_personal_sources_for_the_current_traveler(client, session):
@@ -313,24 +373,91 @@ async def test_dislike_is_recorded(client, session, monkeypatch):
     assert response.json()["signal"] == "dislike"
 
 
-async def test_m4_signals_are_rejected_in_m1(client, session, monkeypatch):
-    """like_with_note and must_have arrive in M4 with the note parser and the
-    long-press gesture. Accepting them now would store a note nothing parses
-    and a must_have the aggregator ignores."""
+async def test_unknown_vote_signal_is_rejected(client, session, monkeypatch):
     body = await _trip_with_deck(client, session, monkeypatch)
     trip_id = body["trip"]["id"]
     deck = (await client.get(f"/trips/{trip_id}/candidates")).json()
 
-    for signal in ("like_with_note", "must_have", "shrug"):
-        response = await client.post(
-            f"/trips/{trip_id}/votes",
-            json={
-                "traveler_id": body["traveler_id"],
-                "candidate_id": deck[0]["id"],
-                "signal": signal,
-            },
-        )
-        assert response.status_code == 422, signal
+    response = await client.post(
+        f"/trips/{trip_id}/votes",
+        json={
+            "traveler_id": body["traveler_id"],
+            "candidate_id": deck[0]["id"],
+            "signal": "shrug",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_like_with_note_parses_and_stores_the_note(
+    client,
+    session,
+    monkeypatch,
+):
+    body = await _trip_with_deck(client, session, monkeypatch)
+    trip_id = body["trip"]["id"]
+    deck = (await client.get(f"/trips/{trip_id}/candidates")).json()
+
+    async def parse_note(note: str):
+        assert note == "I can grab a convenience store meal"
+        return {"self_handles_meal": True, "alternative": "convenience_store"}
+
+    monkeypatch.setattr(trips_router_module, "parse_vote_note", parse_note)
+    response = await client.post(
+        f"/trips/{trip_id}/votes",
+        json={
+            "traveler_id": body["traveler_id"],
+            "candidate_id": deck[0]["id"],
+            "signal": "like_with_note",
+            "note_text": "I can grab a convenience store meal",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["note_parsed"] == {
+        "self_handles_meal": True,
+        "alternative": "convenience_store",
+    }
+    stored = (await VoteRepository(session).list_for_trip(trip_id))[0]
+    assert stored.note_text == "I can grab a convenience store meal"
+    assert stored.note_parsed == response.json()["note_parsed"]
+
+
+async def test_must_have_is_accepted_without_a_note(client, session, monkeypatch):
+    body = await _trip_with_deck(client, session, monkeypatch)
+    trip_id = body["trip"]["id"]
+    deck = (await client.get(f"/trips/{trip_id}/candidates")).json()
+
+    response = await client.post(
+        f"/trips/{trip_id}/votes",
+        json={
+            "traveler_id": body["traveler_id"],
+            "candidate_id": deck[0]["id"],
+            "signal": "must_have",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["signal"] == "must_have"
+    assert response.json()["note_parsed"] is None
+
+
+async def test_like_with_note_requires_nonblank_text(client, session, monkeypatch):
+    body = await _trip_with_deck(client, session, monkeypatch)
+    trip_id = body["trip"]["id"]
+    deck = (await client.get(f"/trips/{trip_id}/candidates")).json()
+
+    response = await client.post(
+        f"/trips/{trip_id}/votes",
+        json={
+            "traveler_id": body["traveler_id"],
+            "candidate_id": deck[0]["id"],
+            "signal": "like_with_note",
+            "note_text": "   ",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 async def test_changing_your_mind_replaces_the_vote(client, session, monkeypatch):
