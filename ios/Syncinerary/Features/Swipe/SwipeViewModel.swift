@@ -10,9 +10,9 @@ final class SwipeViewModel {
     var currentIndex = 0
     var isLoading = false
     var isSubmittingVote = false
-    var isPlanning = false
     var isShowingError = false
     var errorMessage = ""
+    var currentPhoto: CandidatePhoto?
 
     private let apiClient: APIClient
     private var hasLoaded = false
@@ -42,8 +42,12 @@ final class SwipeViewModel {
         defer { isLoading = false }
 
         do {
-            candidates = try await apiClient.candidates(tripID: session.trip.id)
+            candidates = try await apiClient.candidates(
+                tripID: session.trip.id,
+                travelerID: session.travelerID
+            )
             hasLoaded = true
+            await loadCurrentPhoto()
         } catch {
             show(error)
         }
@@ -64,26 +68,19 @@ final class SwipeViewModel {
                 )
             )
             currentIndex += 1
+            await loadCurrentPhoto()
         } catch {
             show(error)
         }
     }
 
-    func plan() async -> UUID? {
-        guard isComplete, !isPlanning else { return nil }
-        isPlanning = true
-        defer { isPlanning = false }
-
-        do {
-            _ = try await apiClient.plan(
-                tripID: session.trip.id,
-                request: session.planRequest
-            )
-            return session.trip.id
-        } catch {
-            show(error)
-            return nil
-        }
+    private func loadCurrentPhoto() async {
+        currentPhoto = nil
+        guard let candidate = currentCandidate else { return }
+        currentPhoto = try? await apiClient.candidatePhoto(
+            tripID: session.trip.id,
+            candidateID: candidate.id
+        )
     }
 
     private func show(_ error: Error) {

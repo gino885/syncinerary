@@ -4,7 +4,15 @@ from __future__ import annotations
 from typing import ClassVar
 from uuid import UUID
 
-from syncinerary.domain.models import Constraint, Traveler, Trip, TripStatus
+from sqlalchemy import select
+
+from syncinerary.domain.models import (
+    Constraint,
+    ConstraintKind,
+    Traveler,
+    Trip,
+    TripStatus,
+)
 from syncinerary.store import tables
 from syncinerary.store.repositories.base import BaseRepository
 
@@ -12,6 +20,7 @@ from syncinerary.store.repositories.base import BaseRepository
 class TripRepository(BaseRepository[tables.Trip, Trip]):
     table = tables.Trip
     model = Trip
+    jsonb_fields = frozenset({"resolved_cities"})
 
     async def set_created_by(self, trip_id: UUID, traveler_id: UUID) -> Trip | None:
         """Set the creator after the traveler row exists.
@@ -85,3 +94,36 @@ class ConstraintRepository(BaseRepository[tables.TripConstraint, Constraint]):
             tables.TripConstraint.traveler_id == traveler_id,
             order_by=tables.TripConstraint.priority.desc(),
         )
+
+    async def set_group_constraint(
+        self,
+        trip_id: UUID,
+        *,
+        constraint_type: str,
+        value: dict,
+        priority: int,
+        kind: ConstraintKind,
+    ) -> Constraint:
+        """Idempotently set one group-level choice such as lodging."""
+        row = await self.session.scalar(
+            select(tables.TripConstraint).where(
+                tables.TripConstraint.trip_id == trip_id,
+                tables.TripConstraint.traveler_id.is_(None),
+                tables.TripConstraint.type == constraint_type,
+            )
+        )
+        if row is None:
+            return await self.add(
+                Constraint(
+                    trip_id=trip_id,
+                    type=constraint_type,
+                    value=value,
+                    priority=priority,
+                    kind=kind,
+                )
+            )
+        row.value_json = value
+        row.priority = priority
+        row.kind = kind
+        await self.session.flush()
+        return self.to_model(row)

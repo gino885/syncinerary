@@ -78,11 +78,43 @@ class ReplanStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class SocialPlatform(str, Enum):
+    INSTAGRAM = "instagram"
+    TIKTOK = "tiktok"
+    REDNOTE = "rednote"
+
+
+class AttachmentInputType(str, Enum):
+    LINK = "link"
+    SCREENSHOT = "screenshot"
+
+
+class AttachmentStatus(str, Enum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
 # ----- Core entities (mirror Postgres schema in CLAUDE.md §7) -----
 
 class Trip(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    # Display label for the trip, derived from `cities`.
     destination: str
+    # The cities the traveler typed. Gather searches each one and scopes every
+    # result to it, so this is the real input; `destination` is what the UI
+    # shows. Ordered as entered.
+    cities: list[str] = Field(default_factory=list)
+    # The country all of those cities are in. Trips do not span countries: the
+    # day plan assumes you can move between cities without a border or a
+    # long-haul flight in the middle of the trip.
+    country: str | None = None
+    # Where each typed city actually is, resolved once when the trip is
+    # created. Stored so gather does not resolve them again, and so an
+    # unknown city fails at the form rather than part-way through a search.
+    resolved_cities: list[dict[str, Any]] = Field(default_factory=list)
+    # IANA zone for the destination, looked up from the first city.
+    timezone: str | None = None
     start_date: date
     end_date: date
     days: int
@@ -99,6 +131,24 @@ class Traveler(BaseModel):
     profile: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceAttachment(BaseModel):
+    """A traveler-provided source waiting to become candidate evidence."""
+
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    traveler_id: UUID
+    platform: SocialPlatform
+    input_type: AttachmentInputType
+    status: AttachmentStatus = AttachmentStatus.PENDING
+    original_url: str | None = None
+    canonical_url: str | None = None
+    platform_id: str | None = None
+    screenshot_storage_key: str | None = None
+    extracted_text: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class Constraint(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     trip_id: UUID
@@ -111,7 +161,7 @@ class Constraint(BaseModel):
 
 class Source(BaseModel):
     """One row inside CandidatePlace.sources. Dedup unions these across sources."""
-    type: str  # 'backbone' | 'buzz' | 'personal'
+    type: str  # 'discovery' | 'buzz' | 'personal'
     score: float | None = None
     articles_count: int | None = None
     sources_count: int | None = None

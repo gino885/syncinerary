@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     # External tools
     google_maps_api_key: str = ""
+    brave_search_api_key: str = ""
+    attachment_upload_dir: str = ".data/attachments"
 
     # LLM
     anthropic_api_key: str = ""

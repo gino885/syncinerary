@@ -3,8 +3,8 @@ import SwiftUI
 struct ItineraryView: View {
     @State private var viewModel: ItineraryViewModel
 
-    init(tripID: UUID) {
-        _viewModel = State(initialValue: ItineraryViewModel(tripID: tripID))
+    init(session: TripSession) {
+        _viewModel = State(initialValue: ItineraryViewModel(session: session))
     }
 
     var body: some View {
@@ -15,12 +15,6 @@ struct ItineraryView: View {
                 ProgressView("Loading itinerary…")
             } else if let itinerary = viewModel.itinerary {
                 List {
-                    if let narrative = itinerary.narrative {
-                        Section("Your trip") {
-                            Text(narrative)
-                        }
-                    }
-
                     ForEach(itinerary.days) { day in
                         ItineraryDaySection(day: day)
                     }

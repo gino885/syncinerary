@@ -17,7 +17,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from syncinerary.agents.aggregate import aggregate_node
 from syncinerary.agents.explain import explain_node
-from syncinerary.agents.gather.fixture import gather_node
+from syncinerary.agents.gather.live import gather_node
 from syncinerary.agents.shortlist import shortlist_node
 from syncinerary.agents.solver.stage2_route import solver_node
 from syncinerary.config import settings

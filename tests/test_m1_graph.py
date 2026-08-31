@@ -10,10 +10,10 @@ import pytest_asyncio
 from syncinerary.agents import aggregate as aggregate_module
 from syncinerary.agents import explain as explain_module
 from syncinerary.agents import shortlist as shortlist_module
-from syncinerary.agents.gather import fixture as gather_module
+from syncinerary.agents.gather import live as gather_module
 from syncinerary.agents.graph import dispose_graph, graph_config, init_graph
 from syncinerary.agents.solver import stage2_route as solver_module
-from syncinerary.domain.models import TripState
+from syncinerary.domain.models import CandidatePlace, CandidateType, TripState
 from syncinerary.harness import wrapper as harness_wrapper_module
 from syncinerary.store.repositories import AgentRunRepository
 from syncinerary.tools.transit import (
@@ -72,6 +72,39 @@ def _use_test_session(monkeypatch, session) -> None:
     ):
         monkeypatch.setattr(module, "session_scope", test_scope)
 
+    async def discover(trip, _travelers=None):
+        swipeable = [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=(CandidateType.FOOD if index % 4 == 0 else CandidateType.ATTRACTION),
+                name_canonical=f"Live candidate {index:02d}",
+                lat=43.05 + (index % 7) * 0.002,
+                lng=141.34 + (index // 7) * 0.002,
+                hours_by_weekday={
+                    day: [[8, 20]]
+                    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+            )
+            for index in range(trip.days * 7)
+        ]
+        lodging = [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=CandidateType.LODGING,
+                name_canonical=f"Live hotel {index}",
+                lat=43.06 + index * 0.001,
+                lng=141.35,
+                hours_by_weekday={
+                    day: [[0, 24]]
+                    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+            )
+            for index in range(3)
+        ]
+        return swipeable + lodging
+
+    monkeypatch.setattr(gather_module, "discover_candidates", discover)
+
 
 @pytest_asyncio.fixture
 async def graph_runtime():
@@ -95,7 +128,8 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
     created_response = await client.post(
         "/trips",
         json={
-            "destination": "Hokkaido",
+            "cities": ["Hokkaido"],
+            "country": "Japan",
             "start_date": "2026-05-21",
             "end_date": "2026-05-22",
             "creator_name": "Gino",
@@ -116,7 +150,7 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         interrupted = await graph_runtime.aget_state(config)
         assert interrupted.next == ("aggregate",)
         interrupted_state = TripState.model_validate(interrupted.values)
-        assert len(interrupted_state.candidates) == 19  # 14 swipe cards plus 5 lodging
+        assert len(interrupted_state.candidates) == 17
 
         # Gather is idempotent and must not accidentally resume planning.
         gathered_again = await client.post(f"/trips/{trip_id}/gather")
@@ -169,7 +203,8 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         assert len(runs) == 1
         assert runs[0].kind == "plan"
         assert runs[0].status == "ok"
-        # Two day-level transit tool calls plus the explainer LLM call.
+        # Two day-level transit tool calls plus the explainer LLM call. No
+        # make-up re-solve: both days fill from the shortlist on the first pass.
         assert runs[0].step_count == 3
 
         # A completed thread returns the same version instead of appending one.
@@ -187,7 +222,8 @@ async def test_plan_before_gather_is_a_conflict(client, graph_runtime):
         await client.post(
             "/trips",
             json={
-                "destination": "Hokkaido",
+                "cities": ["Hokkaido"],
+                "country": "Japan",
                 "start_date": "2026-05-21",
                 "end_date": "2026-05-21",
                 "creator_name": "Gino",
@@ -207,7 +243,8 @@ async def test_itinerary_before_plan_is_not_found(client, graph_runtime):
         await client.post(
             "/trips",
             json={
-                "destination": "Hokkaido",
+                "cities": ["Hokkaido"],
+                "country": "Japan",
                 "start_date": "2026-05-21",
                 "end_date": "2026-05-21",
                 "creator_name": "Gino",

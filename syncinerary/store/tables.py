@@ -40,12 +40,15 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from syncinerary.domain.models import (
+    AttachmentInputType,
+    AttachmentStatus,
     BadgeType,
     CandidateType,
     ConstraintKind,
     ItineraryStatus,
     ReplanStatus,
     ReplanTrigger,
+    SocialPlatform,
     TripStatus,
     VoteSignal,
 )
@@ -93,6 +96,14 @@ class Trip(Base):
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
     destination: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    cities: Mapped[list[str]] = mapped_column(
+        ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    country: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    resolved_cities: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    timezone: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     start_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     end_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     days: Mapped[int] = mapped_column(sa.Integer, nullable=False)
@@ -120,6 +131,58 @@ class Traveler(Base):
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     home_city: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     profile_json: Mapped[dict[str, Any]] = _jsonb_dict()
+
+
+class SourceAttachment(Base):
+    """Raw user evidence before extraction and geocoding create candidates."""
+
+    __tablename__ = "source_attachment"
+
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    trip_id: Mapped[UUID] = mapped_column(
+        sa.Uuid, sa.ForeignKey("trip.id", ondelete="CASCADE"), nullable=False
+    )
+    traveler_id: Mapped[UUID] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("traveler.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    platform: Mapped[SocialPlatform] = mapped_column(
+        _pg_enum(SocialPlatform, "social_platform"), nullable=False
+    )
+    input_type: Mapped[AttachmentInputType] = mapped_column(
+        _pg_enum(AttachmentInputType, "attachment_input_type"), nullable=False
+    )
+    status: Mapped[AttachmentStatus] = mapped_column(
+        _pg_enum(AttachmentStatus, "attachment_status"),
+        nullable=False,
+        server_default=AttachmentStatus.PENDING.value,
+    )
+    original_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    canonical_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    platform_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    screenshot_storage_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    extracted_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = _jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "input_type <> 'link' OR "
+            "(original_url IS NOT NULL AND canonical_url IS NOT NULL)",
+            name="link_has_urls",
+        ),
+        sa.UniqueConstraint(
+            "trip_id",
+            "traveler_id",
+            "canonical_url",
+            name="uq_source_attachment_link_per_traveler",
+        ),
+        sa.Index("ix_source_attachment_trip_id_created_at", "trip_id", "created_at"),
+    )
 
 
 class TripConstraint(Base):

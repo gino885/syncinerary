@@ -62,7 +62,7 @@ def test_shortlist_module_imports_no_llm_sdk():
 
 def test_target_size_is_days_times_slots_per_day():
     assert target_size(5) == 5 * SLOTS_PER_DAY
-    assert target_size(5) == 30  # §16 default of 6 slots
+    assert target_size(5) == 35  # 7 slots: 3 to 5 sights plus lunch and dinner
 
 
 def test_target_size_scales_with_trip_length():
@@ -82,10 +82,10 @@ def test_top_n_are_shortlisted_and_the_rest_are_wishlisted():
     ranked = _ranked(40)
     selected, excluded = build_shortlist(ranked, days=5)
 
-    assert len(selected) == 30
-    assert len(excluded) == 10
-    assert selected == [s.candidate_id for s in ranked[:30]]
-    assert excluded == [s.candidate_id for s in ranked[30:]]
+    assert len(selected) == 35
+    assert len(excluded) == 5
+    assert selected == [s.candidate_id for s in ranked[:35]]
+    assert excluded == [s.candidate_id for s in ranked[35:]]
 
 
 def test_nothing_is_lost_between_the_two_lists():
@@ -191,8 +191,8 @@ async def test_shortlist_node_persists_the_state(session, monkeypatch):
 
     stored = await ShortlistStateRepository(session).get_for_trip(trip.id)
     assert stored is not None
-    assert len(stored.selected_candidate_ids) == 30
-    assert len(stored.wishlist_excluded_ids) == 10
+    assert len(stored.selected_candidate_ids) == 35
+    assert len(stored.wishlist_excluded_ids) == 5
     assert result["shortlist"].selected_candidate_ids == stored.selected_candidate_ids
 
 

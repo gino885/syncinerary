@@ -8,9 +8,29 @@ struct ItineraryStopRow: View {
             LabeledContent(stop.name, value: stop.timeRange)
                 .bold()
 
+            if let meal = stop.mealLabel {
+                Label(meal, systemImage: "fork.knife")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+
             if let area = stop.area {
                 Label(area, systemImage: "mappin")
                     .foregroundStyle(.secondary)
+            }
+
+            SourceBadgesView(badges: stop.sourceBadges)
+
+            if let description = stop.description {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let source = stop.descriptionSource {
+                Label("From \(source)", systemImage: "sparkles")
+                    .font(.footnote)
+                    .foregroundStyle(.blue)
             }
 
             if stop.transitFromPrevMin > 0 {

@@ -3,25 +3,67 @@ import Foundation
 @main
 enum APIContractTests {
     static func main() throws {
+        try encodeSeveralTypedCities()
         try encodeTripCreateRequest()
         try decodeTripCreatedResponse()
         try decodeGatherResponse()
+        try encodeAttachmentLinkRequest()
+        try decodeSourceAttachmentResponse()
         try decodeCandidateCard()
+        try decodeCandidatePhoto()
+        try decodeLodgingOptions()
+        try encodeLodgingSelection()
         try encodeVoteRequest()
         try decodeVoteResponse()
         try encodePlanRequest()
         try decodePlanResponse()
+        try buildItineraryViewerQuery()
         try decodeItineraryResponse()
         print("iOS API contract tests passed")
     }
 
-    private static func encodeTripCreateRequest() throws {
+    /// Cities are typed, so the request carries a list and must not
+    /// reintroduce a single chosen destination.
+    private static func encodeSeveralTypedCities() throws {
         let request = TripCreateRequest(
-            destination: "Hokkaido",
+            cities: ["Sapporo", "Otaru"],
+            country: "Japan",
             startDate: "2026-09-25",
             endDate: "2026-09-29",
             creatorName: "Gino",
-            creatorHomeCity: nil
+            creatorHomeCity: nil,
+            creatorInterests: [],
+            creatorDietaryExcludes: []
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Trip request must encode as a JSON object")
+        }
+
+        try require(
+            payload["cities"] as? [String] == ["Sapporo", "Otaru"],
+            "A trip must be able to search more than one typed city"
+        )
+        try require(
+            payload["country"] as? String == "Japan",
+            "A trip must name the one country its cities are in"
+        )
+        try require(
+            payload["destination"] == nil,
+            "The client must not send a destination: the backend derives it"
+        )
+    }
+
+    private static func encodeTripCreateRequest() throws {
+        let request = TripCreateRequest(
+            cities: ["Sapporo"],
+            country: "Japan",
+            startDate: "2026-09-25",
+            endDate: "2026-09-29",
+            creatorName: "Gino",
+            creatorHomeCity: nil,
+            creatorInterests: ["coffee", "architecture"],
+            creatorDietaryExcludes: ["seafood"]
         )
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
         guard let payload = object as? [String: Any] else {
@@ -30,6 +72,9 @@ enum APIContractTests {
 
         try require(payload["start_date"] as? String == "2026-09-25", "Trip request must encode start_date")
         try require(payload["creator_name"] as? String == "Gino", "Trip request must encode creator_name")
+        try require(payload["cities"] as? [String] == ["Sapporo"], "Trip request must encode the typed cities")
+        try require(payload["creator_interests"] as? [String] == ["coffee", "architecture"], "Trip request must encode interests")
+        try require(payload["creator_dietary_excludes"] as? [String] == ["seafood"], "Trip request must encode dietary exclusions")
     }
 
     private static func decodeTripCreatedResponse() throws {
@@ -38,7 +83,10 @@ enum APIContractTests {
             {
                 "trip": {
                     "id": "11111111-1111-1111-1111-111111111111",
-                    "destination": "Hokkaido",
+                    "destination": "Sapporo, Otaru",
+                    "cities": ["Sapporo", "Otaru"],
+                    "country": "Japan",
+                    "timezone": "Asia/Tokyo",
                     "start_date": "2026-09-25",
                     "end_date": "2026-09-29",
                     "days": 5,
@@ -55,6 +103,14 @@ enum APIContractTests {
             "POST /trips must decode traveler_id"
         )
         try require(response.trip.startDate == "2026-09-25", "Trip dates must decode")
+        try require(
+            response.trip.cities == ["Sapporo", "Otaru"],
+            "A trip must decode every city it is searching"
+        )
+        try require(
+            response.trip.timezone == "Asia/Tokyo",
+            "A trip must decode the destination's own timezone"
+        )
     }
 
     private static func decodeGatherResponse() throws {
@@ -63,6 +119,38 @@ enum APIContractTests {
             from: Data(#"{"deck_size":35}"#.utf8)
         )
         try require(response.deckSize == 35, "Gather response must decode deck_size")
+    }
+
+    private static func encodeAttachmentLinkRequest() throws {
+        let request = AttachmentLinkRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            url: "https://www.instagram.com/reel/Da2UDmNtLvp/",
+            placeName: "Otaru Canal"
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Attachment request must encode as a JSON object")
+        }
+
+        try require(
+            payload["traveler_id"] as? String == "22222222-2222-2222-2222-222222222222",
+            "Attachment request must encode traveler_id"
+        )
+        try require(
+            payload["place_name"] as? String == "Otaru Canal",
+            "Attachment request must encode an optional place_name"
+        )
+    }
+
+    private static func decodeSourceAttachmentResponse() throws {
+        let data = Data(
+            #"{"id":"77777777-7777-7777-7777-777777777777","platform":"instagram","input_type":"link","status":"ready","original_url":"https://www.instagram.com/reel/Da2UDmNtLvp/","canonical_url":"https://www.instagram.com/reel/Da2UDmNtLvp/","has_screenshot":false,"submitted_place_name":"Otaru Canal","candidate_id":"33333333-3333-3333-3333-333333333333","contributor":{"id":"22222222-2222-2222-2222-222222222222","name":"Gino"}}"#.utf8
+        )
+
+        let response = try JSONDecoder().decode(SourceAttachmentResponse.self, from: data)
+        try require(response.status == "ready", "Attachment status must decode")
+        try require(response.submittedPlaceName == "Otaru Canal", "Place name must decode")
+        try require(response.contributor.name == "Gino", "Contributor must decode")
     }
 
     private static func decodeCandidateCard() throws {
@@ -80,7 +168,13 @@ enum APIContractTests {
                 "category": "park",
                 "price_tier": 0,
                 "duration_estimate_min": 60,
-                "dietary_tags": []
+                "dietary_tags": [],
+                "dietary_notice": null,
+                "source_badges": [{
+                    "kind": "attached_by_you",
+                    "label": "Attached by you",
+                    "contributor_name": "Gino"
+                }]
             }
             """#.utf8
         )
@@ -88,6 +182,39 @@ enum APIContractTests {
         let response = try JSONDecoder().decode(CandidateCard.self, from: data)
         try require(response.nameCanonical == "Odori Park", "Candidate names must decode")
         try require(response.durationEstimateMin == 60, "Candidate durations must decode")
+        try require(response.sourceBadges[0].label == "Attached by you", "Source badges must decode")
+        try require(response.dietaryNotice == nil, "A non-food card has no dietary notice")
+    }
+
+    private static func decodeLodgingOptions() throws {
+        let data = Data(
+            #"[{"candidate_id":"66666666-6666-6666-6666-666666666666","name":"Central Hotel","area":"Sapporo Station","address":"Sapporo","price_tier":2,"trip_start_date":"2026-09-25","trip_end_date":"2026-09-29","availability_note":"Confirm availability."}]"#.utf8
+        )
+        let options = try JSONDecoder().decode([LodgingOption].self, from: data)
+        try require(options[0].name == "Central Hotel", "Lodging option names must decode")
+        try require(options[0].priceTier == 2, "Lodging price tiers must decode")
+    }
+
+    private static func encodeLodgingSelection() throws {
+        let request = LodgingSelectionRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222"),
+            candidateID: try uuid("66666666-6666-6666-6666-666666666666")
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Lodging selection must encode as a JSON object")
+        }
+        try require(payload["candidate_id"] as? String == "66666666-6666-6666-6666-666666666666", "Lodging selection must encode candidate_id")
+    }
+
+    private static func decodeCandidatePhoto() throws {
+        let data = Data(
+            #"{"provider":"google_places","photo_url":"https://example.com/place.jpg","width_px":1200,"height_px":800,"attributions":[{"display_name":"A Photographer","uri":"https://example.com/profile","photo_uri":null}]}"#.utf8
+        )
+
+        let response = try JSONDecoder().decode(CandidatePhoto.self, from: data)
+        try require(response.provider == "google_places", "Photo provider must decode")
+        try require(response.attributions[0].displayName == "A Photographer", "Photo attribution must decode")
     }
 
     private static func encodeVoteRequest() throws {
@@ -137,7 +264,7 @@ enum APIContractTests {
         }
 
         try require(payload["day_start"] as? String == "08:00:00", "Plan request must encode day_start")
-        try require(payload["day_end"] as? String == "20:00:00", "Plan request must encode day_end")
+        try require(payload["day_end"] as? String == "21:00:00", "Plan request must encode day_end")
     }
 
     private static func decodePlanResponse() throws {
@@ -156,6 +283,18 @@ enum APIContractTests {
         try require(response.versionNo == 1, "Plan response must decode version_no")
     }
 
+    private static func buildItineraryViewerQuery() throws {
+        let travelerID = try uuid("22222222-2222-2222-2222-222222222222")
+        let items = APIClient.itineraryQueryItems(travelerID: travelerID)
+
+        try require(items.count == 1, "Itinerary requests need one viewer query item")
+        try require(items[0].name == "traveler_id", "Itinerary requests must name traveler_id")
+        try require(
+            items[0].value == travelerID.uuidString,
+            "Itinerary requests must carry the current traveler_id"
+        )
+    }
+
     private static func decodeItineraryResponse() throws {
         let data = Data(
             #"""
@@ -170,10 +309,33 @@ enum APIContractTests {
                         "candidate_id": "33333333-3333-3333-3333-333333333333",
                         "name": "Odori Park",
                         "area": "Sapporo",
+                        "description": "An easy green pause between busier stops.",
+                        "description_source": "Travel guides",
                         "start_time": "09:00:00",
                         "end_time": "10:00:00",
                         "transit_from_prev_min": 0,
-                        "transit_from_prev_mode": null
+                        "transit_from_prev_mode": null,
+                        "source_badges": [{
+                            "kind": "discovered",
+                            "label": "Found on Google Maps",
+                            "contributor_name": null
+                        }]
+                    }, {
+                        "candidate_id": "77777777-7777-7777-7777-777777777777",
+                        "name": "Ramen Yokocho",
+                        "area": "Sapporo",
+                        "description": "An alley of ramen counters.",
+                        "description_source": "Google",
+                        "start_time": "12:00:00",
+                        "end_time": "13:15:00",
+                        "transit_from_prev_min": 12,
+                        "transit_from_prev_mode": "walking",
+                        "meal_slot": "lunch",
+                        "source_badges": [{
+                            "kind": "trending",
+                            "label": "Trending on TikTok, RedNote",
+                            "contributor_name": null
+                        }]
                     }]
                 }],
                 "narrative": "A relaxed first day.",
@@ -189,6 +351,26 @@ enum APIContractTests {
 
         let response = try JSONDecoder().decode(ItineraryResponse.self, from: data)
         try require(response.days[0].stops[0].name == "Odori Park", "Itinerary stops must decode")
+        try require(
+            response.days[0].stops[0].descriptionSource == "Travel guides",
+            "Itinerary description sources must decode"
+        )
+        try require(
+            response.days[0].stops[0].mealLabel == nil,
+            "A stop that is not a meal must carry no meal label"
+        )
+        try require(
+            response.days[0].stops[1].mealLabel == "Lunch",
+            "Itinerary meal slots must decode and read back capitalised"
+        )
+        try require(
+            response.days[0].stops[0].sourceBadges[0].label == "Found on Google Maps",
+            "An itinerary stop must say where the place came from"
+        )
+        try require(
+            response.days[0].stops[1].sourceBadges[0].kind == "trending",
+            "Buzz provenance must survive onto the itinerary"
+        )
         try require(response.wishlistNotPlaced.count == 1, "Wishlist reasons must decode")
     }
 

@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class ItineraryViewModel {
-    let tripID: UUID
+    let session: TripSession
 
     var itinerary: ItineraryResponse?
     var isLoading = false
@@ -13,8 +13,8 @@ final class ItineraryViewModel {
 
     private let apiClient: APIClient
 
-    init(tripID: UUID, apiClient: APIClient = .shared) {
-        self.tripID = tripID
+    init(session: TripSession, apiClient: APIClient = .shared) {
+        self.session = session
         self.apiClient = apiClient
     }
 
@@ -23,7 +23,10 @@ final class ItineraryViewModel {
         defer { isLoading = false }
 
         do {
-            itinerary = try await apiClient.itinerary(tripID: tripID)
+            itinerary = try await apiClient.itinerary(
+                tripID: session.trip.id,
+                travelerID: session.travelerID
+            )
         } catch {
             errorMessage = error.localizedDescription
             isShowingError = true

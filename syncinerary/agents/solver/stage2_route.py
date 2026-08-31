@@ -1,19 +1,18 @@
 """M1 single-stage itinerary solver.
 
 This is deliberately narrower than the final two-stage design in CLAUDE.md
-§11. M1 keeps the shortlist's score order, chunks it evenly across trip days,
-then uses CP-SAT independently per day to choose visit order and times from
-opening hours plus Google transit durations.
+§11. M1 keeps the shortlist's score priority while grouping nearby places
+into balanced days, then uses CP-SAT independently per day to choose visit
+order and times from opening hours plus Google transit durations.
 
-TODO(M5): replace the placeholder day chunking with stage1_days.py and add
-weather, fatigue, diversity, dispersion, pinned anchors and must-go handling.
+TODO(M5): expand stage1_days.py with weather, fatigue, diversity, dispersion,
+pinned anchors and must-go handling.
 
 NO LLM IN THIS FILE. Feasibility and final ordering are deterministic work
 owned by OR-Tools under CLAUDE.md §2.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any, Protocol
 from uuid import UUID
@@ -22,14 +21,24 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
+from syncinerary.agents.solver.stage1_days import assign_days_by_city
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
     M1_DESTINATION_TIMEZONE,
+    MEAL_WINDOWS,
+    MIN_STOPS_PER_DAY,
+    NEARBY_WALKING_KM,
+    OPTIONAL_MEALS,
+    REQUIRED_MEALS,
+    TOPUP_CANDIDATES_PER_ROUND,
+    TOPUP_MAX_DETOUR_KM,
+    TOPUP_MAX_ROUNDS,
 )
 from syncinerary.domain.models import (
     CandidatePlace,
+    CandidateType,
     ItineraryNode,
     ItineraryStatus,
     ItineraryVersion,
@@ -51,6 +60,7 @@ from syncinerary.tools.transit import (
     PairwiseTransitRequest,
     TransitLocation,
     TransitMatrix,
+    haversine_km,
 )
 
 
@@ -77,6 +87,8 @@ class ScheduledStop(BaseModel):
     end_minute: int
     transit_from_prev_min: int = 0
     transit_from_prev_mode: str | None = None
+    # Which meal this stop fills, when it is a food stop inside a meal window.
+    meal_slot: str | None = None
 
 
 class UnplacedCandidate(BaseModel):
@@ -90,10 +102,44 @@ class DayRoute(BaseModel):
     stops: list[ScheduledStop] = Field(default_factory=list)
     unplaced: list[UnplacedCandidate] = Field(default_factory=list)
     total_transit_minutes: int = 0
+    meals_covered: list[str] = Field(default_factory=list)
+
+    @property
+    def missing_required_meals(self) -> list[str]:
+        return [meal for meal in REQUIRED_MEALS if meal not in self.meals_covered]
+
+    @property
+    def is_thin(self) -> bool:
+        """A day worth topping up: too few stops, or missing lunch or dinner."""
+        return len(self.stops) < MIN_STOPS_PER_DAY or bool(self.missing_required_meals)
 
 
 class SolverResult(BaseModel):
     routes: list[DayRoute]
+
+    def wishlist(self, shortlisted: list[UUID]) -> list[UnplacedCandidate]:
+        """Shortlisted cards no day ended up placing, each reported once.
+
+        A card one day could not fit is not unplaced if the make-up pass
+        seated it on another day. Cards the group excluded never enter the
+        solver.
+        """
+        placed = {stop.candidate_id for route in self.routes for stop in route.stops}
+        wanted = [candidate_id for candidate_id in shortlisted if candidate_id not in placed]
+        reasons: dict[UUID, UnplacedCandidate] = {}
+        for route in self.routes:
+            for item in route.unplaced:
+                reasons.setdefault(item.candidate_id, item)
+        return [reasons[candidate_id] for candidate_id in wanted if candidate_id in reasons]
+
+    @property
+    def meal_coverage_count(self) -> int:
+        return sum(
+            1
+            for route in self.routes
+            for meal in REQUIRED_MEALS
+            if meal in route.meals_covered
+        )
 
     @property
     def placed_count(self) -> int:
@@ -116,20 +162,6 @@ def _as_time(minutes: int) -> time:
     return time(hour=minutes // 60, minute=minutes % 60)
 
 
-def chunk_evenly[T](items: Sequence[T], bucket_count: int) -> list[list[T]]:
-    """Contiguous score-ordered buckets whose sizes differ by at most one."""
-    if bucket_count <= 0:
-        return []
-    base, remainder = divmod(len(items), bucket_count)
-    buckets: list[list[T]] = []
-    offset = 0
-    for index in range(bucket_count):
-        size = base + (1 if index < remainder else 0)
-        buckets.append(list(items[offset : offset + size]))
-        offset += size
-    return buckets
-
-
 def _open_windows(
     candidate: CandidatePlace,
     trip_date: date,
@@ -146,6 +178,57 @@ def _open_windows(
         if start + duration <= end:
             windows.append((start, end))
     return windows
+
+
+def _meal_slot_windows(options: SolverOptions) -> dict[str, tuple[int, int]]:
+    """Meal windows clipped to the configured day, dropping any that vanish."""
+    day_start = _minute_of_day(options.day_start)
+    day_end = _minute_of_day(options.day_end)
+    slots: dict[str, tuple[int, int]] = {}
+    for name, (start_hour, end_hour) in MEAL_WINDOWS.items():
+        start = max(day_start, start_hour * 60)
+        end = min(day_end, end_hour * 60)
+        if start < end:
+            slots[name] = (start, end)
+    return slots
+
+
+def _eligible_meal_slots(
+    candidate: CandidatePlace,
+    open_windows: list[tuple[int, int]],
+    meal_slots: dict[str, tuple[int, int]],
+) -> list[str]:
+    """Meal slots this food candidate can actually sit a full visit inside."""
+    duration = candidate.duration_estimate_min
+    eligible: list[str] = []
+    for name, (slot_start, slot_end) in meal_slots.items():
+        for window_start, window_end in open_windows:
+            start = max(window_start, slot_start)
+            end = min(window_end, slot_end)
+            if start + duration <= end:
+                eligible.append(name)
+                break
+    return eligible
+
+
+def _estimated_leg(
+    origin: CandidatePlace,
+    destination: CandidatePlace,
+) -> tuple[int, str] | None:
+    """Estimate only a nearby walking leg the provider could not route.
+
+    The group chose walking for nearby pairs and public transit for longer
+    pairs. A missing long transit route stays missing rather than becoming an
+    invented car journey the group never selected.
+    """
+    distance_km = haversine_km(
+        TransitLocation(lat=origin.lat, lng=origin.lng),
+        TransitLocation(lat=destination.lat, lng=destination.lng),
+    )
+    if distance_km <= NEARBY_WALKING_KM:
+        # Walking pace, 5 km/h.
+        return max(5, round(distance_km * 12)), "walking_estimated"
+    return None
 
 
 def _location(candidate: CandidatePlace) -> TransitLocation:
@@ -193,6 +276,40 @@ def solve_day(
     if not open_candidates:
         return DayRoute(day=day, unplaced=unplaced)
 
+    # Food only counts as a meal when it sits inside a meal window, so a
+    # restaurant whose hours never meet one is rejected here with its own
+    # reason rather than looking like a routing failure later.
+    meal_slots = _meal_slot_windows(options)
+    eligible_meals: dict[UUID, list[str]] = {}
+    routable: list[CandidatePlace] = []
+    for candidate in open_candidates:
+        if candidate.type is not CandidateType.FOOD:
+            routable.append(candidate)
+            continue
+        eligible = _eligible_meal_slots(
+            candidate,
+            windows_by_id[candidate.id],
+            meal_slots,
+        )
+        if not eligible:
+            unplaced.append(
+                UnplacedCandidate(
+                    candidate_id=candidate.id,
+                    reason_code="no_meal_slot",
+                    reason_text=(
+                        f"{candidate.name_canonical} is not open during breakfast, "
+                        f"lunch, or dinner on {trip_date.isoformat()}."
+                    ),
+                )
+            )
+            continue
+        eligible_meals[candidate.id] = eligible
+        routable.append(candidate)
+
+    open_candidates = routable
+    if not open_candidates:
+        return DayRoute(day=day, unplaced=unplaced)
+
     locations = {candidate.id: _location(candidate) for candidate in open_candidates}
     candidate_by_cache_id = {
         location.cache_id: candidate_id for candidate_id, location in locations.items()
@@ -218,6 +335,7 @@ def solve_day(
     ends: dict[int, cp_model.IntVar] = {}
     start_costs: dict[int, cp_model.IntVar] = {}
     arcs: dict[tuple[int, int], cp_model.IntVar] = {}
+    meal_assignment: dict[tuple[int, str], cp_model.IntVar] = {}
     circuit: list[tuple[int, int, cp_model.IntVar]] = []
 
     empty = model.new_bool_var("empty_day")
@@ -246,6 +364,21 @@ def solve_day(
             model.add(ends[index] <= window_end).only_enforce_if(chosen)
         model.add(sum(interval_choices) == active[index])
 
+        if candidate.id in eligible_meals:
+            for meal in eligible_meals[candidate.id]:
+                slot_start, slot_end = meal_slots[meal]
+                assigned = model.new_bool_var(f"meal_{index}_{meal}")
+                meal_assignment[(index, meal)] = assigned
+                model.add(starts[index] >= slot_start).only_enforce_if(assigned)
+                model.add(ends[index] <= slot_end).only_enforce_if(assigned)
+            model.add(
+                sum(
+                    meal_assignment[(index, meal)]
+                    for meal in eligible_meals[candidate.id]
+                )
+                == active[index]
+            )
+
         self_loop = model.new_bool_var(f"skip_{index}")
         model.add(self_loop + active[index] == 1)
         circuit.append((index, index, self_loop))
@@ -262,7 +395,10 @@ def solve_day(
                 continue
             leg = leg_by_pair.get((origin.id, destination.id))
             if leg is None:
-                continue
+                leg = _estimated_leg(origin, destination)
+                if leg is None:
+                    continue
+                leg_by_pair[(origin.id, destination.id)] = leg
             transit_minutes, _mode = leg
             arc = model.new_bool_var(f"arc_{origin_index}_{destination_index}")
             arcs[(origin_index, destination_index)] = arc
@@ -291,12 +427,43 @@ def solve_day(
         transit_minutes, _mode = leg_by_pair[(origin.id, destination.id)]
         transit_terms.append(transit_minutes * arc)
 
+    # One food stop per meal window at most: covered is boolean, so the
+    # equality below also stops the day from scheduling two lunches.
+    covered: dict[str, cp_model.IntVar] = {}
+    for meal in meal_slots:
+        terms = [
+            variable
+            for (_index, assigned_meal), variable in meal_assignment.items()
+            if assigned_meal == meal
+        ]
+        if not terms:
+            continue
+        covered[meal] = model.new_bool_var(f"covered_{meal}")
+        model.add(covered[meal] == sum(terms))
+
     max_start_cost = (day_end - day_start) * count
     transit_weight = max_start_cost + 1
     max_transit_cost = cap_minutes * max(0, count - 1) * transit_weight
     unplaced_penalty = max_transit_cost + max_start_cost + 1
+    # Lunch and dinner are worth exactly one ordinary stop plus a tiebreak, so
+    # a day will swap one sight for a meal and never two. At three times the
+    # placement penalty the solver was dropping four sights to seat two meals,
+    # which is how days came back holding nothing but restaurants.
+    required_meal_penalty = unplaced_penalty + max_transit_cost + max_start_cost
+    # Breakfast sits just under a single placement: it is taken when it is
+    # free, and never at the cost of another stop.
+    optional_meal_penalty = max_transit_cost + max_start_cost
+
+    meal_terms = []
+    for meal, variable in covered.items():
+        if meal in REQUIRED_MEALS:
+            meal_terms.append(required_meal_penalty * (1 - variable))
+        elif meal in OPTIONAL_MEALS:
+            meal_terms.append(optional_meal_penalty * (1 - variable))
+
     model.minimize(
         unplaced_penalty * (count - sum(active.values()))
+        + sum(meal_terms)
         + transit_weight * sum(transit_terms)
         + sum(start_costs.values())
     )
@@ -344,6 +511,14 @@ def solve_day(
         if previous_id is not None:
             transit_minutes, mode = leg_by_pair[(previous_id, candidate.id)]
             total_transit += transit_minutes
+        meal_slot = next(
+            (
+                meal
+                for (meal_index, meal), variable in meal_assignment.items()
+                if meal_index == index and solver.value(variable)
+            ),
+            None,
+        )
         stops.append(
             ScheduledStop(
                 candidate_id=candidate.id,
@@ -352,6 +527,7 @@ def solve_day(
                 end_minute=solver.value(ends[index]),
                 transit_from_prev_min=transit_minutes,
                 transit_from_prev_mode=mode,
+                meal_slot=meal_slot,
             )
         )
         previous_id = candidate.id
@@ -378,7 +554,130 @@ def solve_day(
         stops=stops,
         unplaced=unplaced,
         total_transit_minutes=total_transit,
+        meals_covered=[
+            meal for meal in MEAL_WINDOWS if any(s.meal_slot == meal for s in stops)
+        ],
     )
+
+
+async def _solve_one_day(
+    bucket: list[CandidatePlace],
+    *,
+    day: int,
+    trip_date: date,
+    transit_provider: TransitProvider,
+    options: SolverOptions,
+) -> DayRoute:
+    """Fetch this day's pairwise transit and route it."""
+    timezone = ZoneInfo(options.timezone)
+    departure_at = datetime.combine(trip_date, options.day_start, tzinfo=timezone)
+    routable = [
+        candidate
+        for candidate in bucket
+        if _open_windows(candidate, trip_date, options)
+    ]
+    transit_request = PairwiseTransitRequest(
+        locations=[_location(candidate) for candidate in routable],
+        departure_window=(
+            f"{trip_date.isoformat()}-{options.day_start.strftime('%H%M')}"
+        ),
+        departure_at=departure_at,
+    )
+    matrix = await run_tool(
+        ToolDefinition(
+            name="transit.prefetch_pairwise",
+            input_model=PairwiseTransitRequest,
+            output_model=TransitMatrix,
+            handler=transit_provider.prefetch_pairwise,
+        ),
+        transit_request,
+        state={
+            "node": "solver",
+            "day": day,
+            "candidate_ids": [str(candidate.id) for candidate in bucket],
+        },
+    )
+    assert isinstance(matrix, TransitMatrix)
+    return solve_day(
+        bucket,
+        day=day,
+        trip_date=trip_date,
+        transit=matrix,
+        options=options,
+    )
+
+
+def _centre(candidates: list[CandidatePlace]) -> tuple[float, float]:
+    return (
+        sum(candidate.lat for candidate in candidates) / len(candidates),
+        sum(candidate.lng for candidate in candidates) / len(candidates),
+    )
+
+
+def _offers_for_day(
+    route: DayRoute,
+    bucket: list[CandidatePlace],
+    pool: list[CandidatePlace],
+    *,
+    trip_date: date,
+    options: SolverOptions,
+    limit: int,
+) -> list[CandidatePlace]:
+    """Nearest usable stand-ins for a thin day, meals first when one is missing.
+
+    Only candidates open on this date and within a walkable-ish detour of the
+    day are offered. The radius is what keeps the make-up plan local: lunch and
+    dinner are weighted heavily enough that an unbounded offer list would send
+    a day across the region for a meal, and take the restaurant the next day
+    was going to use while it was there.
+    """
+    anchor = [
+        candidate
+        for candidate in bucket
+        if candidate.id in {stop.candidate_id for stop in route.stops}
+    ] or bucket
+    if not anchor:
+        return []
+    centre_lat, centre_lng = _centre(anchor)
+    origin = TransitLocation(lat=centre_lat, lng=centre_lng)
+
+    missing_meals = set(route.missing_required_meals)
+    meal_slots = _meal_slot_windows(options)
+    ranked: list[tuple[int, float, str, CandidatePlace]] = []
+    for candidate in pool:
+        windows = _open_windows(candidate, trip_date, options)
+        if not windows:
+            continue
+        is_food = candidate.type is CandidateType.FOOD
+        if is_food:
+            eligible = set(_eligible_meal_slots(candidate, windows, meal_slots))
+            if not eligible:
+                continue
+            # A day short of lunch or dinner takes food that can fill the gap
+            # before it takes another sight.
+            priority = 0 if eligible & missing_meals else 2
+        else:
+            priority = 1 if missing_meals else 0
+        distance = haversine_km(
+            origin,
+            TransitLocation(lat=candidate.lat, lng=candidate.lng),
+        )
+        if distance > TOPUP_MAX_DETOUR_KM:
+            continue
+        ranked.append((priority, distance, str(candidate.id), candidate))
+
+    ranked.sort(key=lambda row: row[:3])
+    return [row[3] for row in ranked[:limit]]
+
+
+def _is_better(trial: DayRoute, current: DayRoute) -> bool:
+    """A required meal may trade for one stop, never two."""
+    def key(route: DayRoute) -> tuple[int, int, int, int]:
+        meals = sum(1 for meal in REQUIRED_MEALS if meal in route.meals_covered)
+        stops = len(route.stops)
+        return (stops + meals, meals, stops, -route.total_transit_minutes)
+
+    return key(trial) > key(current)
 
 
 async def solve_routes(
@@ -388,51 +687,111 @@ async def solve_routes(
     *,
     options: SolverOptions | None = None,
 ) -> SolverResult:
-    """Placeholder day assignment followed by independent per-day CP-SAT."""
+    """Geographic day assignment, per-day CP-SAT, then a make-up pass.
+
+    The first pass routes the shortlist. Any day that comes back below the
+    configured stop floor, or without lunch or dinner, then gets a bounded
+    top-up: selected candidates another day could not fit are offered to it and
+    the day is re-solved. The re-solve is
+    kept only when it strictly improves that day, so the make-up pass can
+    never make an itinerary worse than the plain shortlist run.
+    """
     options = options or SolverOptions()
-    buckets = chunk_evenly(candidates, state.trip.days)
+    buckets = assign_days_by_city(
+        candidates,
+        state.trip.days,
+        state.trip.cities,
+    )
+    candidate_by_id = {candidate.id: candidate for candidate in candidates}
+    candidate_rank = {
+        candidate.id: index for index, candidate in enumerate(candidates)
+    }
     routes: list[DayRoute] = []
-    timezone = ZoneInfo(options.timezone)
 
     for day, bucket in enumerate(buckets):
-        trip_date = state.trip.start_date + timedelta(days=day)
-        departure_at = datetime.combine(trip_date, options.day_start, tzinfo=timezone)
-        routable = [
-            candidate
-            for candidate in bucket
-            if _open_windows(candidate, trip_date, options)
-        ]
-        transit_request = PairwiseTransitRequest(
-            locations=[_location(candidate) for candidate in routable],
-            departure_window=(
-                f"{trip_date.isoformat()}-{options.day_start.strftime('%H%M')}"
-            ),
-            departure_at=departure_at,
-        )
-        matrix = await run_tool(
-            ToolDefinition(
-                name="transit.prefetch_pairwise",
-                input_model=PairwiseTransitRequest,
-                output_model=TransitMatrix,
-                handler=transit_provider.prefetch_pairwise,
-            ),
-            transit_request,
-            state={
-                "node": "solver",
-                "day": day,
-                "candidate_ids": [str(candidate.id) for candidate in bucket],
-            },
-        )
-        assert isinstance(matrix, TransitMatrix)
         routes.append(
-            solve_day(
+            await _solve_one_day(
                 bucket,
                 day=day,
-                trip_date=trip_date,
-                transit=matrix,
+                trip_date=state.trip.start_date + timedelta(days=day),
+                transit_provider=transit_provider,
                 options=options,
             )
         )
+
+    placed = {stop.candidate_id for route in routes for stop in route.stops}
+    seen: set[UUID] = set(placed)
+    pool: list[CandidatePlace] = []
+    for candidate in candidates:
+        if candidate.id not in seen:
+            seen.add(candidate.id)
+            pool.append(candidate)
+
+    for _round in range(TOPUP_MAX_ROUNDS):
+        if not pool:
+            break
+        improved = False
+        for day, route in enumerate(routes):
+            if not route.is_thin or not pool:
+                continue
+            trip_date = state.trip.start_date + timedelta(days=day)
+            offers = _offers_for_day(
+                route,
+                buckets[day],
+                pool,
+                trip_date=trip_date,
+                options=options,
+                limit=TOPUP_CANDIDATES_PER_ROUND,
+            )
+            if not offers:
+                continue
+            trial_bucket = buckets[day] + offers
+            trial = await _solve_one_day(
+                trial_bucket,
+                day=day,
+                trip_date=trip_date,
+                transit_provider=transit_provider,
+                options=options,
+            )
+            if not _is_better(trial, route):
+                continue
+            previous_ids = {stop.candidate_id for stop in route.stops}
+            trial_ids = {stop.candidate_id for stop in trial.stops}
+            newly_placed = trial_ids - previous_ids
+            dropped = previous_ids - trial_ids
+            routes[day] = trial
+            buckets[day] = trial_bucket
+            improved = True
+
+            # A card moved onto this day must leave every other future trial
+            # bucket. Otherwise a later make-up solve can schedule it twice.
+            for other_day in range(len(buckets)):
+                if other_day == day:
+                    continue
+                buckets[other_day] = [
+                    candidate
+                    for candidate in buckets[other_day]
+                    if candidate.id not in newly_placed
+                ]
+
+            placed_now = {
+                stop.candidate_id
+                for current_route in routes
+                for stop in current_route.stops
+            }
+            pool_by_id = {candidate.id: candidate for candidate in pool}
+            for candidate_id in dropped:
+                pool_by_id[candidate_id] = candidate_by_id[candidate_id]
+            pool = sorted(
+                (
+                    candidate
+                    for candidate_id, candidate in pool_by_id.items()
+                    if candidate_id not in placed_now
+                ),
+                key=lambda candidate: candidate_rank[candidate.id],
+            )
+        if not improved:
+            break
 
     return SolverResult(routes=routes)
 
@@ -454,13 +813,23 @@ async def solver_node(state: TripState) -> dict[str, Any]:
             )
             if shortlist is None:
                 raise ValueError("Cannot solve a trip before its shortlist exists")
-            candidates = await CandidatePlaceRepository(session).list_by_ids(
-                shortlist.selected_candidate_ids
-            )
+            repo = CandidatePlaceRepository(session)
+            candidates = await repo.list_by_ids(shortlist.selected_candidate_ids)
 
-        options = SolverOptions(day_start=state.day_start, day_end=state.day_end)
+        options = SolverOptions(
+            day_start=state.day_start,
+            day_end=state.day_end,
+            # The destination's own clock, resolved when the trip was created.
+            # Older trips predate the column and keep the previous constant.
+            timezone=trip.timezone or M1_DESTINATION_TIMEZONE,
+        )
         async with _make_transit_client() as transit_client:
-            result = await solve_routes(state, candidates, transit_client, options=options)
+            result = await solve_routes(
+                state,
+                candidates,
+                transit_client,
+                options=options,
+            )
 
         async with session_scope() as session:
             versions = ItineraryVersionRepository(session)
@@ -478,6 +847,8 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     objective_breakdown={
                         "placed_count": float(result.placed_count),
                         "total_transit_minutes": float(result.total_transit_minutes),
+                        "required_meals_covered": float(result.meal_coverage_count),
+                        "required_meals_target": float(len(REQUIRED_MEALS) * trip.days),
                     },
                 )
             )
@@ -504,14 +875,21 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     reason_code=item.reason_code,
                     reason_text=item.reason_text,
                 )
-                for route in result.routes
-                for item in route.unplaced
+                for item in result.wishlist(shortlist.selected_candidate_ids)
             ]
             await WishlistNotPlacedRepository(session).add_many(wishlist)
 
         span.set_attribute("solver.placed_count", result.placed_count)
-        span.set_attribute("solver.unplaced_count", sum(len(r.unplaced) for r in result.routes))
+        span.set_attribute(
+            "solver.unplaced_count",
+            len(result.wishlist(shortlist.selected_candidate_ids)),
+        )
         span.set_attribute("solver.total_transit_minutes", result.total_transit_minutes)
+        span.set_attribute("solver.required_meals_covered", result.meal_coverage_count)
+        span.set_attribute(
+            "solver.thin_day_count",
+            sum(1 for route in result.routes if route.is_thin),
+        )
         return {"current_itinerary": version}
 
 
@@ -521,7 +899,6 @@ __all__ = [
     "SolverOptions",
     "SolverResult",
     "UnplacedCandidate",
-    "chunk_evenly",
     "solve_day",
     "solve_routes",
     "solver_node",

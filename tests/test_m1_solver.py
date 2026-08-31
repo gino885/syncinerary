@@ -10,10 +10,11 @@ from typing import Self
 from uuid import uuid4
 
 from syncinerary.agents.solver import stage2_route as solver_module
+from syncinerary.agents.solver.stage1_days import chunk_evenly
 from syncinerary.agents.solver.stage2_route import (
     SolverOptions,
-    chunk_evenly,
     solve_day,
+    solve_routes,
     solver_node,
 )
 from syncinerary.domain.models import (
@@ -126,6 +127,26 @@ class StubTransitClient:
         return TransitMatrix(legs=legs)
 
 
+class NearbyOnlyTransitClient:
+    """A transit graph where each local cluster is routable on its own."""
+
+    async def prefetch_pairwise(self, request: PairwiseTransitRequest) -> TransitMatrix:
+        legs = [
+            TransitDuration(
+                origin=origin,
+                destination=destination,
+                mode=TransitMode.WALKING,
+                departure_window=request.departure_window,
+                duration_seconds=10 * 60,
+                duration_minutes=10,
+            )
+            for origin in request.locations
+            for destination in request.locations
+            if origin != destination and abs(origin.lat - destination.lat) < 0.1
+        ]
+        return TransitMatrix(legs=legs)
+
+
 def _use_test_session(monkeypatch, session) -> None:
     @asynccontextmanager
     async def test_scope():
@@ -145,6 +166,31 @@ def test_chunk_evenly_keeps_score_order_and_balances_days():
 
 def test_five_day_thirty_card_shortlist_becomes_six_per_day():
     assert [len(bucket) for bucket in chunk_evenly(list(range(30)), 5)] == [6] * 5
+
+
+async def test_day_assignment_groups_nearby_places_to_avoid_sparse_days():
+    hours = {"thu": [[8, 20]], "fri": [[8, 20]]}
+    north_one = _place("North one", 44.00, 142.00).model_copy(
+        update={"hours_by_weekday": hours}
+    )
+    south_one = _place("South one", 42.00, 140.00).model_copy(
+        update={"hours_by_weekday": hours}
+    )
+    north_two = _place("North two", 44.01, 142.01).model_copy(
+        update={"hours_by_weekday": hours}
+    )
+    south_two = _place("South two", 42.01, 140.01).model_copy(
+        update={"hours_by_weekday": hours}
+    )
+
+    result = await solve_routes(
+        TripState(trip=_trip(days=2)),
+        [north_one, south_one, north_two, south_two],
+        NearbyOnlyTransitClient(),
+    )
+
+    assert [len(route.stops) for route in result.routes] == [2, 2]
+    assert result.placed_count == 4
 
 
 # ----- CP-SAT day route -----
@@ -305,6 +351,40 @@ async def test_solver_node_persists_active_append_only_itinerary(session, monkey
         ItineraryStatus.ACTIVE,
     ]
     assert len(await ItineraryNodeRepository(session).list_for_version(first.id)) == 2
+
+
+async def test_solver_node_never_schedules_a_card_the_group_excluded(
+    session,
+    monkeypatch,
+):
+    trip = await TripRepository(session).add(_trip())
+    selected, excluded = await CandidatePlaceRepository(session).add_many(
+        [
+            _place("Selected museum", 43.060, 141.350).model_copy(
+                update={"trip_id": trip.id}
+            ),
+            _place("Excluded annex", 43.061, 141.351).model_copy(
+                update={"trip_id": trip.id}
+            ),
+        ]
+    )
+    shortlist = await ShortlistStateRepository(session).upsert(
+        ShortlistState(
+            trip_id=trip.id,
+            selected_candidate_ids=[selected.id],
+            wishlist_excluded_ids=[excluded.id],
+        )
+    )
+    state = TripState(trip=trip, shortlist=shortlist)
+    _use_test_session(monkeypatch, session)
+    monkeypatch.setattr(solver_module, "_make_transit_client", StubTransitClient)
+
+    result = await solver_node(state)
+    nodes = await ItineraryNodeRepository(session).list_for_version(
+        result["current_itinerary"].id
+    )
+
+    assert [node.candidate_id for node in nodes] == [selected.id]
 
 
 def test_solver_module_has_no_llm_sdk_import():

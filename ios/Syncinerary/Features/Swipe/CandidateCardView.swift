@@ -2,10 +2,16 @@ import SwiftUI
 
 struct CandidateCardView: View {
     let candidate: CandidateCard
+    let photo: CandidatePhoto?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading) {
+                CandidatePhotoView(
+                    photo: photo,
+                    placeName: candidate.nameCanonical
+                )
+
                 Text(candidate.nameCanonical)
                     .font(.title)
                     .bold()
@@ -20,6 +26,8 @@ struct CandidateCardView: View {
                     Label(area, systemImage: "mappin.and.ellipse")
                 }
 
+                SourceBadgesView(badges: candidate.sourceBadges)
+
                 Label(
                     "^[\(candidate.durationEstimateMin) minute](inflect: true)",
                     systemImage: "clock"
@@ -33,10 +41,17 @@ struct CandidateCardView: View {
                     Text(address)
                         .foregroundStyle(.secondary)
                 }
+
+
+                if let notice = candidate.dietaryNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Dietary information: \(notice)")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(.thinMaterial)
+            .background(.blue.opacity(0.06))
             .clipShape(.rect(cornerRadius: AppLayout.cardCornerRadius))
             .padding()
         }
@@ -57,7 +72,16 @@ struct CandidateCardView: View {
             category: "park",
             priceTier: 1,
             durationEstimateMin: 60,
-            dietaryTags: []
-        )
+            dietaryTags: [],
+            dietaryNotice: nil,
+            sourceBadges: [
+                SourceBadge(
+                    kind: "attached_by_you",
+                    label: "Attached by you",
+                    contributorName: "Gino"
+                )
+            ]
+        ),
+        photo: nil
     )
 }

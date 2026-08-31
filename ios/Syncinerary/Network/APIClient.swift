@@ -16,9 +16,20 @@ actor APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    /// Gather now runs a destination search, three social searches, entity
+    /// extraction, and geocoding before it returns, which can take well over
+    /// the 60 second default. Planning re-solves thin days on top of the
+    /// per-day routing. Both need a longer ceiling than `URLSession.shared`.
+    private static let longRunningSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 180
+        configuration.timeoutIntervalForResource = 300
+        return URLSession(configuration: configuration)
+    }()
+
     init(
         baseURL: URL = APIClient.localBaseURL,
-        session: URLSession = .shared
+        session: URLSession = APIClient.longRunningSession
     ) {
         self.baseURL = baseURL
         self.session = session
@@ -39,8 +50,33 @@ actor APIClient {
         try await post(path: "trips/\(tripID)/gather", body: EmptyRequest())
     }
 
-    func candidates(tripID: UUID) async throws -> [CandidateCard] {
-        try await get(path: "trips/\(tripID)/candidates")
+    func attachLink(
+        tripID: UUID,
+        request: AttachmentLinkRequest
+    ) async throws -> SourceAttachmentResponse {
+        try await post(path: "trips/\(tripID)/attachments/links", body: request)
+    }
+
+    func candidates(tripID: UUID, travelerID: UUID) async throws -> [CandidateCard] {
+        try await get(
+            path: "trips/\(tripID)/candidates",
+            queryItems: [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
+        )
+    }
+
+    func candidatePhoto(tripID: UUID, candidateID: UUID) async throws -> CandidatePhoto {
+        try await get(path: "trips/\(tripID)/candidates/\(candidateID)/photo")
+    }
+
+    func lodgingOptions(tripID: UUID) async throws -> [LodgingOption] {
+        try await get(path: "trips/\(tripID)/lodging-options")
+    }
+
+    func selectLodging(
+        tripID: UUID,
+        request: LodgingSelectionRequest
+    ) async throws -> LodgingOption {
+        try await post(path: "trips/\(tripID)/lodging-selection", body: request)
     }
 
     func vote(tripID: UUID, request: VoteRequest) async throws -> VoteResponse {
@@ -51,12 +87,30 @@ actor APIClient {
         try await post(path: "trips/\(tripID)/plan", body: request)
     }
 
-    func itinerary(tripID: UUID) async throws -> ItineraryResponse {
-        try await get(path: "trips/\(tripID)/itinerary")
+    static func itineraryQueryItems(travelerID: UUID) -> [URLQueryItem] {
+        [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
     }
 
-    private func get<Response: Decodable & Sendable>(path: String) async throws -> Response {
-        let request = URLRequest(url: baseURL.appending(path: path))
+    func itinerary(tripID: UUID, travelerID: UUID) async throws -> ItineraryResponse {
+        try await get(
+            path: "trips/\(tripID)/itinerary",
+            queryItems: Self.itineraryQueryItems(travelerID: travelerID)
+        )
+    }
+
+    private func get<Response: Decodable & Sendable>(
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) async throws -> Response {
+        let endpoint = baseURL.appending(path: path)
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidResponse
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw APIError.invalidResponse
+        }
+        let request = URLRequest(url: url)
         return try await send(request)
     }
 
