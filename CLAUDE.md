@@ -706,13 +706,15 @@ Goal: ship the real product including the three interview-headline features.
 **M3. Full gather strategy**
 - Implement a city-scoped Google Places foundation for attractions, food, and lodging.
 - Implement Instagram, TikTok, and RedNote buzz mining with a 3-post threshold.
-- Implement personal user-paste for those same three platforms, contributor provenance, and profile-driven candidates limited to the configured cap.
+- Implement personal user-paste for those same three platforms and contributor provenance.
 - Run automatic discovery alongside user attachments. Social discovery must use configured official APIs or platform-permitted public metadata access.
 - Implement cross-source dedup with attribution.
 - Card UI primary images and explicit source badges (📍 🔥 ❤️ 👥), including who attached user-submitted content.
-- Lodging path: solver-driven top 3 + group picks (not swipe).
-- Food pre-filter on hard dietary constraints before showing in swipe.
 - **Done when:** a selected Hokkaido city produces a complete Google foundation plus eligible social and personal cards with correct attribution; dedup tests pass; no candidate address falls outside the selected city; every user-attached card identifies its contributor and input type; cards render an attributed permitted image or the standard placeholder.
+
+Owner-approved scope exception (2026-08-31): profile-driven suggestions,
+hard-dietary food filtering, and the lodging comparison/pick flow are deferred
+in `TODO.md`. M4 may start before these three items land.
 
 **M4. Delegate badges + 3-button voting + note parsing + shortlist screen**
 - Batched badge generation per traveler per card (cheap model).
