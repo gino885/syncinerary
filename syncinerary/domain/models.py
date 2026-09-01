@@ -313,6 +313,16 @@ class CandidateScore(BaseModel):
     score: float
 
 
+class SolverObjectiveWeights(BaseModel):
+    """Bounded soft costs selected before deterministic scheduling."""
+
+    dispersion: int = Field(default=20, ge=0, le=100)
+    diversity: int = Field(default=15, ge=0, le=100)
+    weather: int = Field(default=30, ge=0, le=100)
+    vote: int = Field(default=25, ge=0, le=100)
+    conditional: int = Field(default=35, ge=0, le=100)
+
+
 # ----- Working state for the LangGraph -----
 
 class TripState(BaseModel):
@@ -329,6 +339,7 @@ class TripState(BaseModel):
     badges: list[CandidateBadge] = Field(default_factory=list)
     candidate_scores: list[CandidateScore] = Field(default_factory=list)
     shortlist: ShortlistState | None = None
+    solver_weights: SolverObjectiveWeights = Field(default_factory=SolverObjectiveWeights)
     current_itinerary: ItineraryVersion | None = None
     # M1 defaults to an 08:00 to 20:00 active window. These are graph state,
     # not trip persistence fields, so POST /plan can override them without a

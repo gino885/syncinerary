@@ -196,7 +196,7 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         assert shortlisted.status_code == 200, shortlisted.text
         assert shortlisted.json()["selected_candidate_ids"]
         awaiting_confirmation = await graph_runtime.aget_state(config)
-        assert awaiting_confirmation.next == ("solver",)
+        assert awaiting_confirmation.next == ("softpref",)
 
         blocked_plan = await client.post(f"/trips/{trip_id}/plan", json={})
         assert blocked_plan.status_code == 409

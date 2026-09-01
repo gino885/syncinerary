@@ -911,6 +911,7 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                 weather=weather,
                 must_go_ids=set(shortlist.must_go_candidate_ids),
                 pinned_days=pinned_by_candidate,
+                weights=state.solver_weights,
             )
 
         async with session_scope() as session:
