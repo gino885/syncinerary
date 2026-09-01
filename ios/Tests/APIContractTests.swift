@@ -381,7 +381,7 @@ enum APIContractTests {
                         "start_time": "12:00:00",
                         "end_time": "13:15:00",
                         "transit_from_prev_min": 12,
-                        "transit_from_prev_mode": "walking",
+                        "transit_from_prev_mode": "transit_transitous",
                         "meal_slot": "lunch",
                         "source_badges": [{
                             "kind": "trending",
@@ -414,6 +414,14 @@ enum APIContractTests {
         try require(
             response.days[0].stops[1].mealLabel == "Lunch",
             "Itinerary meal slots must decode and read back capitalised"
+        )
+        try require(
+            response.days[0].stops[1].transitLabel == "public transit",
+            "Transitous legs must have a traveler-facing transit label"
+        )
+        try require(
+            response.usesTransitous,
+            "Transitous-backed itineraries must expose their attribution requirement"
         )
         try require(
             response.days[0].stops[0].sourceBadges[0].label == "Found on Google Maps",

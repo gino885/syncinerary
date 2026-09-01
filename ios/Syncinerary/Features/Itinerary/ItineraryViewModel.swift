@@ -8,6 +8,7 @@ final class ItineraryViewModel {
 
     var itinerary: ItineraryResponse?
     var pendingProposal: ReplanProposalResponse?
+    var isShowingReplan = false
     var isLoading = false
     var isDeciding = false
     var liveUpdatesUnavailable = false
@@ -30,6 +31,7 @@ final class ItineraryViewModel {
                 tripID: session.trip.id,
                 travelerID: session.travelerID
             )
+            await recoverPendingReplan()
         } catch {
             errorMessage = error.localizedDescription
             isShowingError = true
@@ -37,6 +39,7 @@ final class ItineraryViewModel {
     }
 
     func listenForReplans() async {
+        await recoverPendingReplan()
         while !Task.isCancelled {
             do {
                 let proposal = try await apiClient.nextReplanProposal(
@@ -46,6 +49,7 @@ final class ItineraryViewModel {
                 liveUpdatesUnavailable = false
                 if proposal.status == .pending {
                     pendingProposal = proposal
+                    isShowingReplan = true
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -65,6 +69,25 @@ final class ItineraryViewModel {
 
     func reject(_ proposal: ReplanProposalResponse) async -> Bool {
         await decide(proposal, approve: false)
+    }
+
+    func showPendingReplan() {
+        isShowingReplan = pendingProposal != nil
+    }
+
+    private func recoverPendingReplan() async {
+        guard pendingProposal == nil else { return }
+        do {
+            if let proposal = try await apiClient.pendingReplans(
+                tripID: session.trip.id,
+                travelerID: session.travelerID
+            ).first {
+                pendingProposal = proposal
+                isShowingReplan = true
+            }
+        } catch {
+            liveUpdatesUnavailable = true
+        }
     }
 
     private func decide(_ proposal: ReplanProposalResponse, approve: Bool) async -> Bool {
@@ -87,6 +110,7 @@ final class ItineraryViewModel {
                 )
             }
             pendingProposal = nil
+            isShowingReplan = false
             return true
         } catch {
             errorMessage = error.localizedDescription

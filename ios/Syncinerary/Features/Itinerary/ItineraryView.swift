@@ -23,11 +23,31 @@ struct ItineraryView: View {
                         .foregroundStyle(.secondary)
                     }
 
+                    if viewModel.pendingProposal != nil {
+                        Button {
+                            viewModel.showPendingReplan()
+                        } label: {
+                            Label(
+                                "Review pending trip update",
+                                systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
+                            )
+                        }
+                    }
+
                     ForEach(itinerary.days) { day in
                         ItineraryDaySection(day: day)
                     }
 
                     WishlistSection(items: itinerary.wishlistNotPlaced)
+
+                    if itinerary.usesTransitous,
+                       let sourcesURL = URL(string: "https://transitous.org/sources/") {
+                        Link(destination: sourcesURL) {
+                            Label("Transit data by Transitous", systemImage: "tram")
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .refreshable {
                     await viewModel.load()
@@ -49,13 +69,15 @@ struct ItineraryView: View {
         .task {
             await viewModel.listenForReplans()
         }
-        .sheet(item: $viewModel.pendingProposal) { proposal in
-            ReplanReviewView(
-                proposal: proposal,
-                isSubmitting: viewModel.isDeciding,
-                onApprove: { await viewModel.approve(proposal) },
-                onReject: { await viewModel.reject(proposal) }
-            )
+        .sheet(isPresented: $viewModel.isShowingReplan) {
+            if let proposal = viewModel.pendingProposal {
+                ReplanReviewView(
+                    proposal: proposal,
+                    isSubmitting: viewModel.isDeciding,
+                    onApprove: { await viewModel.approve(proposal) },
+                    onReject: { await viewModel.reject(proposal) }
+                )
+            }
         }
         .alert("Couldn’t load itinerary", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)

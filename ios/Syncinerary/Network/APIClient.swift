@@ -142,6 +142,16 @@ actor APIClient {
         )
     }
 
+    func pendingReplans(
+        tripID: UUID,
+        travelerID: UUID
+    ) async throws -> [ReplanProposalResponse] {
+        try await get(
+            path: "trips/\(tripID)/replans/pending",
+            queryItems: [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
+        )
+    }
+
     static func replanWebSocketURL(
         baseURL: URL,
         tripID: UUID,

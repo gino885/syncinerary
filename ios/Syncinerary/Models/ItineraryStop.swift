@@ -8,7 +8,15 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     }
 
     var transitLabel: String {
-        transitFromPrevMode ?? "travel"
+        if transitFromPrevMode == "transit_transitous" {
+            "public transit"
+        } else {
+            transitFromPrevMode ?? "travel"
+        }
+    }
+
+    var usesTransitous: Bool {
+        transitFromPrevMode == "transit_transitous"
     }
 
     /// "Lunch", "Dinner", "Breakfast", or nil for a stop that is not a meal.
