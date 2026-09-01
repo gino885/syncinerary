@@ -803,7 +803,7 @@ async def plan_trip(
             "The shortlist has not reached confirmation quorum",
         )
     if snapshot.next:
-        if snapshot.next != ("solver",):
+        if snapshot.next != ("softpref",):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 "Build the shortlist before planning",

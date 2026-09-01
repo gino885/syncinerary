@@ -15,6 +15,7 @@ from syncinerary.agents.gather.dietary import (
 )
 from syncinerary.agents.gather.personal import discover_profile_candidates
 from syncinerary.agents.gather.social import discover_social_candidates, merge_into_pool
+from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
 from syncinerary.config.gather import BUZZ_RATIO, POOL_PER_DAY
 from syncinerary.config.solver import (
     FOOD_PER_DAY_TARGET,
@@ -69,17 +70,6 @@ _LODGING_TYPES = {
     "motel",
     "resort_hotel",
 }
-_OUTDOOR_TYPES = {
-    "beach",
-    "botanical_garden",
-    "garden",
-    "hiking_area",
-    "national_park",
-    "park",
-    "tourist_attraction",
-}
-
-
 class LiveDiscoveryInsufficient(RuntimeError):
     """Live providers returned too few real places for a useful swipe pool."""
 
@@ -133,7 +123,7 @@ def _duration_minutes(candidate_type: CandidateType, primary_type: str | None) -
         return 75
     if primary_type in {"museum", "art_gallery", "amusement_park", "zoo"}:
         return 120
-    if primary_type in _OUTDOOR_TYPES:
+    if is_weather_dependent(primary_type, ()):
         return 90
     return 60
 
@@ -178,7 +168,8 @@ def _to_candidate(
         price_tier=place.price_tier or 2,
         duration_estimate_min=_duration_minutes(candidate_type, place.primary_type),
         dietary_tags=dietary_tags_from_place_types(place_types),
-        weather_dependent=bool(set(place.types) & _OUTDOOR_TYPES),
+        weather_dependent=is_weather_dependent(place.primary_type, place.types),
+        fatigue_cost=fatigue_cost(candidate_type, place.primary_type, place.types),
         category=place.primary_type,
         sources=[
             Source(

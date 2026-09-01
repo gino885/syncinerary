@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from syncinerary.agents.gather.cities import resolve_trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
+from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
 from syncinerary.config import settings
 from syncinerary.config.gather import BUZZ_MIN_SOURCE_COUNT
 from syncinerary.domain.models import (
@@ -346,6 +347,8 @@ def to_candidate(
         price_tier=place.price_tier or 2,
         duration_estimate_min=75 if candidate_type is CandidateType.FOOD else 60,
         dietary_tags=dietary_tags_from_place_types(place_types),
+        weather_dependent=is_weather_dependent(place.primary_type, place.types),
+        fatigue_cost=fatigue_cost(candidate_type, place.primary_type, place.types),
         category=place.primary_type,
         sources=[
             Source(

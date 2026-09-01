@@ -20,6 +20,7 @@ from syncinerary.agents.delegate.badge import badge_node
 from syncinerary.agents.explain import explain_node
 from syncinerary.agents.gather.live import gather_node
 from syncinerary.agents.shortlist import shortlist_node
+from syncinerary.agents.softpref import softpref_node
 from syncinerary.agents.solver.stage2_route import solver_node
 from syncinerary.config import settings
 from syncinerary.domain.models import (
@@ -40,6 +41,7 @@ from syncinerary.domain.models import (
     ReplanStatus,
     ReplanTrigger,
     ShortlistState,
+    SolverObjectiveWeights,
     Source,
     Traveler,
     Trip,
@@ -76,6 +78,7 @@ CHECKPOINT_TYPES = (
     ReplanStatus,
     ReplanTrigger,
     ShortlistState,
+    SolverObjectiveWeights,
     Source,
     Traveler,
     Trip,
@@ -93,6 +96,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("badges", badge_node)
     graph.add_node("aggregate", aggregate_node)
     graph.add_node("shortlist", shortlist_node)
+    graph.add_node("softpref", softpref_node)
     graph.add_node("solver", solver_node)
     graph.add_node("explain", explain_node)
 
@@ -100,7 +104,8 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_edge("gather", "badges")
     graph.add_edge("badges", "aggregate")
     graph.add_edge("aggregate", "shortlist")
-    graph.add_edge("shortlist", "solver")
+    graph.add_edge("shortlist", "softpref")
+    graph.add_edge("softpref", "solver")
     graph.add_edge("solver", "explain")
     graph.add_edge("explain", END)
     return graph.compile(

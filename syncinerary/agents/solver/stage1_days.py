@@ -1,17 +1,39 @@
-"""Deterministic geographic day assignment for the current milestone."""
+"""Deterministic Stage 1 day assignment."""
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date, time, timedelta
+from math import ceil
+from uuid import UUID
 
 from ortools.sat.python import cp_model
+from pydantic import BaseModel, Field
 
+from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.config.solver import (
     ATTRACTIONS_PER_DAY_MIN,
+    DAILY_FATIGUE_BUDGET,
+    DEFAULT_DAY_END_HOUR,
+    DEFAULT_DAY_START_HOUR,
     FOOD_PER_DAY_MAX,
     MEALS_PER_DAY_MIN,
+    WALKING_MINUTES_PER_DAY,
 )
-from syncinerary.domain.models import CandidatePlace, CandidateType
+from syncinerary.domain.models import CandidatePlace, CandidateScore, CandidateType, Trip, Vote
 from syncinerary.tools.transit import TransitLocation, haversine_km
+from syncinerary.tools.weather import WeatherForecast
+
+
+class Stage1Unplaced(BaseModel):
+    candidate_id: UUID
+    reason_code: str
+    reason_text: str
+
+
+class DayAssignment(BaseModel):
+    buckets: list[list[CandidatePlace]]
+    unplaced: list[Stage1Unplaced] = Field(default_factory=list)
+    objective_breakdown: dict[str, float] = Field(default_factory=dict)
 
 
 def chunk_evenly[T](items: Sequence[T], bucket_count: int) -> list[list[T]]:
@@ -250,6 +272,338 @@ def assign_days_by_city(
             continue
         buckets.extend(cluster_nearby_evenly(by_city[name], day_count))
     return buckets
+
+
+def assign_days(
+    candidates: Sequence[CandidatePlace],
+    trip: Trip,
+    *,
+    weather: WeatherForecast | None = None,
+    weights: SolverObjectiveWeights | None = None,
+    scores: Sequence[CandidateScore] = (),
+    votes: Sequence[Vote] = (),
+    must_go_ids: set[UUID] | None = None,
+    pinned_days: dict[UUID, int] | None = None,
+    day_start: time = time(DEFAULT_DAY_START_HOUR),
+    day_end: time = time(DEFAULT_DAY_END_HOUR),
+) -> DayAssignment:
+    """Assign each shortlisted candidate to a day or the wishlist.
+
+    Hard constraints decide feasibility. The weighted objective only chooses
+    among feasible assignments, so model-produced weights can never override
+    opening hours, fatigue, walking, city blocks, must-go, or pinned days.
+    """
+    ranked = list(candidates)
+    if trip.days <= 0:
+        return DayAssignment(buckets=[], unplaced=[])
+    if not ranked:
+        return DayAssignment(buckets=[[] for _day in range(trip.days)])
+
+    objective_weights = weights or SolverObjectiveWeights()
+    must_go = must_go_ids or set()
+    pinned = dict(pinned_days or {})
+    candidate_by_id = {candidate.id: candidate for candidate in ranked}
+    unknown_required = (must_go | set(pinned)) - set(candidate_by_id)
+    if unknown_required:
+        raise ValueError("Must-go and pinned candidates must be in the shortlist")
+    if any(day < 0 or day >= trip.days for day in pinned.values()):
+        raise ValueError("Pinned day is outside the trip")
+
+    for candidate in ranked:
+        event_date = candidate.enrichment.get("event_date")
+        if isinstance(event_date, str):
+            try:
+                event_day = (date.fromisoformat(event_date) - trip.start_date).days
+            except ValueError:
+                continue
+            if 0 <= event_day < trip.days:
+                pinned.setdefault(candidate.id, event_day)
+
+    allowed_city_days = _allowed_days_by_city(ranked, trip)
+    feasible_days: dict[UUID, list[int]] = {}
+    for candidate in ranked:
+        feasible_days[candidate.id] = [
+            day
+            for day in allowed_city_days[candidate.id]
+            if _fits_open_hours(
+                candidate,
+                trip.start_date + timedelta(days=day),
+                day_start,
+                day_end,
+            )
+        ]
+
+    for candidate_id in must_go | set(pinned):
+        required_days = feasible_days[candidate_id]
+        if candidate_id in pinned:
+            required_days = [day for day in required_days if day == pinned[candidate_id]]
+        if not required_days:
+            candidate = candidate_by_id[candidate_id]
+            raise RuntimeError(
+                f"Required candidate {candidate.name_canonical} is not feasible on its required day"
+            )
+
+    model = cp_model.CpModel()
+    assigned = {
+        (index, day): model.new_bool_var(f"candidate_{index}_day_{day}")
+        for index in range(len(ranked))
+        for day in range(trip.days)
+    }
+    not_placed = {
+        index: model.new_bool_var(f"candidate_{index}_not_placed")
+        for index in range(len(ranked))
+    }
+    for index, candidate in enumerate(ranked):
+        model.add(
+            sum(assigned[(index, day)] for day in range(trip.days))
+            + not_placed[index]
+            == 1
+        )
+        feasible = set(feasible_days[candidate.id])
+        for day in range(trip.days):
+            if day not in feasible:
+                model.add(assigned[(index, day)] == 0)
+        if candidate.id in must_go:
+            model.add(not_placed[index] == 0)
+        if candidate.id in pinned:
+            model.add(assigned[(index, pinned[candidate.id])] == 1)
+
+    capacity = min(8, ceil(len(ranked) / trip.days) + 2)
+    nearest_walk_minutes = _nearest_walk_minutes(ranked)
+    for day in range(trip.days):
+        model.add(sum(assigned[(index, day)] for index in range(len(ranked))) <= capacity)
+        model.add(
+            sum(
+                max(1, candidate.fatigue_cost) * assigned[(index, day)]
+                for index, candidate in enumerate(ranked)
+            )
+            <= DAILY_FATIGUE_BUDGET
+        )
+        model.add(
+            sum(
+                nearest_walk_minutes[index] * assigned[(index, day)]
+                for index in range(len(ranked))
+            )
+            <= WALKING_MINUTES_PER_DAY
+        )
+
+    terms: list[cp_model.LinearExpr] = []
+    base_not_placed_penalty = 1_000_000
+    score_by_id = {score.candidate_id: score.score for score in scores}
+    weather_good_ids = {
+        vote.candidate_id
+        for vote in votes
+        if vote.note_parsed
+        and vote.note_parsed.get("conditional_on") == "weather_good"
+    }
+    for index, candidate in enumerate(ranked):
+        score = max(-2.0, min(2.0, score_by_id.get(candidate.id, 0.0)))
+        vote_value = round((score + 2.0) * 25)
+        terms.append(
+            (
+                base_not_placed_penalty
+                + objective_weights.vote * vote_value
+            )
+            * not_placed[index]
+        )
+        for day in range(trip.days):
+            rain = _rain_probability(weather, trip.start_date + timedelta(days=day))
+            mismatch = rain if candidate.weather_dependent else 100 - rain
+            suitability = 100 - rain if candidate.weather_dependent else rain
+            terms.append(
+                objective_weights.weather * mismatch * assigned[(index, day)]
+            )
+            terms.append(
+                objective_weights.weather * suitability * not_placed[index]
+            )
+            if candidate.id in weather_good_ids:
+                terms.append(
+                    objective_weights.conditional * rain * assigned[(index, day)]
+                )
+
+    for left in range(len(ranked)):
+        for right in range(left + 1, len(ranked)):
+            distance_cost = min(2_000, round(_distance_km(ranked[left], ranked[right]) * 100))
+            same_category = bool(
+                ranked[left].category
+                and ranked[left].category == ranked[right].category
+            )
+            for day in range(trip.days):
+                together = model.new_bool_var(f"together_{left}_{right}_{day}")
+                model.add(together <= assigned[(left, day)])
+                model.add(together <= assigned[(right, day)])
+                model.add(
+                    together >= assigned[(left, day)] + assigned[(right, day)] - 1
+                )
+                terms.append(objective_weights.dispersion * distance_cost * together)
+                if same_category:
+                    terms.append(objective_weights.diversity * 100 * together)
+
+    # Stable but deliberately tiny: it only decides exact objective ties.
+    terms.extend(
+        (index + 1) * (day + 1) * assigned[(index, day)]
+        for index in range(len(ranked))
+        for day in range(trip.days)
+    )
+    model.minimize(sum(terms))
+
+    solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 0
+    status = solver.solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        raise RuntimeError("Could not assign shortlist candidates to feasible days")
+
+    buckets = [[] for _day in range(trip.days)]
+    unplaced: list[Stage1Unplaced] = []
+    fatigue_by_day = [
+        sum(
+            max(1, ranked[index].fatigue_cost)
+            for index in range(len(ranked))
+            if solver.value(assigned[(index, day)])
+        )
+        for day in range(trip.days)
+    ]
+    for index, candidate in enumerate(ranked):
+        placed_day = next(
+            (day for day in range(trip.days) if solver.value(assigned[(index, day)])),
+            None,
+        )
+        if placed_day is not None:
+            buckets[placed_day].append(candidate)
+            continue
+        unplaced.append(
+            _unplaced_reason(
+                candidate,
+                feasible_days[candidate.id],
+                fatigue_by_day,
+                weather,
+                trip,
+                capacity,
+            )
+        )
+
+    return DayAssignment(
+        buckets=buckets,
+        unplaced=unplaced,
+        objective_breakdown={
+            "stage1_objective": float(solver.objective_value),
+            "stage1_placed": float(sum(len(bucket) for bucket in buckets)),
+            "stage1_unplaced": float(len(unplaced)),
+        },
+    )
+
+
+def _fits_open_hours(
+    candidate: CandidatePlace,
+    trip_date: date,
+    day_start: time,
+    day_end: time,
+) -> bool:
+    weekday = trip_date.strftime("%a").lower()
+    start_minute = day_start.hour * 60 + day_start.minute
+    end_minute = day_end.hour * 60 + day_end.minute
+    return any(
+        max(start_minute, raw_start * 60) + candidate.duration_estimate_min
+        <= min(end_minute, raw_end * 60)
+        for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, [])
+    )
+
+
+def _allowed_days_by_city(
+    candidates: list[CandidatePlace],
+    trip: Trip,
+) -> dict[UUID, list[int]]:
+    if not trip.cities:
+        return {candidate.id: list(range(trip.days)) for candidate in candidates}
+    counts = [
+        sum(candidate.enrichment.get("city") == city for candidate in candidates)
+        for city in trip.cities
+    ]
+    allocation = allocate_days(counts, trip.days)
+    days_by_city: dict[str, list[int]] = {}
+    offset = 0
+    for city, count in zip(trip.cities, allocation, strict=True):
+        days_by_city[city] = list(range(offset, offset + count))
+        offset += count
+    all_days = list(range(trip.days))
+    return {
+        candidate.id: days_by_city.get(candidate.enrichment.get("city"), all_days) or all_days
+        for candidate in candidates
+    }
+
+
+def _nearest_walk_minutes(candidates: list[CandidatePlace]) -> list[int]:
+    minutes: list[int] = []
+    for candidate in candidates:
+        distances = [
+            _distance_km(candidate, other)
+            for other in candidates
+            if other.id != candidate.id
+        ]
+        nearest = min(distances, default=0.0)
+        minutes.append(round(nearest * 12) if nearest <= 2.0 else 0)
+    return minutes
+
+
+def _rain_probability(weather: WeatherForecast | None, value: date) -> int:
+    if weather is None:
+        return 50
+    day = weather.for_date(value)
+    return day.precipitation_probability_max if day is not None else 50
+
+
+def _unplaced_reason(
+    candidate: CandidatePlace,
+    feasible_days: list[int],
+    fatigue_by_day: list[int],
+    weather: WeatherForecast | None,
+    trip: Trip,
+    capacity: int,
+) -> Stage1Unplaced:
+    if not feasible_days:
+        return Stage1Unplaced(
+            candidate_id=candidate.id,
+            reason_code="closed_on_available_days",
+            reason_text=(
+                f"{candidate.name_canonical} had no opening window long enough "
+                f"between {trip.start_date.isoformat()} and {trip.end_date.isoformat()}."
+            ),
+        )
+    if all(
+        fatigue_by_day[day] + max(1, candidate.fatigue_cost) > DAILY_FATIGUE_BUDGET
+        for day in feasible_days
+    ):
+        return Stage1Unplaced(
+            candidate_id=candidate.id,
+            reason_code="fatigue_overflow",
+            reason_text=(
+                f"{candidate.name_canonical} costs {max(1, candidate.fatigue_cost)} fatigue "
+                f"points, but every open day was already at the {DAILY_FATIGUE_BUDGET}-point "
+                "fatigue cap."
+            ),
+        )
+    rain_chances = [
+        _rain_probability(weather, trip.start_date + timedelta(days=day))
+        for day in feasible_days
+    ]
+    if candidate.weather_dependent and rain_chances and min(rain_chances) >= 50:
+        return Stage1Unplaced(
+            candidate_id=candidate.id,
+            reason_code="weather_mismatch",
+            reason_text=(
+                f"{candidate.name_canonical} is weather-dependent, and its driest open day "
+                f"still had a {min(rain_chances)}% precipitation chance."
+            ),
+        )
+    return Stage1Unplaced(
+        candidate_id=candidate.id,
+        reason_code="no_day_fit",
+        reason_text=(
+            f"{candidate.name_canonical} did not fit after each day reached its "
+            f"{capacity}-place planning capacity or another hard limit."
+        ),
+    )
 
 
 def _distance_km(origin: CandidatePlace, destination: CandidatePlace) -> float:
