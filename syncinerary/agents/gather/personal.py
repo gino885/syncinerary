@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from syncinerary.agents.gather.attachments import ExtractedPlaceMention
 from syncinerary.agents.gather.cities import search_bias, trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
+from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
 from syncinerary.config import settings
 from syncinerary.config.gather import PROFILE_DRIVEN_CAP_PER_TRAVELER
 from syncinerary.domain.models import (
@@ -279,6 +280,12 @@ async def discover_profile_candidates(
                 price_tier=match.price_tier or 2,
                 duration_estimate_min=(75 if candidate_type is CandidateType.FOOD else 60),
                 dietary_tags=dietary_tags_from_place_types(place_types),
+                weather_dependent=is_weather_dependent(match.primary_type, match.types),
+                fatigue_cost=fatigue_cost(
+                    candidate_type,
+                    match.primary_type,
+                    match.types,
+                ),
                 category=match.primary_type,
                 sources=[source],
                 enrichment={
@@ -386,16 +393,23 @@ async def _resolve_place_name(
     place_types = [*match.types]
     if match.primary_type:
         place_types.append(match.primary_type)
+    candidate_type = _candidate_type(match)
     candidate = await CandidatePlaceRepository(session).add(
         CandidatePlace(
             trip_id=trip.id,
-            type=_candidate_type(match),
+            type=candidate_type,
             name_canonical=match.display_name,
             lat=match.lat,
             lng=match.lng,
             address=match.formatted_address,
             category=match.primary_type,
             dietary_tags=dietary_tags_from_place_types(place_types),
+            weather_dependent=is_weather_dependent(match.primary_type, match.types),
+            fatigue_cost=fatigue_cost(
+                candidate_type,
+                match.primary_type,
+                match.types,
+            ),
             sources=[
                 Source(
                     type="personal",
