@@ -86,6 +86,7 @@ async def test_preferences_return_bounded_typed_weights():
     assert "temperature" not in sent
     assert "relaxed" in sent["messages"][0]["content"]
     assert "weather_good" in sent["messages"][0]["content"]
+    assert "untrusted data" in sent["system"]
 
 
 async def test_node_returns_defaults_without_an_unneeded_model_call():

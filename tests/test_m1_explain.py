@@ -28,12 +28,14 @@ from syncinerary.domain.models import (
     ItineraryVersion,
     Trip,
     TripState,
+    WishlistNotPlaced,
 )
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
     ItineraryNodeRepository,
     ItineraryVersionRepository,
     TripRepository,
+    WishlistNotPlacedRepository,
 )
 
 
@@ -155,6 +157,30 @@ def test_prompt_survives_a_candidate_it_cannot_resolve():
     assert "Unknown place" in prompt
 
 
+def test_prompt_includes_quantified_wishlist_reasons():
+    trip = _trip()
+    museum = _place("Otaru Music Box Museum")
+    version_id = uuid4()
+    wishlist = [
+        WishlistNotPlaced(
+            version_id=version_id,
+            candidate_id=museum.id,
+            reason_code="fatigue_overflow",
+            reason_text=(
+                "Otaru Music Box Museum costs 3 fatigue points, but every open "
+                "day was already at the 8-point fatigue cap."
+            ),
+        )
+    ]
+
+    prompt = build_prompt(trip, [], [museum], wishlist)
+
+    assert "Wishlist not placed:" in prompt
+    assert "Otaru Music Box Museum" in prompt
+    assert "3 fatigue points" in prompt
+    assert "8-point fatigue cap" in prompt
+
+
 # ----- the request shape -----
 
 
@@ -218,6 +244,7 @@ async def test_system_prompt_forbids_changing_the_plan():
     assert "already decided" in system
     assert "Never suggest adding, removing, reordering, or retiming" in system
     assert "Never invent" in system
+    assert "untrusted data" in system
 
 
 # ----- responses -----
@@ -310,6 +337,26 @@ async def test_explain_node_narrates_the_committed_itinerary(session, monkeypatc
             end_time=time(10, 30),
         )
     )
+    skipped = await CandidatePlaceRepository(session).add(
+        CandidatePlace(
+            trip_id=trip.id,
+            type=CandidateType.ATTRACTION,
+            name_canonical="Otaru Music Box Museum",
+            lat=43.19,
+            lng=141.00,
+        )
+    )
+    await WishlistNotPlacedRepository(session).add(
+        WishlistNotPlaced(
+            version_id=version.id,
+            candidate_id=skipped.id,
+            reason_code="fatigue_overflow",
+            reason_text=(
+                "Otaru Music Box Museum costs 3 fatigue points, but every open "
+                "day was already at the 8-point fatigue cap."
+            ),
+        )
+    )
 
     stub = StubMessages(text="You start beside the Otaru Canal.")
     _use_test_session(monkeypatch, session)
@@ -319,6 +366,8 @@ async def test_explain_node_narrates_the_committed_itinerary(session, monkeypatc
 
     assert result == {"narrative": "You start beside the Otaru Canal."}
     assert "Otaru Canal" in stub.calls[0]["messages"][0]["content"]
+    assert "Otaru Music Box Museum" in stub.calls[0]["messages"][0]["content"]
+    assert "8-point fatigue cap" in stub.calls[0]["messages"][0]["content"]
 
 
 async def test_explain_node_returns_none_when_nothing_was_planned(session, monkeypatch):
