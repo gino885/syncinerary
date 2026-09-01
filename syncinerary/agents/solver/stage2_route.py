@@ -1,12 +1,7 @@
-"""M1 single-stage itinerary solver.
+"""Two-stage deterministic itinerary solver.
 
-This is deliberately narrower than the final two-stage design in CLAUDE.md
-§11. M1 keeps the shortlist's score priority while grouping nearby places
-into balanced days, then uses CP-SAT independently per day to choose visit
-order and times from opening hours plus Google transit durations.
-
-TODO(M5): expand stage1_days.py with weather, fatigue, diversity, dispersion,
-pinned anchors and must-go handling.
+Stage 1 chooses a day or the wishlist for every shortlisted place. Stage 2
+orders each assigned day against opening hours and cached transit durations.
 
 NO LLM IN THIS FILE. Feasibility and final ordering are deterministic work
 owned by OR-Tools under CLAUDE.md §2.
@@ -21,7 +16,9 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
-from syncinerary.agents.solver.stage1_days import assign_days_by_city
+from syncinerary.agents.solver.objective import SolverObjectiveWeights
+from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
+from syncinerary.agents.solver.stage1_days import assign_days, assign_days_by_city
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
@@ -62,6 +59,7 @@ from syncinerary.tools.transit import (
     TransitMatrix,
     haversine_km,
 )
+from syncinerary.tools.weather import OpenMeteoClient, WeatherForecast
 
 
 class SolverOptions(BaseModel):
@@ -116,6 +114,8 @@ class DayRoute(BaseModel):
 
 class SolverResult(BaseModel):
     routes: list[DayRoute]
+    stage1_unplaced: list[UnplacedCandidate] = Field(default_factory=list)
+    stage1_objective: dict[str, float] = Field(default_factory=dict)
 
     def wishlist(self, shortlisted: list[UUID]) -> list[UnplacedCandidate]:
         """Shortlisted cards no day ended up placing, each reported once.
@@ -127,6 +127,8 @@ class SolverResult(BaseModel):
         placed = {stop.candidate_id for route in self.routes for stop in route.stops}
         wanted = [candidate_id for candidate_id in shortlisted if candidate_id not in placed]
         reasons: dict[UUID, UnplacedCandidate] = {}
+        for item in self.stage1_unplaced:
+            reasons.setdefault(item.candidate_id, item)
         for route in self.routes:
             for item in route.unplaced:
                 reasons.setdefault(item.candidate_id, item)
@@ -247,9 +249,11 @@ def solve_day(
     trip_date: date,
     transit: TransitMatrix,
     options: SolverOptions | None = None,
+    required_candidate_ids: set[UUID] | None = None,
 ) -> DayRoute:
     """Solve one day's optional path with opening and transit constraints."""
     options = options or SolverOptions()
+    required = required_candidate_ids or set()
     if not candidates:
         return DayRoute(day=day)
 
@@ -259,6 +263,10 @@ def solve_day(
     for candidate in candidates:
         windows = _open_windows(candidate, trip_date, options)
         if not windows:
+            if candidate.id in required:
+                raise RuntimeError(
+                    f"Required candidate {candidate.name_canonical} is closed on {trip_date}"
+                )
             unplaced.append(
                 UnplacedCandidate(
                     candidate_id=candidate.id,
@@ -344,6 +352,8 @@ def solve_day(
     for index, candidate in enumerate(open_candidates, start=1):
         duration = candidate.duration_estimate_min
         active[index] = model.new_bool_var(f"active_{index}")
+        if candidate.id in required:
+            model.add(active[index] == 1)
         starts[index] = model.new_int_var(day_start, day_end - duration, f"start_{index}")
         ends[index] = model.new_int_var(day_start + duration, day_end, f"end_{index}")
         model.add(ends[index] == starts[index] + duration)
@@ -473,6 +483,13 @@ def solve_day(
     solver.parameters.random_seed = 0
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if required:
+            names = ", ".join(
+                candidate.name_canonical
+                for candidate in open_candidates
+                if candidate.id in required
+            )
+            raise RuntimeError(f"Required candidates could not fit the daily route: {names}")
         return DayRoute(
             day=day,
             unplaced=unplaced
@@ -567,6 +584,7 @@ async def _solve_one_day(
     trip_date: date,
     transit_provider: TransitProvider,
     options: SolverOptions,
+    required_candidate_ids: set[UUID] | None = None,
 ) -> DayRoute:
     """Fetch this day's pairwise transit and route it."""
     timezone = ZoneInfo(options.timezone)
@@ -604,6 +622,7 @@ async def _solve_one_day(
         trip_date=trip_date,
         transit=matrix,
         options=options,
+        required_candidate_ids=required_candidate_ids,
     )
 
 
@@ -796,15 +815,72 @@ async def solve_routes(
     return SolverResult(routes=routes)
 
 
+async def solve_full_routes(
+    state: TripState,
+    candidates: list[CandidatePlace],
+    transit_provider: TransitProvider,
+    *,
+    weather: WeatherForecast | None = None,
+    options: SolverOptions | None = None,
+    must_go_ids: set[UUID] | None = None,
+    pinned_days: dict[UUID, int] | None = None,
+    weights: SolverObjectiveWeights | None = None,
+) -> SolverResult:
+    """Run the M5 Stage 1 assignment, then route each decided day once."""
+    options = options or SolverOptions()
+    must_go = must_go_ids or set()
+    pinned = pinned_days or {}
+    assignment = assign_days(
+        candidates,
+        state.trip,
+        weather=weather,
+        weights=weights,
+        scores=state.candidate_scores,
+        votes=state.votes,
+        must_go_ids=must_go,
+        pinned_days=pinned,
+        day_start=options.day_start,
+        day_end=options.day_end,
+    )
+    routes = [
+        await _solve_one_day(
+            bucket,
+            day=day,
+            trip_date=state.trip.start_date + timedelta(days=day),
+            transit_provider=transit_provider,
+            options=options,
+            required_candidate_ids=(must_go | set(pinned))
+            & {candidate.id for candidate in bucket},
+        )
+        for day, bucket in enumerate(assignment.buckets)
+    ]
+    return SolverResult(
+        routes=routes,
+        stage1_unplaced=[
+            UnplacedCandidate(
+                candidate_id=item.candidate_id,
+                reason_code=item.reason_code,
+                reason_text=item.reason_text,
+            )
+            for item in assignment.unplaced
+        ],
+        stage1_objective=assignment.objective_breakdown,
+    )
+
+
 def _make_transit_client() -> GoogleDirectionsClient:
     return GoogleDirectionsClient()
+
+
+def _make_weather_client() -> OpenMeteoClient:
+    return OpenMeteoClient()
 
 
 async def solver_node(state: TripState) -> dict[str, Any]:
     """LangGraph node: solve, append a version and persist its immutable rows."""
     trip = state.trip
     tracer = get_tracer()
-    with tracer.start_as_current_span("solver.m1_route") as span:
+    with tracer.start_as_current_span("solver.two_stage_route") as span:
         span.set_attribute("trip_id", str(trip.id))
 
         async with session_scope() as session:
@@ -823,12 +899,18 @@ async def solver_node(state: TripState) -> dict[str, Any]:
             # Older trips predate the column and keep the previous constant.
             timezone=trip.timezone or M1_DESTINATION_TIMEZONE,
         )
+        pinned_by_candidate = pinned_days(state.constraints, trip.start_date)
+        async with _make_weather_client() as weather_client:
+            weather = await forecast_for_solver(state, candidates, weather_client)
         async with _make_transit_client() as transit_client:
-            result = await solve_routes(
+            result = await solve_full_routes(
                 state,
                 candidates,
                 transit_client,
                 options=options,
+                weather=weather,
+                must_go_ids=set(shortlist.must_go_candidate_ids),
+                pinned_days=pinned_by_candidate,
             )
 
         async with session_scope() as session:
@@ -845,6 +927,7 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     status=ItineraryStatus.ACTIVE,
                     parent_version_id=previous.id if previous else None,
                     objective_breakdown={
+                        **result.stage1_objective,
                         "placed_count": float(result.placed_count),
                         "total_transit_minutes": float(result.total_transit_minutes),
                         "required_meals_covered": float(result.meal_coverage_count),
@@ -862,6 +945,12 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     end_time=_as_time(stop.end_minute),
                     transit_from_prev_min=stop.transit_from_prev_min,
                     transit_from_prev_mode=stop.transit_from_prev_mode,
+                    fixed=stop.candidate_id in pinned_by_candidate,
+                    lock_reason=(
+                        "user_pinned"
+                        if stop.candidate_id in pinned_by_candidate
+                        else None
+                    ),
                 )
                 for route in result.routes
                 for stop in route.stops
@@ -900,6 +989,7 @@ __all__ = [
     "SolverResult",
     "UnplacedCandidate",
     "solve_day",
+    "solve_full_routes",
     "solve_routes",
     "solver_node",
 ]
