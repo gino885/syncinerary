@@ -22,6 +22,9 @@ enum APIContractTests {
         try decodePlanResponse()
         try buildItineraryViewerQuery()
         try decodeItineraryResponse()
+        try encodeReplanDecision()
+        try buildReplanWebSocketURL()
+        try decodeReplanProposal()
         print("iOS API contract tests passed")
     }
 
@@ -421,6 +424,102 @@ enum APIContractTests {
             "Buzz provenance must survive onto the itinerary"
         )
         try require(response.wishlistNotPlaced.count == 1, "Wishlist reasons must decode")
+    }
+
+    private static func encodeReplanDecision() throws {
+        let request = ReplanDecisionRequest(
+            travelerID: try uuid("22222222-2222-2222-2222-222222222222")
+        )
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+        guard let payload = object as? [String: Any] else {
+            throw failure("Replan decision must encode as a JSON object")
+        }
+        try require(
+            payload["traveler_id"] as? String == "22222222-2222-2222-2222-222222222222",
+            "Replan decisions must identify the traveler"
+        )
+    }
+
+    private static func buildReplanWebSocketURL() throws {
+        let tripID = try uuid("11111111-1111-1111-1111-111111111111")
+        let travelerID = try uuid("22222222-2222-2222-2222-222222222222")
+        guard let baseURL = URL(string: "http://localhost:8000") else {
+            throw failure("Invalid local backend URL")
+        }
+        let url = try APIClient.replanWebSocketURL(
+            baseURL: baseURL,
+            tripID: tripID,
+            travelerID: travelerID
+        )
+        try require(url.scheme == "ws", "Local replan delivery must use ws")
+        try require(
+            url.path == "/trips/\(tripID)/replans/ws",
+            "Replan delivery must use the trip-scoped WebSocket endpoint"
+        )
+        try require(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
+                == travelerID.uuidString,
+            "Replan delivery must identify the current traveler"
+        )
+    }
+
+    private static func decodeReplanProposal() throws {
+        let data = Data(
+            #"""
+            {
+                "event_id": "77777777-7777-7777-7777-777777777777",
+                "trip_id": "11111111-1111-1111-1111-111111111111",
+                "trigger_type": "place_closed",
+                "status": "pending",
+                "current_version_id": "55555555-5555-5555-5555-555555555555",
+                "proposed_version_id": "66666666-6666-6666-6666-666666666666",
+                "trace": {
+                    "trigger": {"type": "place_closed"},
+                    "affected_nodes": [{
+                        "node_id": "88888888-8888-8888-8888-888888888888",
+                        "candidate_id": "33333333-3333-3333-3333-333333333333",
+                        "classification": "movable"
+                    }],
+                    "alternatives_considered": [{
+                        "candidate_id": "99999999-9999-9999-9999-999999999999",
+                        "score": 0.75,
+                        "chosen": true,
+                        "reason": "0.8 km detour, fatigue 1, vote score 0.75",
+                        "rejected_reason": null
+                    }],
+                    "downstream_changes": []
+                },
+                "diff": {
+                    "added": [{
+                        "candidate_id": "99999999-9999-9999-9999-999999999999",
+                        "name": "Nearby museum",
+                        "node_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "day": 0,
+                        "start_time": "11:00:00",
+                        "end_time": "12:00:00"
+                    }],
+                    "removed": [{
+                        "candidate_id": "33333333-3333-3333-3333-333333333333",
+                        "name": "Closed stop",
+                        "node_id": "88888888-8888-8888-8888-888888888888",
+                        "day": 0,
+                        "start_time": "11:00:00",
+                        "end_time": "12:00:00"
+                    }],
+                    "moved": [],
+                    "time_changed": []
+                }
+            }
+            """#.utf8
+        )
+
+        let response = try JSONDecoder().decode(ReplanProposalResponse.self, from: data)
+        try require(response.status == .pending, "A new replan must decode as pending")
+        try require(response.diff.added[0].name == "Nearby museum", "Added stops need names")
+        try require(
+            response.trace.alternativesConsidered[0].reason?.contains("0.8 km") == true,
+            "The approval screen needs the quantified rescue reason"
+        )
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

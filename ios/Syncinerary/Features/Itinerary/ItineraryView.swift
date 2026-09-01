@@ -15,6 +15,14 @@ struct ItineraryView: View {
                 ProgressView("Loading itinerary…")
             } else if let itinerary = viewModel.itinerary {
                 List {
+                    if viewModel.liveUpdatesUnavailable {
+                        Label(
+                            "Live trip updates are reconnecting",
+                            systemImage: "wifi.exclamationmark"
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+
                     ForEach(itinerary.days) { day in
                         ItineraryDaySection(day: day)
                     }
@@ -37,6 +45,17 @@ struct ItineraryView: View {
             if viewModel.itinerary == nil {
                 await viewModel.load()
             }
+        }
+        .task {
+            await viewModel.listenForReplans()
+        }
+        .sheet(item: $viewModel.pendingProposal) { proposal in
+            ReplanReviewView(
+                proposal: proposal,
+                isSubmitting: viewModel.isDeciding,
+                onApprove: { await viewModel.approve(proposal) },
+                onReject: { await viewModel.reject(proposal) }
+            )
         }
         .alert("Couldn’t load itinerary", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
