@@ -22,6 +22,7 @@ from syncinerary.config.solver import (
     DEFAULT_DAY_START_HOUR,
     MEAL_WINDOWS,
 )
+from syncinerary.diff.itinerary_diff import ItineraryDiff
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
@@ -31,6 +32,8 @@ from syncinerary.domain.models import (
     Constraint,
     ItineraryNode,
     ItineraryStatus,
+    ReplanStatus,
+    ReplanTrigger,
     SocialPlatform,
     SourceAttachment,
     Traveler,
@@ -477,6 +480,170 @@ class PlanResponse(BaseModel):
     version_no: int
     placed_stops: int
     narrative: str | None
+
+
+class DisruptionRequest(BaseModel):
+    trigger_type: ReplanTrigger
+    trigger_payload: dict[str, Any]
+
+    @model_validator(mode="after")
+    def _validate_trigger_payload(self) -> DisruptionRequest:
+        payload = self.trigger_payload
+
+        def valid_uuid(value: Any) -> bool:
+            try:
+                UUID(str(value))
+            except (TypeError, ValueError):
+                return False
+            return True
+
+        if self.trigger_type in {
+            ReplanTrigger.RESERVATION_CANCELLED,
+            ReplanTrigger.PLACE_CLOSED,
+            ReplanTrigger.TRANSIT_DELAY,
+        } and not valid_uuid(payload.get("node_id")):
+            raise ValueError(f"{self.trigger_type.value} requires node_id")
+        if self.trigger_type is ReplanTrigger.TRANSIT_DELAY:
+            delay = payload.get("delay_minutes")
+            if not isinstance(delay, int) or isinstance(delay, bool) or delay <= 0:
+                raise ValueError("transit_delay requires positive delay_minutes")
+        if self.trigger_type is ReplanTrigger.OVERSLEPT:
+            day = payload.get("day")
+            if not isinstance(day, int) or isinstance(day, bool) or day < 0:
+                raise ValueError("overslept requires a non-negative day")
+            try:
+                time.fromisoformat(str(payload.get("at")))
+            except ValueError as exc:
+                raise ValueError("overslept requires at as a local time") from exc
+        if self.trigger_type is ReplanTrigger.WEATHER:
+            day = payload.get("day")
+            if not isinstance(day, int) or isinstance(day, bool) or day < 0:
+                raise ValueError("weather requires a non-negative day")
+        if self.trigger_type is ReplanTrigger.OTHER:
+            node_ids = payload.get("affected_node_ids")
+            if (
+                not isinstance(node_ids, list)
+                or not node_ids
+                or not all(valid_uuid(value) for value in node_ids)
+            ):
+                raise ValueError("other requires affected_node_ids")
+        return self
+
+
+class ReplanDecisionRequest(BaseModel):
+    traveler_id: UUID
+
+
+class ItineraryDiffStopOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    node_id: UUID
+    day: int
+    start_time: time
+    end_time: time
+
+
+class ItineraryMoveOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    old_node_id: UUID
+    new_node_id: UUID
+    old_day: int
+    new_day: int
+    old_start_time: time
+    new_start_time: time
+
+
+class ItineraryTimeChangeOut(BaseModel):
+    candidate_id: UUID
+    name: str
+    old_node_id: UUID
+    new_node_id: UUID
+    day: int
+    old_start_time: time
+    old_end_time: time
+    new_start_time: time
+    new_end_time: time
+
+
+class ItineraryDiffOut(BaseModel):
+    added: list[ItineraryDiffStopOut]
+    removed: list[ItineraryDiffStopOut]
+    moved: list[ItineraryMoveOut]
+    time_changed: list[ItineraryTimeChangeOut]
+
+    @classmethod
+    def of(
+        cls,
+        diff: ItineraryDiff,
+        candidate_names: dict[UUID, str],
+    ) -> ItineraryDiffOut:
+        def name(candidate_id: UUID) -> str:
+            return candidate_names.get(candidate_id, "Unknown place")
+
+        return cls(
+            added=[
+                ItineraryDiffStopOut(name=name(item.candidate_id), **item.model_dump())
+                for item in diff.added
+            ],
+            removed=[
+                ItineraryDiffStopOut(name=name(item.candidate_id), **item.model_dump())
+                for item in diff.removed
+            ],
+            moved=[
+                ItineraryMoveOut(name=name(item.candidate_id), **item.model_dump())
+                for item in diff.moved
+            ],
+            time_changed=[
+                ItineraryTimeChangeOut(
+                    name=name(item.candidate_id),
+                    **item.model_dump(),
+                )
+                for item in diff.time_changed
+            ],
+        )
+
+
+class ReplanTraceTriggerOut(BaseModel):
+    type: ReplanTrigger
+
+
+class ReplanAffectedNodeOut(BaseModel):
+    node_id: UUID
+    candidate_id: UUID
+    classification: str
+
+
+class ReplanAlternativeOut(BaseModel):
+    candidate_id: UUID
+    score: float
+    chosen: bool
+    reason: str | None = None
+    rejected_reason: str | None = None
+
+
+class ReplanDownstreamChangeOut(BaseModel):
+    candidate_id: UUID
+    old_time: time
+    new_time: time
+
+
+class ReplanTraceOut(BaseModel):
+    trigger: ReplanTraceTriggerOut
+    affected_nodes: list[ReplanAffectedNodeOut]
+    alternatives_considered: list[ReplanAlternativeOut]
+    downstream_changes: list[ReplanDownstreamChangeOut]
+
+
+class ReplanProposalOut(BaseModel):
+    event_id: UUID
+    trip_id: UUID
+    trigger_type: ReplanTrigger
+    status: ReplanStatus
+    current_version_id: UUID
+    proposed_version_id: UUID
+    trace: ReplanTraceOut
+    diff: ItineraryDiffOut
 
 
 class ItineraryStopOut(BaseModel):

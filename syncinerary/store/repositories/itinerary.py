@@ -117,6 +117,22 @@ class ItineraryVersionRepository(BaseRepository[tables.ItineraryVersion, Itinera
         versions = await self.list_for_trip(trip_id)
         return versions[-1] if versions else None
 
+    async def get_many_for_update(
+        self,
+        version_ids: list[UUID],
+    ) -> list[ItineraryVersion]:
+        """Lock lifecycle rows in stable ID order for an approval decision."""
+        if not version_ids:
+            return []
+        stmt = (
+            select(tables.ItineraryVersion)
+            .where(tables.ItineraryVersion.id.in_(version_ids))
+            .order_by(tables.ItineraryVersion.id)
+            .with_for_update()
+        )
+        rows = await self.session.scalars(stmt)
+        return [self.to_model(row) for row in rows.all()]
+
     async def set_status(
         self, version_id: UUID, status: ItineraryStatus
     ) -> ItineraryVersion | None:

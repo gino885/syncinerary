@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from syncinerary.agents.graph import dispose_graph, init_graph
-from syncinerary.api.routers import trips
+from syncinerary.api.routers import replans, trips
 from syncinerary.obs.tracing import init_tracing
 from syncinerary.store.db import dispose_engine, init_engine
 from syncinerary.store.redis import dispose_redis, init_redis
@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Syncinerary", version="0.1.0+m2", lifespan=lifespan)
 app.include_router(trips.router)
+app.include_router(replans.router)
 
 
 @app.get("/health", tags=["meta"])
