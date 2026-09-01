@@ -623,6 +623,7 @@ class ReplanAlternativeOut(BaseModel):
 
 
 class ReplanDownstreamChangeOut(BaseModel):
+    node_id: UUID
     candidate_id: UUID
     old_time: time
     new_time: time

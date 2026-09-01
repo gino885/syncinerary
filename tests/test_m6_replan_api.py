@@ -168,6 +168,21 @@ async def test_diff_endpoint_names_each_change(client, session):
     assert [item["name"] for item in body["time_changed"]] == ["Moved stop"]
 
 
+async def test_pending_endpoint_recovers_a_missed_websocket_proposal(client, session):
+    trip, traveler, active, proposed, event = await _proposal_fixture(session)
+
+    response = await client.get(
+        f"/trips/{trip.id}/replans/pending",
+        params={"traveler_id": str(traveler.id)},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["event_id"] for item in body] == [str(event.id)]
+    assert body[0]["current_version_id"] == str(active.id)
+    assert body[0]["proposed_version_id"] == str(proposed.id)
+
+
 async def test_approve_endpoint_applies_the_pending_proposal(client, session):
     trip, traveler, active, proposed, event = await _proposal_fixture(session)
 
@@ -212,6 +227,11 @@ class ContextTransit:
                 if origin != destination
             ]
         )
+
+
+class NoAlternatives:
+    async def discover(self, _request):
+        return []
 
 
 async def test_disruption_endpoint_builds_a_pending_proposal(
@@ -269,8 +289,12 @@ async def test_disruption_endpoint_builds_a_pending_proposal(
         yield session
 
     monkeypatch.setattr(
-        "syncinerary.agents.rescue.GoogleDirectionsClient",
+        "syncinerary.agents.rescue.make_transit_client",
         ContextTransit,
+    )
+    monkeypatch.setattr(
+        "syncinerary.agents.rescue.GooglePlacesAlternativeProvider",
+        NoAlternatives,
     )
     monkeypatch.setattr(
         "syncinerary.api.routers.replans.publish_replan_proposal",

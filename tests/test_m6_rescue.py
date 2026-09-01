@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 from datetime import date, time
+from time import perf_counter
 from uuid import UUID
 
 import pytest
 
-from syncinerary.agents.rescue import create_replan_proposal, select_affected_nodes
+from syncinerary.agents.rescue import (
+    ReplanConflict,
+    create_replan_proposal,
+    select_affected_nodes,
+)
+from syncinerary.agents.rescue_alternatives import AlternativeSearchRequest
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -49,6 +55,19 @@ class StubTransit:
                 if origin != destination
             ]
         )
+
+
+class StubAlternatives:
+    def __init__(self, candidates: list[CandidatePlace] | None = None) -> None:
+        self.candidates = candidates or []
+        self.requests: list[AlternativeSearchRequest] = []
+
+    async def discover(
+        self,
+        request: AlternativeSearchRequest,
+    ) -> list[CandidatePlace]:
+        self.requests.append(request)
+        return self.candidates
 
 
 def _node(number: int, *, day: int, start: int) -> ItineraryNode:
@@ -152,16 +171,33 @@ async def test_closed_place_creates_pending_proposal_without_changing_active_ver
                 day=0,
                 start_time=time(11),
                 end_time=time(12),
+                fixed=True,
+                lock_reason="paid_ticket",
             ),
         ]
     )
 
+    discovered = CandidatePlace(
+        trip_id=trip.id,
+        type=CandidateType.ATTRACTION,
+        name_canonical="Fresh Sapporo Gallery",
+        lat=43.062,
+        lng=141.352,
+        duration_estimate_min=60,
+        fatigue_cost=1,
+        hours_by_weekday={
+            weekday: [[8, 20]]
+            for weekday in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+        },
+    )
+    alternatives = StubAlternatives([discovered])
     proposal = await create_replan_proposal(
         session,
         trip_id=trip.id,
         trigger_type=ReplanTrigger.PLACE_CLOSED,
         trigger_payload={"node_id": str(active_nodes[0].id)},
         transit_provider=StubTransit(),
+        alternative_provider=alternatives,
     )
 
     assert proposal.event.status is ReplanStatus.PENDING
@@ -177,10 +213,145 @@ async def test_closed_place_creates_pending_proposal_without_changing_active_ver
     assert places[0].id not in proposed_candidates
     assert places[1].id in proposed_candidates
     assert proposed_candidates & {places[2].id, places[3].id}
+    kept = next(node for node in proposed_nodes if node.candidate_id == places[1].id)
+    assert kept.fixed is True
+    assert kept.lock_reason == "paid_ticket"
+    assert kept.start_time == time(11)
+    assert kept.end_time == time(12)
+    assert (await CandidatePlaceRepository(session).get(discovered.id)) is not None
+    assert alternatives.requests[0].needed_at == time(9)
 
     trace = proposal.event.trace_json
     assert trace["trigger"]["type"] == "place_closed"
     chosen = [item for item in trace["alternatives_considered"] if item["chosen"]]
     assert chosen
+    assert str(discovered.id) in {
+        item["candidate_id"] for item in trace["alternatives_considered"]
+    }
     assert all("km" in item["reason"] and "fatigue" in item["reason"] for item in chosen)
     assert await ReplanEventRepository(session).list_pending(trip.id) == [proposal.event]
+
+
+async def _seed_scheduled_trip(session, *, days: int):
+    trip = await TripRepository(session).add(
+        Trip(
+            destination="Sapporo",
+            cities=["Sapporo"],
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, days),
+            days=days,
+        )
+    )
+    places = await CandidatePlaceRepository(session).add_many(
+        [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=CandidateType.ATTRACTION,
+                name_canonical=f"Day {day + 1} stop {stop + 1}",
+                lat=43.06 + day / 100 + stop / 1000,
+                lng=141.35 + day / 100 + stop / 1000,
+                duration_estimate_min=60,
+                fatigue_cost=1,
+                weather_dependent=stop == 0,
+                hours_by_weekday={
+                    weekday: [[8, 20]]
+                    for weekday in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+                enrichment={"city": "Sapporo"},
+            )
+            for day in range(days)
+            for stop in range(5)
+        ]
+    )
+    version = await ItineraryVersionRepository(session).add(
+        ItineraryVersion(
+            trip_id=trip.id,
+            version_no=1,
+            status=ItineraryStatus.ACTIVE,
+        )
+    )
+    nodes = await ItineraryNodeRepository(session).add_many(
+        [
+            ItineraryNode(
+                version_id=version.id,
+                candidate_id=places[day * 5 + stop].id,
+                day=day,
+                start_time=(time(9), time(11), time(14))[stop],
+                end_time=(time(10), time(12), time(15))[stop],
+            )
+            for day in range(days)
+            for stop in range(3)
+        ]
+    )
+    return trip, version, nodes
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        ReplanTrigger.RESERVATION_CANCELLED,
+        ReplanTrigger.TRANSIT_DELAY,
+        ReplanTrigger.OVERSLEPT,
+        ReplanTrigger.PLACE_CLOSED,
+        ReplanTrigger.WEATHER,
+    ],
+)
+async def test_each_main_trigger_creates_a_pending_proposal(session, trigger):
+    trip, active, nodes = await _seed_scheduled_trip(session, days=1)
+    if trigger is ReplanTrigger.OVERSLEPT:
+        payload = {"day": 0, "at": "10:30"}
+    elif trigger is ReplanTrigger.WEATHER:
+        payload = {"day": 0, "condition": "heavy rain"}
+    else:
+        payload = {"node_id": str(nodes[0].id)}
+        if trigger is ReplanTrigger.TRANSIT_DELAY:
+            payload["delay_minutes"] = 30
+
+    proposal = await create_replan_proposal(
+        session,
+        trip_id=trip.id,
+        trigger_type=trigger,
+        trigger_payload=payload,
+        transit_provider=StubTransit(),
+        alternative_provider=StubAlternatives(),
+    )
+
+    assert proposal.event.trigger_type is trigger
+    assert proposal.event.status is ReplanStatus.PENDING
+    assert proposal.version.status is ItineraryStatus.PROPOSED
+    assert proposal.version.parent_version_id == active.id
+    assert (await ItineraryVersionRepository(session).get_active(trip.id)).id == active.id
+
+
+async def test_five_day_replan_finishes_under_ten_seconds_without_provider_latency(session):
+    trip, _active, nodes = await _seed_scheduled_trip(session, days=5)
+
+    started = perf_counter()
+    proposal = await create_replan_proposal(
+        session,
+        trip_id=trip.id,
+        trigger_type=ReplanTrigger.PLACE_CLOSED,
+        trigger_payload={"node_id": str(nodes[6].id)},
+        transit_provider=StubTransit(),
+        alternative_provider=StubAlternatives(),
+    )
+    elapsed = perf_counter() - started
+
+    assert proposal.version.status is ItineraryStatus.PROPOSED
+    assert elapsed < 10
+
+
+async def test_a_second_disruption_waits_for_the_pending_decision(session):
+    trip, _active, nodes = await _seed_scheduled_trip(session, days=1)
+    kwargs = {
+        "session": session,
+        "trip_id": trip.id,
+        "trigger_type": ReplanTrigger.PLACE_CLOSED,
+        "trigger_payload": {"node_id": str(nodes[0].id)},
+        "transit_provider": StubTransit(),
+        "alternative_provider": StubAlternatives(),
+    }
+    await create_replan_proposal(**kwargs)
+
+    with pytest.raises(ReplanConflict, match="pending replan"):
+        await create_replan_proposal(**kwargs)

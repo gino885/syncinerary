@@ -156,6 +156,8 @@ async def report_disruption(
             )
     except ReplanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except ReplanConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     response = await _proposal_out(session, proposal.event)
     try:
@@ -163,6 +165,19 @@ async def report_disruption(
     except RedisError:
         logger.warning("Replan proposal persisted but WebSocket publish failed")
     return response
+
+
+@router.get("/{trip_id}/replans/pending")
+async def get_pending_replans(
+    trip_id: UUID,
+    traveler_id: UUID,
+    session: Session,
+) -> list[ReplanProposalOut]:
+    """Recover proposals when a device missed the transient WebSocket push."""
+    await _load_trip(session, trip_id)
+    await _load_traveler(session, trip_id, traveler_id)
+    events = await ReplanEventRepository(session).list_pending(trip_id)
+    return [await _proposal_out(session, event) for event in events]
 
 
 @router.get("/{trip_id}/replans/{event_id}")

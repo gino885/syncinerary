@@ -9,6 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from syncinerary.agents.aggregate import score_candidates
+from syncinerary.agents.gather.dedup import dedup_candidates
+from syncinerary.agents.gather.dietary import filter_dietary_conflicts
+from syncinerary.agents.rescue_alternatives import (
+    AlternativeProvider,
+    AlternativeSearchRequest,
+    GooglePlacesAlternativeProvider,
+    is_open_at,
+)
 from syncinerary.agents.solver.stage2_route import (
     SolverOptions,
     TransitProvider,
@@ -30,6 +38,7 @@ from syncinerary.domain.models import (
 )
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
+    ConstraintRepository,
     ItineraryNodeRepository,
     ItineraryVersionRepository,
     ReplanEventRepository,
@@ -38,7 +47,7 @@ from syncinerary.store.repositories import (
     VoteRepository,
     WishlistNotPlacedRepository,
 )
-from syncinerary.tools.transit import GoogleDirectionsClient, TransitLocation, haversine_km
+from syncinerary.tools.transit import TransitLocation, haversine_km, make_transit_client
 from syncinerary.tools.weather import WeatherForecast
 
 REPLAN_NEARBY_KM = 12.0
@@ -197,11 +206,14 @@ async def _build_replan_proposal(
     trigger_type: ReplanTrigger,
     trigger_payload: dict[str, Any],
     transit_provider: TransitProvider,
+    alternative_provider: AlternativeProvider,
 ) -> ReplanProposal:
     versions = ItineraryVersionRepository(session)
     active = await versions.get_active(trip_id)
     if active is None:
         raise ReplanInputError("Trip has no active itinerary to replan")
+    if await ReplanEventRepository(session).list_pending(trip_id):
+        raise ReplanConflict("Trip already has a pending replan proposal")
 
     old_nodes = await ItineraryNodeRepository(session).list_for_version(active.id)
     all_candidates = await CandidatePlaceRepository(session).list_for_trip(trip_id)
@@ -232,22 +244,23 @@ async def _build_replan_proposal(
         if node.candidate_id not in unavailable and node.candidate_id in candidate_by_id
     ]
 
+    trip = await TripRepository(session).get(trip_id)
+    if trip is None:
+        raise ReplanNotFound("Trip does not exist")
+    affected_date = trip.start_date + timedelta(days=day)
+    constraints = await ConstraintRepository(session).list_for_trip(trip_id)
     scheduled_ids = {node.candidate_id for node in old_nodes}
     current_day_candidates = [
         candidate_by_id[node.candidate_id]
         for node in day_nodes
         if node.candidate_id in candidate_by_id
     ]
-    votes = await VoteRepository(session).list_for_trip(trip_id)
-    travelers = await TravelerRepository(session).list_for_trip(trip_id)
-    scores = score_candidates(all_candidates, votes, len(travelers))
-    score_by_id = {score.candidate_id: score for score in scores}
     day_cities = {
         city
         for candidate in current_day_candidates
         if isinstance((city := candidate.enrichment.get("city")), str)
     }
-    alternatives = [
+    existing_alternatives = [
         candidate
         for candidate in all_candidates
         if candidate.id not in scheduled_ids
@@ -255,7 +268,48 @@ async def _build_replan_proposal(
         and candidate.type is not CandidateType.LODGING
         and (not day_cities or candidate.enrichment.get("city") in day_cities)
         and _distance_from_day(candidate, current_day_candidates) <= REPLAN_NEARBY_KM
+        and is_open_at(candidate, affected_date, cutoff)
+        and (
+            trigger_type is not ReplanTrigger.WEATHER
+            or not candidate.weather_dependent
+        )
     ]
+    existing_alternatives = filter_dietary_conflicts(
+        existing_alternatives,
+        constraints,
+    )
+
+    # End the read transaction before the gather provider performs network IO.
+    # The active version is locked and revalidated after routing, before the
+    # proposal is persisted.
+    await session.commit()
+    discovered = await alternative_provider.discover(
+        AlternativeSearchRequest(
+            trip=trip,
+            affected_date=affected_date,
+            needed_at=cutoff,
+            anchors=[candidate_by_id[node.candidate_id] for node in affected],
+            constraints=constraints,
+            limit=REPLAN_ALTERNATIVE_LIMIT,
+            avoid_weather_dependent=trigger_type is ReplanTrigger.WEATHER,
+        )
+    )
+    resolved = dedup_candidates([*all_candidates, *discovered])
+    existing_candidate_ids = {candidate.id for candidate in all_candidates}
+    new_candidates = [
+        candidate
+        for candidate in resolved
+        if candidate.id not in existing_candidate_ids
+    ]
+    if new_candidates:
+        new_candidates = await CandidatePlaceRepository(session).add_many(new_candidates)
+    all_candidates = [*all_candidates, *new_candidates]
+
+    votes = await VoteRepository(session).list_for_trip(trip_id)
+    travelers = await TravelerRepository(session).list_for_trip(trip_id)
+    scores = score_candidates(all_candidates, votes, len(travelers))
+    score_by_id = {score.candidate_id: score for score in scores}
+    alternatives = [*existing_alternatives, *new_candidates]
     alternatives.sort(
         key=lambda candidate: (
             -score_by_id[candidate.id].score if candidate.id in score_by_id else 0.0,
@@ -265,10 +319,6 @@ async def _build_replan_proposal(
     )
     alternatives = alternatives[:REPLAN_ALTERNATIVE_LIMIT]
 
-    trip = await TripRepository(session).get(trip_id)
-    if trip is None:
-        raise ReplanNotFound("Trip does not exist")
-    affected_date = trip.start_date + timedelta(days=day)
     one_day_trip = trip.model_copy(
         update={"start_date": affected_date, "end_date": affected_date, "days": 1}
     )
@@ -284,9 +334,20 @@ async def _build_replan_proposal(
             for node in suffix_nodes
         )
     }
+    lock_reason_by_candidate = {
+        node.candidate_id: node.lock_reason
+        for node in suffix_nodes
+        if node.candidate_id in required
+    }
+    fixed_start_minutes = {
+        node.candidate_id: node.start_time.hour * 60 + node.start_time.minute
+        for node in suffix_nodes
+        if node.candidate_id in required
+    }
     state = TripState(
         trip=one_day_trip,
         travelers=travelers,
+        constraints=constraints,
         candidates=candidate_pool,
         votes=votes,
         candidate_scores=[
@@ -297,8 +358,8 @@ async def _build_replan_proposal(
         day_start=cutoff,
         day_end=time(DEFAULT_DAY_END_HOUR),
     )
-    # End the read-only transaction before the external transit lookup. The
-    # active version is locked and revalidated after routing, before writes.
+    # Persist newly discovered candidates, then end this transaction before
+    # the external transit lookup.
     await session.commit()
     result = await solve_full_routes(
         state,
@@ -311,6 +372,7 @@ async def _build_replan_proposal(
             timezone=trip.timezone or "Asia/Tokyo",
         ),
         must_go_ids=required,
+        fixed_start_minutes=fixed_start_minutes,
     )
 
     locked_active = await versions.get_many_for_update([active.id])
@@ -361,7 +423,7 @@ async def _build_replan_proposal(
             transit_from_prev_min=stop.transit_from_prev_min,
             transit_from_prev_mode=stop.transit_from_prev_mode,
             fixed=stop.candidate_id in required,
-            lock_reason="reservation" if stop.candidate_id in required else None,
+            lock_reason=lock_reason_by_candidate.get(stop.candidate_id),
         )
         for route in result.routes
         for stop in route.stops
@@ -422,6 +484,7 @@ async def _build_replan_proposal(
         "alternatives_considered": alternatives_trace,
         "downstream_changes": [
             {
+                "node_id": str(item.old_node_id),
                 "candidate_id": str(item.candidate_id),
                 "old_time": item.old_start_time.isoformat(timespec="minutes"),
                 "new_time": item.new_start_time.isoformat(timespec="minutes"),
@@ -449,8 +512,10 @@ async def create_replan_proposal(
     trigger_type: ReplanTrigger,
     trigger_payload: dict[str, Any],
     transit_provider: TransitProvider | None = None,
+    alternative_provider: AlternativeProvider | None = None,
 ) -> ReplanProposal:
     """Create a pending append-only proposal while leaving active unchanged."""
+    alternatives = alternative_provider or GooglePlacesAlternativeProvider()
     if transit_provider is not None:
         return await _build_replan_proposal(
             session,
@@ -458,14 +523,16 @@ async def create_replan_proposal(
             trigger_type=trigger_type,
             trigger_payload=trigger_payload,
             transit_provider=transit_provider,
+            alternative_provider=alternatives,
         )
-    async with GoogleDirectionsClient() as live_transit:
+    async with make_transit_client() as live_transit:
         return await _build_replan_proposal(
             session,
             trip_id=trip_id,
             trigger_type=trigger_type,
             trigger_payload=trigger_payload,
             transit_provider=live_transit,
+            alternative_provider=alternatives,
         )
 
 
