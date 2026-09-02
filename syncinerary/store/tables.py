@@ -49,6 +49,7 @@ from syncinerary.domain.models import (
     ReplanStatus,
     ReplanTrigger,
     SocialPlatform,
+    TripMessageKind,
     TripStatus,
     VoteSignal,
 )
@@ -121,6 +122,37 @@ class Trip(Base):
     )
 
 
+class Account(Base):
+    """Stub identity. See CLAUDE.md section 15 and GROUP_TRIP_PLAN.md section 2."""
+
+    __tablename__ = "account"
+
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    display_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    handle: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class AccountSession(Base):
+    __tablename__ = "account_session"
+
+    token: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    account_id: Mapped[UUID] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("account.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+
+
 class Traveler(Base):
     __tablename__ = "traveler"
 
@@ -131,6 +163,84 @@ class Traveler(Base):
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     home_city: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     profile_json: Mapped[dict[str, Any]] = _jsonb_dict()
+    # Nullable: pre-M7a travelers have no account, and the single-player flow
+    # still creates travelers without one.
+    account_id: Mapped[UUID | None] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("account.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    __table_args__ = (
+        # One person joins a trip once. Without this, a double-tapped invite
+        # link silently creates a second traveler and the group sees a
+        # duplicate member whose votes are counted twice.
+        sa.UniqueConstraint("trip_id", "account_id", name="uq_traveler_trip_account"),
+    )
+
+
+class TripInvite(Base):
+    __tablename__ = "trip_invite"
+
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    trip_id: Mapped[UUID] = mapped_column(
+        sa.Uuid, sa.ForeignKey("trip.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    created_by_traveler_id: Mapped[UUID] = mapped_column(sa.Uuid, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+    max_uses: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="20"
+    )
+    uses: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class TripMessage(Base):
+    """One message in a trip thread. `body` is untrusted user content."""
+
+    __tablename__ = "trip_message"
+
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    trip_id: Mapped[UUID] = mapped_column(
+        sa.Uuid, sa.ForeignKey("trip.id", ondelete="CASCADE"), nullable=False
+    )
+    # Nullable for system messages, which have no author.
+    traveler_id: Mapped[UUID | None] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("traveler.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    body: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    kind: Mapped[TripMessageKind] = mapped_column(
+        _pg_enum(TripMessageKind, "trip_message_kind"),
+        nullable=False,
+        server_default=TripMessageKind.TEXT.value,
+    )
+    link_attachment_id: Mapped[UUID | None] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("source_attachment.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+    __table_args__ = (
+        # The thread is always read newest-last for one trip, so the composite
+        # is what actually serves the query; trip_id alone would still sort.
+        sa.Index("ix_trip_message_trip_created", "trip_id", "created_at"),
+    )
 
 
 class SourceAttachment(Base):

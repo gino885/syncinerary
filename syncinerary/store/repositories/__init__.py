@@ -9,6 +9,12 @@ from syncinerary.store.repositories.candidate import (
     CandidatePlaceRepository,
     VoteRepository,
 )
+from syncinerary.store.repositories.group import (
+    AccountRepository,
+    AccountSessionRepository,
+    TripInviteRepository,
+    TripMessageRepository,
+)
 from syncinerary.store.repositories.itinerary import (
     ItineraryNodeRepository,
     ItineraryVersionRepository,
@@ -28,6 +34,8 @@ from syncinerary.store.repositories.trip import (
 )
 
 __all__ = [
+    "AccountRepository",
+    "AccountSessionRepository",
     "AgentRunRepository",
     "BaseRepository",
     "CandidateBadgeRepository",
@@ -41,6 +49,8 @@ __all__ = [
     "ShortlistStateRepository",
     "SourceAttachmentRepository",
     "TravelerRepository",
+    "TripInviteRepository",
+    "TripMessageRepository",
     "TripRepository",
     "VoteRepository",
     "WishlistNotPlacedRepository",
