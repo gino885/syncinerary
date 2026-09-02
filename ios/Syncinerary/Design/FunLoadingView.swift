@@ -11,7 +11,7 @@ struct FunLoadingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// At most two finished lines stay on the page; more turns into noise.
-    private var previousLines: [String] {
+    private var previousLines: [LoadingLine] {
         guard lineIndex > 0 else { return [] }
         return Array(script.lines[max(0, lineIndex - 2)..<lineIndex])
     }
@@ -22,13 +22,16 @@ struct FunLoadingView: View {
 
             VStack(alignment: .leading, spacing: AppTheme.spacingM) {
                 ForEach(previousLines, id: \.self) { line in
-                    Text(line)
+                    Label(line.text, systemImage: line.symbolName)
                         .font(AppType.body)
                         .foregroundStyle(AppTheme.faded)
                         .strikethrough(color: AppTheme.rule)
                 }
 
-                Text(script.lines[lineIndex])
+                Label(
+                    script.lines[lineIndex].text,
+                    systemImage: script.lines[lineIndex].symbolName
+                )
                     .font(AppType.name)
                     .foregroundStyle(AppTheme.ink)
                     .id(lineIndex)
