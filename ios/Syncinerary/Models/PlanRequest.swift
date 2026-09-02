@@ -1,4 +1,4 @@
-struct PlanRequest: Encodable, Hashable, Sendable {
+struct PlanRequest: Codable, Hashable, Sendable {
     let dayStart: String
     let dayEnd: String
 

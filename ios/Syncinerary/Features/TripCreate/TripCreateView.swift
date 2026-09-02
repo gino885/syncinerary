@@ -2,100 +2,81 @@ import SwiftUI
 
 struct TripCreateView: View {
     let onCreated: (TripSession) -> Void
+    let onResume: (TripSession) -> Void
 
     @State private var viewModel = TripCreateViewModel()
+    @Environment(RecentTripsStore.self) private var recentTrips
 
     var body: some View {
         @Bindable var viewModel = viewModel
 
         Form {
-            Section("Trip") {
-                TextField("Country", text: $viewModel.country)
+            WhereToHeader()
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+
+            RecentTripsSection(
+                sessions: recentTrips.sessions,
+                onResume: onResume,
+                onForget: recentTrips.forget
+            )
+
+            Section {
+                TextField("Country, for example Japan", text: $viewModel.country)
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
-                TextField(
-                    "Cities, separated by commas",
-                    text: $viewModel.cities,
-                    axis: .vertical
-                )
-                .lineLimit(1...3)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                Text("One country per trip, then the cities in it, for example: Japan, then Sapporo, Otaru. Each city gets its own run of days rather than being visited on alternate days.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                DatePicker(
-                    "Start date",
-                    selection: $viewModel.startDate,
-                    displayedComponents: .date
-                )
-                DatePicker(
-                    "End date",
-                    selection: $viewModel.endDate,
-                    in: viewModel.startDate...,
-                    displayedComponents: .date
-                )
+                TextField("Cities, comma separated: Sapporo, Otaru", text: $viewModel.cities, axis: .vertical)
+                    .lineLimit(1...3)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                DatePicker("From", selection: $viewModel.startDate, displayedComponents: .date)
+                DatePicker("To", selection: $viewModel.endDate, in: viewModel.startDate..., displayedComponents: .date)
+            } header: {
+                EyebrowText("Trip")
             }
 
-            Section("Traveler") {
+            Section {
                 TextField("Your name", text: $viewModel.creatorName)
                     .textContentType(.name)
-                TextField("Home city (optional)", text: $viewModel.creatorHomeCity)
+                TextField("Home city, optional", text: $viewModel.creatorHomeCity)
                     .textContentType(.addressCity)
+                TextField("Interests: coffee, architecture, seafood", text: $viewModel.interests, axis: .vertical)
+                    .lineLimit(1...3)
+                TextField("Foods to avoid: peanuts, shellfish", text: $viewModel.dietaryExcludes, axis: .vertical)
+                    .lineLimit(1...3)
+            } header: {
+                EyebrowText("You")
             }
 
-            Section("Your travel style") {
-                TextField(
-                    "Interests, separated by commas",
-                    text: $viewModel.interests,
-                    axis: .vertical
-                )
-                .lineLimit(2...4)
-                TextField(
-                    "Foods to avoid, separated by commas",
-                    text: $viewModel.dietaryExcludes,
-                    axis: .vertical
-                )
-                .lineLimit(2...4)
-                Text("Examples: coffee, architecture, seafood, peanuts. Unknown restaurant details will be shown with a reminder to confirm directly.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Daily schedule") {
-                DatePicker(
-                    "Start exploring",
-                    selection: $viewModel.dayStart,
-                    displayedComponents: .hourAndMinute
-                )
-                DatePicker(
-                    "Finish by",
-                    selection: $viewModel.dayEnd,
-                    displayedComponents: .hourAndMinute
-                )
-                Text("The default is 8:00 AM to 9:00 PM, which leaves room for dinner. You can adjust it for this trip.")
-                    .foregroundStyle(.secondary)
+            Section {
+                DatePicker("Start the day", selection: $viewModel.dayStart, displayedComponents: .hourAndMinute)
+                DatePicker("Finish by", selection: $viewModel.dayEnd, displayedComponents: .hourAndMinute)
+            } header: {
+                EyebrowText("Hours")
             }
 
             Section {
                 Button(action: createTrip) {
                     if viewModel.isSubmitting {
                         ProgressView()
-                            .frame(maxWidth: .infinity)
+                            .tint(AppTheme.stamp)
                     } else {
-                        Label("Create trip", systemImage: "airplane.departure")
-                            .frame(maxWidth: .infinity)
+                        Text("Find places")
                     }
                 }
+                .buttonStyle(.stamp)
                 .disabled(!viewModel.canSubmit)
-                .frame(minHeight: AppLayout.minimumTapHeight)
+                .listRowBackground(Color.clear)
+                .listRowInsets(ListRowInsets.stamp)
             }
         }
-        .navigationTitle("Plan a trip")
+        .journalPage()
+        .navigationTitle("Syncinerary")
+        .navigationBarTitleDisplayMode(.inline)
         .onChange(of: viewModel.startDate) {
             viewModel.adjustEndDate()
         }
-        .alert("Couldn’t create trip", isPresented: $viewModel.isShowingError) { } message: {
+        .alert("Couldn't create the trip", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
         }
     }
@@ -111,6 +92,7 @@ struct TripCreateView: View {
 
 #Preview {
     NavigationStack {
-        TripCreateView(onCreated: { _ in })
+        TripCreateView(onCreated: { _ in }, onResume: { _ in })
     }
+    .environment(RecentTripsStore())
 }

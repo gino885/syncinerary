@@ -16,41 +16,47 @@ struct SavedPostsView: View {
         Form {
             FriendsPlanningHeader()
                 .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
 
-            Section("Saved post") {
+            Section {
                 TextField("Instagram, TikTok, or RedNote link", text: $viewModel.postURL)
                     .textContentType(.URL)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 
-                TextField("Place or restaurant name (optional)", text: $viewModel.placeName)
+                TextField("Place name, if the link doesn't say", text: $viewModel.placeName)
                     .textContentType(.location)
 
-                Button("Add saved post", systemImage: "link.badge.plus", action: attach)
+                Button("Add post", action: attach)
                     .disabled(!viewModel.canAttach)
                     .frame(minHeight: AppLayout.minimumTapHeight)
             }
 
             if !viewModel.attachments.isEmpty {
-                Section("Added by your group") {
+                Section {
                     ForEach(viewModel.attachments) { attachment in
                         AttachedPostRow(attachment: attachment)
                     }
+                } header: {
+                    EyebrowText("Added")
                 }
             }
 
             Section {
-                Button("Start swiping", systemImage: "person.3.fill", action: continueToSwipe)
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTapHeight)
+                Button("Start swiping", action: continueToSwipe)
+                    .buttonStyle(.stamp)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(ListRowInsets.stamp)
             } footer: {
-                Text("Saved posts are optional. You can continue with the places already gathered.")
+                Text("Optional. The places already gathered are waiting either way.")
             }
         }
-        .navigationTitle("Plan together")
+        .journalPage()
+        .navigationTitle(viewModel.session.trip.destination)
+        .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .alert("Couldn’t add this post", isPresented: $viewModel.isShowingError) { } message: {
+        .alert("Couldn't add this post", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
         }
     }
@@ -68,17 +74,7 @@ struct SavedPostsView: View {
     NavigationStack {
         SavedPostsView(
             session: TripSession(
-                trip: TripSummary(
-                    id: UUID(),
-                    destination: "Sapporo, Otaru",
-                    cities: ["Sapporo", "Otaru"],
-                    country: "Japan",
-                    timezone: "Asia/Tokyo",
-                    startDate: "2026-09-25",
-                    endDate: "2026-09-29",
-                    days: 5,
-                    status: "setup"
-                ),
+                trip: TripSummary(id: UUID(), destination: "Sapporo, Otaru", cities: ["Sapporo", "Otaru"], country: "Japan", timezone: "Asia/Tokyo", startDate: "2026-09-25", endDate: "2026-09-29", days: 5, status: "setup"),
                 travelerID: UUID(),
                 planRequest: .standard
             ),

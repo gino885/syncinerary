@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A note pinned to a like, for the rest of the group to read.
 struct VoteNoteSheet: View {
     let placeName: String
     let onSubmit: (String) -> Void
@@ -10,16 +11,20 @@ struct VoteNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("What should the group know?") {
+                Section {
                     TextField(
-                        "For example, only if the weather is good",
+                        "Only if the weather holds. I'd skip the queue.",
                         text: $note,
                         axis: .vertical
                     )
                     .lineLimit(3...6)
+                } header: {
+                    EyebrowText("What should the group know?")
                 }
             }
+            .journalPage()
             .navigationTitle(placeName)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: dismiss.callAsFunction)

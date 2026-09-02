@@ -15,16 +15,28 @@ struct ShortlistView: View {
 
         Group {
             if viewModel.isLoading {
-                ProgressView("Building the group shortlist…")
+                FunLoadingView(script: .shortlist)
             } else if viewModel.candidates.isEmpty {
                 ContentUnavailableView(
-                    "No places to review",
-                    systemImage: "list.star",
-                    description: Text("Finish voting before building the shortlist.")
+                    "Nothing to shortlist yet",
+                    systemImage: "list.bullet",
+                    description: Text("Finish swiping first.")
                 )
             } else {
                 List {
-                    Section("Shortlist") {
+                    Section {
+                        ShortlistTallyLine(
+                            goingCount: viewModel.selectedIDs.count,
+                            mustGoCount: viewModel.mustGoIDs.count,
+                            mustGoLimit: viewModel.session.trip.days,
+                            confirmed: viewModel.confirmation?.confirmedBy.count ?? 0,
+                            required: viewModel.confirmation?.confirmationsRequired ?? 0
+                        )
+                        .listRowSeparator(.hidden)
+                    }
+                    .journalRow()
+
+                    Section {
                         ForEach(viewModel.selectedCandidates) { candidate in
                             ShortlistCandidateRow(
                                 candidate: candidate,
@@ -34,10 +46,13 @@ struct ShortlistView: View {
                                 onToggleMustGo: { viewModel.toggleMustGo(candidate) }
                             )
                         }
+                    } header: {
+                        EyebrowText("Going")
                     }
+                    .journalRow()
 
                     if !viewModel.wishlistCandidates.isEmpty {
-                        Section("More ideas") {
+                        Section {
                             ForEach(viewModel.wishlistCandidates) { candidate in
                                 ShortlistCandidateRow(
                                     candidate: candidate,
@@ -47,33 +62,44 @@ struct ShortlistView: View {
                                     onToggleMustGo: { }
                                 )
                             }
+                        } header: {
+                            EyebrowText("More ideas")
                         }
+                        .journalRow()
                     }
 
                     Section {
-                        Button("Confirm shortlist", systemImage: "checkmark.circle", action: confirm)
-                            .buttonStyle(.borderedProminent)
+                        Button("Confirm shortlist", action: confirm)
+                            .buttonStyle(.stamp)
                             .disabled(viewModel.selectedIDs.isEmpty || viewModel.isSubmitting)
-                            .frame(minHeight: AppLayout.minimumTapHeight)
+                            .listRowInsets(ListRowInsets.stamp)
+                            .listRowSeparator(.hidden)
 
                         if let confirmation = viewModel.confirmation,
                            !confirmation.confirmedBy.isEmpty,
                            !confirmation.isConfirmed {
-                            Button("Refresh confirmations", systemImage: "arrow.clockwise", action: refresh)
-                            Text(viewModel.confirmationText)
-                                .foregroundStyle(.secondary)
+                            Button("Check for confirmations", action: refresh)
+                                .foregroundStyle(AppTheme.ink)
                         }
                     } footer: {
-                        Text("Use the star for must-go places. At least half the group must confirm before planning.")
+                        Text("Half the group has to confirm before planning. Stars are must-go, up to \(viewModel.session.trip.days).")
+                            .font(.footnote)
+                            .foregroundStyle(AppTheme.faded)
                     }
+                    .journalRow()
                 }
+                .listStyle(.plain)
+                .listRowSeparatorTint(AppTheme.rule)
+                .animation(AppTheme.settle, value: viewModel.selectedIDs)
             }
         }
-        .navigationTitle("Choose the shortlist")
+        .journalPage()
+        .navigationTitle("Shortlist")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.load()
         }
-        .alert("Couldn’t update the shortlist", isPresented: $viewModel.isShowingError) { } message: {
+        .alert("Couldn't update the shortlist", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
         }
     }

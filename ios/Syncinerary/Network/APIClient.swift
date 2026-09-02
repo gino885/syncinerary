@@ -4,8 +4,12 @@ actor APIClient {
     static let shared = APIClient()
 
     private static let localBaseURL: URL = {
-        guard let url = URL(string: "http://localhost:8000") else {
-            fatalError("The local backend URL is invalid")
+        // SYNC_API_BASE_URL lets a simulator run or a device point at another
+        // host or port without editing code (see ios/README.md).
+        let configured = ProcessInfo.processInfo.environment["SYNC_API_BASE_URL"]
+            ?? UserDefaults.standard.string(forKey: "SYNC_API_BASE_URL")
+        guard let url = URL(string: configured ?? "http://localhost:8000") else {
+            fatalError("The backend URL is invalid")
         }
         return url
     }()
@@ -48,6 +52,12 @@ actor APIClient {
 
     func gather(tripID: UUID) async throws -> GatherResponse {
         try await post(path: "trips/\(tripID)/gather", body: EmptyRequest())
+    }
+
+    /// The trip as the server sees it now, used to resume a saved trip at
+    /// the right step.
+    func trip(tripID: UUID) async throws -> TripSummary {
+        try await get(path: "trips/\(tripID)")
     }
 
     func attachLink(

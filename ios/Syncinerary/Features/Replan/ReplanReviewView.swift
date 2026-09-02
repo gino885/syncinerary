@@ -12,10 +12,12 @@ struct ReplanReviewView: View {
         NavigationStack {
             List {
                 Section {
-                    Label(proposal.triggerType.label, systemImage: "exclamationmark.triangle.fill")
-                        .bold()
-                    Text("Your current itinerary stays active until you approve this change.")
-                        .foregroundStyle(.secondary)
+                    Text(proposal.triggerType.label)
+                        .font(AppType.name)
+                        .foregroundStyle(AppTheme.ink)
+                    Text("Nothing changes until you approve.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.faded)
                 }
 
                 if !proposal.diff.added.isEmpty {
@@ -25,7 +27,7 @@ struct ReplanReviewView: View {
                                 systemImage: "plus.circle.fill",
                                 title: stop.name,
                                 detail: "Day \(stop.day + 1), \(stop.timeRange)",
-                                tint: .green
+                                tint: AppTheme.jade
                             )
                         }
                     }
@@ -38,7 +40,7 @@ struct ReplanReviewView: View {
                                 systemImage: "minus.circle.fill",
                                 title: stop.name,
                                 detail: "Day \(stop.day + 1), \(stop.timeRange)",
-                                tint: .red
+                                tint: AppTheme.stamp
                             )
                         }
                     }
@@ -51,7 +53,7 @@ struct ReplanReviewView: View {
                                 systemImage: "arrow.right.circle.fill",
                                 title: move.name,
                                 detail: "Day \(move.oldDay + 1) to day \(move.newDay + 1)",
-                                tint: .orange
+                                tint: AppTheme.violet
                             )
                         }
                     }
@@ -64,7 +66,7 @@ struct ReplanReviewView: View {
                                 systemImage: "clock.arrow.circlepath",
                                 title: change.name,
                                 detail: "\(change.oldStartTime.prefix(5)) to \(change.newStartTime.prefix(5))",
-                                tint: .blue
+                                tint: AppTheme.faded
                             )
                         }
                     }
@@ -85,19 +87,20 @@ struct ReplanReviewView: View {
                 }
 
                 Section {
-                    Button("Use this plan", systemImage: "checkmark.circle.fill") {
+                    Button("Use this plan") {
                         submit(onApprove)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTapHeight)
+                    .buttonStyle(.stamp(ink: AppTheme.jade))
 
-                    Button("Keep current plan", systemImage: "arrow.uturn.backward.circle") {
+                    Button("Keep current plan") {
                         submit(onReject)
                     }
+                    .foregroundStyle(AppTheme.ink)
                     .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTapHeight)
                 }
                 .disabled(isSubmitting)
             }
+            .journalPage()
             .navigationTitle("Review trip update")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -107,10 +110,10 @@ struct ReplanReviewView: View {
             }
             .overlay {
                 if isSubmitting {
-                    ProgressView("Saving decision…")
+                    ProgressView("Saving…")
                         .padding()
-                        .background(.regularMaterial)
-                        .clipShape(.rect(cornerRadius: AppLayout.cardCornerRadius))
+                        .background(AppTheme.paper)
+                        .clipShape(.rect(cornerRadius: AppTheme.cornerRadius))
                 }
             }
         }

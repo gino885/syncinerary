@@ -12,27 +12,27 @@ struct ItineraryView: View {
 
         Group {
             if viewModel.isLoading && viewModel.itinerary == nil {
-                ProgressView("Loading itinerary…")
+                FunLoadingView(script: .itinerary)
             } else if let itinerary = viewModel.itinerary {
                 List {
-                    if viewModel.liveUpdatesUnavailable {
-                        Label(
-                            "Live trip updates are reconnecting",
-                            systemImage: "wifi.exclamationmark"
-                        )
-                        .foregroundStyle(.secondary)
-                    }
+                    Section {
+                        if viewModel.liveUpdatesUnavailable {
+                            MetaLabel("Live updates reconnecting")
+                        }
 
-                    if viewModel.pendingProposal != nil {
-                        Button {
-                            viewModel.showPendingReplan()
-                        } label: {
-                            Label(
-                                "Review pending trip update",
-                                systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
-                            )
+                        if viewModel.pendingProposal != nil {
+                            Button("Review the trip update", action: viewModel.showPendingReplan)
+                                .buttonStyle(.stamp)
+                                .listRowInsets(ListRowInsets.stamp)
+                                .listRowSeparator(.hidden)
+                        }
+
+                        if let narrative = itinerary.narrative, !narrative.isEmpty {
+                            ItineraryNarrativeCard(narrative: narrative)
+                                .listRowSeparator(.hidden)
                         }
                     }
+                    .journalRow()
 
                     ForEach(itinerary.days) { day in
                         ItineraryDaySection(day: day)
@@ -42,25 +42,30 @@ struct ItineraryView: View {
 
                     if itinerary.usesTransitous,
                        let sourcesURL = URL(string: "https://transitous.org/sources/") {
-                        Link(destination: sourcesURL) {
-                            Label("Transit data by Transitous", systemImage: "tram")
+                        Section {
+                            Link(destination: sourcesURL) {
+                                MetaLabel("Transit data by Transitous ↗", color: AppTheme.ink)
+                            }
                         }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .journalRow()
                     }
                 }
+                .listStyle(.plain)
+                .listRowSeparatorTint(AppTheme.rule)
                 .refreshable {
                     await viewModel.load()
                 }
             } else {
                 ContentUnavailableView(
                     "No itinerary",
-                    systemImage: "calendar.badge.exclamationmark",
-                    description: Text("The itinerary could not be loaded.")
+                    systemImage: "calendar",
+                    description: Text("Pull to try again.")
                 )
             }
         }
-        .navigationTitle("Itinerary")
+        .journalPage()
+        .navigationTitle(viewModel.session.trip.destination)
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             if viewModel.itinerary == nil {
                 await viewModel.load()
@@ -79,7 +84,7 @@ struct ItineraryView: View {
                 )
             }
         }
-        .alert("Couldn’t load itinerary", isPresented: $viewModel.isShowingError) { } message: {
+        .alert("Couldn't load the itinerary", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
         }
     }
