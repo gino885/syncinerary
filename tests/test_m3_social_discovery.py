@@ -2,8 +2,8 @@
 
 The platform tools existed on this branch but nothing called them, so the pool
 was a Google Places search and nothing else. These cover the wiring: profile
-driven queries, the cross-source threshold, geocoding as the reality check,
-and the graceful degradation that keeps a missing key from failing a gather.
+driven queries, content-first eligibility, engagement ranking, geocoding as
+the reality check, and provider failure behavior.
 """
 from __future__ import annotations
 
@@ -17,13 +17,16 @@ import pytest
 from syncinerary.agents.gather import social as social_module
 from syncinerary.agents.gather.social import (
     MinedPlace,
+    MinedPost,
     SocialPlaceMention,
     SocialPlaceMentions,
+    allocate_city_budget,
     discover_social_candidates,
-    eligible_places,
     is_eligible,
     merge_into_pool,
     merge_mentions,
+    score_places,
+    select_social_candidates,
     to_candidate,
     traveler_interests,
 )
@@ -117,7 +120,9 @@ def test_interests_refine_the_base_query_without_adding_requests():
     )
 
     assert len(base) == 1
-    assert personalised == ["Hokkaido travel food guide ramen onsen"]
+    assert personalised == [
+        "Hokkaido must visit places must eat food travel guide ramen onsen"
+    ]
 
 
 def test_rednote_interests_refine_the_single_localized_query():
@@ -128,34 +133,90 @@ def test_rednote_interests_refine_the_single_localized_query():
         interests=["拉麵"],
     )
 
-    assert queries == ["北海道旅游美食攻略 拉麵"]
+    assert queries == ["北海道 必去景点 必吃美食 旅游攻略 探店 拉麵"]
 
 
-# ----- the cross-source threshold -----
+# ----- content-first eligibility -----
 
 
-def test_a_place_needs_the_configured_number_of_posts_before_it_is_geocoded():
+def test_one_independent_post_is_enough_before_google_verification():
     mined: dict[str, MinedPlace] = {}
-    posts = [_tiktok(index) for index in range(3)]
+    posts = [_tiktok(1)]
     merge_mentions(
         mined,
         SocialPlaceMentions(
             mentions=[
                 SocialPlaceMention(name="Ramen Yokocho", post_index=1),
-                SocialPlaceMention(name="Ramen Yokocho", post_index=2),
-                SocialPlaceMention(name="Ramen Yokocho", post_index=3),
-                SocialPlaceMention(name="One off cafe", post_index=1),
             ]
         ),
         posts,
         SocialPlatform.TIKTOK,
     )
 
-    kept = eligible_places(mined)
+    kept = score_places(mined)
 
     assert [place.name for place in kept] == ["Ramen Yokocho"]
-    assert kept[0].mention_count == 3
+    assert kept[0].mention_count == 1
     assert kept[0].buzz_score > 0
+
+
+def test_explicit_post_engagement_strengthens_a_place_score():
+    quiet_post = _tiktok(1)
+    popular_post = _tiktok(2).model_copy(
+        update={"like_count": 12_400, "comment_count": 380}
+    )
+    quiet = MinedPlace(name="Quiet", post_urls=[quiet_post.reference.canonical_url])
+    popular: dict[str, MinedPlace] = {}
+    merge_mentions(
+        popular,
+        SocialPlaceMentions(
+            mentions=[SocialPlaceMention(name="Popular", post_index=1)]
+        ),
+        [popular_post],
+        SocialPlatform.TIKTOK,
+    )
+
+    assert popular["popular"].buzz_score > quiet.buzz_score
+    assert popular["popular"].has_explicit_engagement is True
+
+
+def test_the_highest_engagement_post_becomes_the_candidate_source_link():
+    mined: dict[str, MinedPlace] = {}
+    quiet = _post("https://www.instagram.com/reel/AbCdEfG1/")
+    popular = _tiktok(2).model_copy(
+        update={"like_count": 12_400, "comment_count": 380}
+    )
+    merge_mentions(
+        mined,
+        SocialPlaceMentions(
+            mentions=[SocialPlaceMention(name="Ramen Yokocho", post_index=1)]
+        ),
+        [quiet],
+        SocialPlatform.INSTAGRAM,
+    )
+    merge_mentions(
+        mined,
+        SocialPlaceMentions(
+            mentions=[SocialPlaceMention(name="Ramen Yokocho", post_index=1)]
+        ),
+        [popular],
+        SocialPlatform.TIKTOK,
+    )
+    place = PlaceMatch(
+        place_id="ChIJ-ramen",
+        display_name="Sapporo Ramen Yokocho",
+        lat=43.055,
+        lng=141.353,
+        primary_type="restaurant",
+        types=["restaurant"],
+    )
+
+    candidate = to_candidate(place, mined["ramen yokocho"], _trip())
+
+    assert candidate.enrichment["social_post_urls"][0] == (
+        popular.reference.canonical_url
+    )
+    assert candidate.enrichment["social_posts"][0]["like_count"] == 12_400
 
 
 def test_the_same_post_is_never_counted_twice_for_one_place():
@@ -226,7 +287,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     async def fake_search(_platform, *, destination, interests):
         return posts
 
-    async def fake_extract(_posts, *, platform, destination, client=None):
+    async def fake_extract(_posts, *, platform, destination, interests=None, client=None):
         if platform is not SocialPlatform.TIKTOK:
             return SocialPlaceMentions()
         return SocialPlaceMentions(
@@ -272,6 +333,84 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     assert candidate.enrichment["city"] == "Hokkaido"
     assert candidate.enrichment["social_platforms"] == ["tiktok"]
     assert len(candidate.enrichment["social_post_urls"]) == 3
+
+
+async def test_multilingual_aliases_count_together_after_google_resolves_them(
+    monkeypatch,
+):
+    trip = _trip()
+    posts_by_platform = {
+        SocialPlatform.TIKTOK: [
+            _tiktok(1, title="Hakodate Morning Market food tour")
+        ],
+        SocialPlatform.INSTAGRAM: [
+            _post(
+                "https://www.instagram.com/reel/AbCdEfG1/",
+                title="Morning Market Hakodate",
+            )
+        ],
+        SocialPlatform.REDNOTE: [
+            _post(
+                "https://www.xiaohongshu.com/explore/5eeca1ba0000000001000ccc",
+                title="函館朝市",
+            )
+        ],
+    }
+    names = {
+        SocialPlatform.TIKTOK: "Hakodate Morning Market",
+        SocialPlatform.INSTAGRAM: "Morning Market Hakodate",
+        SocialPlatform.REDNOTE: "函館朝市",
+    }
+
+    async def fake_search(platform, *, destination, interests):
+        return posts_by_platform[platform]
+
+    async def fake_extract(_posts, *, platform, destination, interests=None, client=None):
+        return SocialPlaceMentions(
+            mentions=[
+                SocialPlaceMention(
+                    name=names[platform],
+                    canonical_name="Hakodate Morning Market",
+                    post_index=1,
+                )
+            ]
+        )
+
+    geocode_queries = []
+
+    async def fake_run_tool(_tool, arguments, **_kwargs):
+        geocode_queries.append(arguments.query)
+        return PlaceSearchOutput(
+            matches=[
+                PlaceMatch(
+                    place_id="ChIJ-hakodate-market",
+                    display_name="Hakodate Morning Market",
+                    lat=41.772,
+                    lng=140.724,
+                    primary_type="market",
+                    types=["market"],
+                )
+            ]
+        )
+
+    monkeypatch.setattr(social_module, "_search_platform", fake_search)
+    monkeypatch.setattr(social_module, "extract_post_places", fake_extract)
+    monkeypatch.setattr(social_module, "run_tool", fake_run_tool)
+
+    candidates = await discover_social_candidates(trip, [])
+
+    assert [candidate.name_canonical for candidate in candidates] == [
+        "Hakodate Morning Market"
+    ]
+    candidate = candidates[0]
+    assert candidate.sources[0].sources_count == 3
+    assert candidate.enrichment["social_platforms"] == [
+        "instagram",
+        "tiktok",
+        "rednote",
+    ]
+    assert len(candidate.enrichment["social_post_urls"]) == 3
+    assert geocode_queries == ["Hakodate Morning Market"]
 
 
 async def test_a_platform_failure_is_not_hidden_as_an_empty_result(monkeypatch):
@@ -422,8 +561,8 @@ async def test_link_metadata_requires_a_configured_key():
 # ----- what counts as independent evidence -----
 
 
-def test_a_single_mention_is_never_enough():
-    assert not is_eligible(MinedPlace(name="One off", platforms=["tiktok"], post_urls=["a"]))
+def test_a_single_mention_can_introduce_a_place():
+    assert is_eligible(MinedPlace(name="One off", platforms=["tiktok"], post_urls=["a"]))
 
 
 def test_enough_posts_on_one_platform_qualifies():
@@ -432,9 +571,8 @@ def test_enough_posts_on_one_platform_qualifies():
     )
 
 
-def test_two_posts_on_two_platforms_do_not_bypass_the_source_threshold():
-    """The documented rule still requires three independent source posts."""
-    assert not is_eligible(
+def test_two_posts_do_not_need_cross_platform_confirmation():
+    assert is_eligible(
         MinedPlace(
             name="Otaru Canal",
             platforms=["instagram", "tiktok"],
@@ -443,7 +581,7 @@ def test_two_posts_on_two_platforms_do_not_bypass_the_source_threshold():
     )
 
 
-def test_cross_platform_places_are_geocoded_before_single_platform_ones():
+def test_more_independent_posts_rank_ahead_without_cross_platform_requirement():
     mined = {
         "one": MinedPlace(name="One platform", platforms=["tiktok"], post_urls=["a", "b", "c", "d"]),
         "two": MinedPlace(
@@ -453,7 +591,137 @@ def test_cross_platform_places_are_geocoded_before_single_platform_ones():
         ),
     }
 
-    assert [place.name for place in eligible_places(mined)] == [
-        "Two platforms",
+    assert [place.name for place in score_places(mined)] == [
         "One platform",
+        "Two platforms",
     ]
+
+
+# ----- two-lane selection (SOCIAL_TWO_LANE_PLAN.md) -----
+
+
+def _mined(name: str, urls: list[str], *, fit: int = 0, authors: list[str] | None = None) -> MinedPlace:
+    posts = [
+        MinedPost(
+            platform="tiktok",
+            url=url,
+            rank=index + 1,
+            interest_fit=fit,
+            author_name=authors[index] if authors else None,
+        )
+        for index, url in enumerate(urls)
+    ]
+    return MinedPlace(name=name, platforms=["tiktok"], post_urls=list(urls), posts=posts)
+
+
+def _listicle(count: int) -> list[MinedPlace]:
+    """One post naming `count` places, which is what a listicle video is."""
+    return [_mined(f"Zed Place {index}", ["https://www.tiktok.com/@a/video/1"]) for index in range(count)]
+
+
+def test_a_listicle_does_not_capture_the_deck_alphabetically():
+    """The bug this lane split exists to fix.
+
+    Ten places from one video all score log(2) and used to be cut by name, so
+    the deck became one creator's opinion in alphabetical order.
+    """
+    better = _mined(
+        "Zzz Cafe",
+        ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@b/video/2"],
+        authors=["a", "b"],
+    )
+    places = [*_listicle(10), better]
+
+    selected = select_social_candidates(places, budget=3)
+
+    # Last alphabetically, first on evidence.
+    assert selected[0].place.name == "Zzz Cafe"
+
+
+def test_independent_sources_outrank_repeated_mentions_from_one_post():
+    """The property, not the arithmetic: log(mentions) alone cannot tell a
+    listicle entry from an independently corroborated place."""
+    one_video = _mined("From one video", ["https://www.tiktok.com/@a/video/1"])
+    two_creators = _mined(
+        "From two creators",
+        ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@b/video/2"],
+        authors=["a", "b"],
+    )
+
+    assert two_creators.independent_source_count == 2
+    assert one_video.independent_source_count == 1
+    ranked = select_social_candidates([one_video, two_creators], budget=2)
+    assert ranked[0].place.name == "From two creators"
+
+
+def test_a_single_mention_matching_interests_reaches_the_deck():
+    """A hidden gem is mentioned once by definition, so a popularity sort can
+    never surface it. That is the whole point of the second lane."""
+    gem = _mined("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
+    places = [*_listicle(10), gem]
+
+    selected = select_social_candidates(places, budget=5)
+
+    chosen = {choice.place.name: choice.lane for choice in selected}
+    assert chosen["Quiet Kissaten"] == "for_you"
+
+
+def test_a_group_with_no_interests_gets_a_full_trending_deck():
+    places = _listicle(10)
+
+    selected = select_social_candidates(places, budget=6)
+
+    assert len(selected) == 6
+    assert {choice.lane for choice in selected} == {"trending"}
+
+
+def test_an_unfilled_interest_lane_is_backfilled_rather_than_left_short():
+    """Only one place clears the fit floor, so the other lane slots must not
+    simply vanish from the budget."""
+    gem = _mined("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
+    weak = _mined("Loose Match", ["https://www.tiktok.com/@d/video/8"], fit=1)
+    places = [*_listicle(10), gem, weak]
+
+    selected = select_social_candidates(places, budget=10)
+
+    assert len(selected) == 10
+    lanes = [choice.lane for choice in selected]
+    assert lanes.count("for_you") == 1
+    assert "Loose Match" not in {
+        choice.place.name for choice in selected if choice.lane == "for_you"
+    }
+
+
+def test_selection_never_exceeds_or_undershoots_the_budget():
+    places = _listicle(40)
+    assert len(select_social_candidates(places, budget=12)) == 12
+    assert len(select_social_candidates(places[:3], budget=12)) == 3
+    assert select_social_candidates(places, budget=0) == []
+
+
+def test_city_budget_is_shared_out_and_never_starves_a_city():
+    assert sum(allocate_city_budget([1, 1, 1], 32)) == 32
+    assert min(allocate_city_budget([1, 1, 1, 1], 32)) >= 1
+    # A city with more trip days earns more of the budget.
+    weighted = allocate_city_budget([4, 1, 1], 32)
+    assert weighted[0] > weighted[1]
+    # Budget smaller than the city count still gives what it can, not fractions.
+    assert allocate_city_budget([1, 1, 1], 2) == [1, 1, 0]
+
+
+def test_the_selection_lane_reaches_the_card():
+    place = PlaceMatch(
+        place_id="ChIJ-kissaten",
+        display_name="Quiet Kissaten",
+        lat=43.055,
+        lng=141.353,
+        primary_type="cafe",
+        types=["cafe"],
+    )
+    gem = _mined("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
+
+    candidate = to_candidate(place, gem, _trip(), lane="for_you")
+
+    assert candidate.trending_signals["selection_lane"] == "for_you"
+    assert candidate.trending_signals["interest_score"] == 3
+    assert candidate.trending_signals["independent_source_count"] == 1

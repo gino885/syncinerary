@@ -340,7 +340,7 @@ sources for this product. Google Maps is used to verify real places and obtain
 permitted place data, not as a social-content platform. Pool size defaults to
 `days * 8`, within the acceptable range `days * 5` to `days * 8`.
 
-### 8.1 Google Places foundation (~60%)
+### 8.1 Google Places foundation (~40%)
 
 Destination-specific place searches provide enough attractions, food, and
 lodging for complete days. Every returned address must match the selected city
@@ -350,23 +350,62 @@ composition plus provider results, with no LLM free-association.
 `sources[]` on a foundation candidate includes
 `{type:'discovery', subtype:'google_places'}`.
 
-### 8.2 Social buzz (up to ~40%)
+### 8.2 Social discovery (up to ~60%)
 
 What travelers are currently posting about on Instagram, TikTok, and RedNote.
 Only official APIs or platform-permitted public metadata may be used.
 
 **Method:**
 
-1. Run one bounded search per platform and city. RedNote queries use Mandarin.
+1. Run one bounded high-intent search per platform and city. Instagram and
+   TikTok searches target must-visit and must-eat posts. RedNote searches use
+   Mandarin terms including `必去景点`, `必吃美食`, `旅游攻略`, and `探店`.
 2. Run LLM NER over the public title and description snippets.
 3. Geocode with Google Places and reject addresses outside the selected city.
-4. Require at least 3 independent post URLs before a candidate is eligible.
-5. Score with `buzz_score = log(mentions + 1)`. Do not invent unavailable
-   engagement or recency values.
+4. One independent post may introduce a candidate. A place does not need to
+   appear on multiple platforms or in three separate posts.
+5. Rank explicit post likes and comments above search position when the public
+   metadata labels those numbers. Otherwise use search position and mention
+   count. Never treat account followers or account-wide likes as post
+   engagement, and never invent unavailable engagement or recency values.
 6. Merge a social match into the existing Google place instead of duplicating it.
 7. Limit social cards to the configured buzz share of the automatic pool.
+   When too few usable posts are found, fill the shortfall from Google Places.
+8. Select the cards to verify from two lanes, not from one popularity sort.
 
 `sources[]` includes `{type:'buzz', score:<value>, sources_count:<n>}`.
+
+**Two-lane selection.** A pure popularity sort cannot surface a place that
+suits this group but few people posted about, because such a place is
+mentioned once by definition and ties with every other single-mention name.
+Selection therefore fills a verification budget from two lanes:
+
+| Lane | Ranked by | Answers |
+|---|---|---|
+| Trending | buzz score, then independent source count, then distinct creators | what has the strongest social evidence |
+| For You | interest fit, then buzz as a tiebreak | what looks written for this group |
+
+Rules:
+
+- Discovery keeps every place a post names, including all ten from a listicle.
+  Recall belongs to discovery; discrimination belongs to selection.
+- A listicle cannot capture the deck because its ten places share one URL and
+  therefore each carry `independent_source_count = 1`. Do not cap extraction
+  per post, and do not discount a place for having come from a listicle.
+- Interest fit is an ordinal 0 to 3 produced by the same NER call that reads
+  the post, judged only from that post's own words. It is not a similarity
+  float and needs no calibrated threshold. The model scores; deterministic
+  code selects.
+- A place is eligible for the For You lane at fit 2, a clear match.
+- Unused slots in either lane backfill from the other, so a group that listed
+  no interests gets a full trending deck rather than a short one.
+- The trending lane breaks ties in favour of the LOWER interest fit, leaving
+  interest matches for the lane that exists to carry them.
+- Budgets derive from the pool the trip needs, not from a per-city cap: the
+  pool is the same size whether the trip visits one city or four. Mining stays
+  per city because a post about one city is not evidence about another.
+- The chosen lane is stored on the card in `trending_signals.selection_lane`,
+  so the UI reads the reason rather than recomputing it.
 
 **What is read per platform.** Nothing permits a transcript of a reel or a
 video, so "reading a post" means the text a platform publishes about it.
@@ -374,8 +413,8 @@ video, so "reading a post" means the text a platform publishes about it.
 | Platform | Automatic discovery reads | A pasted link reads | Why not more |
 |---|---|---|---|
 | TikTok | The search snippet, plus the caption, creator, and cover frame from the official embed API (`tiktok.com/oembed`, no key). A cheap vision call transcribes the text on the cover frame | The same, with the cover frame read only when the caption names no place | Downloading the video or audio is not permitted |
-| Instagram | The search snippet only | The search snippet for that URL | Meta's embed terms forbid using its data for anything but an embed view |
-| RedNote | The search snippet only | The search snippet for that URL | No public API |
+| Instagram | The search snippet and explicitly labelled post engagement when present | The search snippet for that URL | Meta's public API does not provide arbitrary Reel discovery or metrics |
+| RedNote | The search snippet and explicitly labelled post engagement when present | The search snippet for that URL | No general public note or comment API |
 
 The read is bounded (`config/gather.py`): one batched read step and one
 vision step per city, at most `SOCIAL_COVER_OCR_MAX_IMAGES` cover frames, post
@@ -384,7 +423,13 @@ metadata cached for a day and cover text for a week, and
 over everything read and returns, per mention, a short highlight quoted from
 that post; the highlight becomes the card's description and each post is kept
 on the candidate as `enrichment.social_posts` (platform, URL, rank, creator,
-highlight) in search-rank order.
+highlight, and any explicitly labelled likes/comments) in evidence-rank order.
+
+RedNote comment mining is permitted only when a future approved or licensed
+source exposes the comments and their like counts. High-liked comments and
+places repeated across those comments should then add evidence to the place,
+but the prototype must not log in, scrape comment pages, or pretend that a
+search snippet contains comment data.
 
 ### 8.3 Personal attachments
 
@@ -426,7 +471,14 @@ When merging, keep the richest enrichment; union the `sources[]`.
 
 Each card shows badges based on `sources[]`:
 - 🗺️ Found on Google Maps (has discovery source)
-- 🔥 Trending (has buzz source)
+- 🔥 Popular (has a social source with explicit post engagement)
+- ↗ Found on Instagram / TikTok / RedNote (has a social source without
+  explicit post engagement)
+- ✨ For You (`trending_signals.selection_lane == 'for_you'`). Named for the
+  mechanism that chose it, not "Hidden Gem": obscurity is not something the
+  available data measures, and claiming it would be the same error as printing
+  a like count that was never measured. It coexists with 🔥 / ↗ rather than
+  replacing them, because provenance and selection reason are different facts.
 - ❤️ Attached by you (has a user-paste source from the current viewer)
 - 👥 Attached by group (has a user-paste source from another traveler; show the contributor's name in the accessible label and card details)
 
@@ -439,7 +491,7 @@ who said so.
 
 | Badge | Opens | Read from |
 |---|---|---|
-| 🔥 Trending | the post that named the place | `enrichment.social_post_urls`, labelled by `enrichment.social_platforms` |
+| 🔥 Popular / ↗ Found on social | the post that named the place | `enrichment.social_post_urls`, labelled by `enrichment.social_platforms` |
 | ❤️ Attached by you / 👥 Attached by group | the post that traveler shared | `enrichment.source_url` |
 | 🗺️ Found on Google Maps | the place's Google Maps page | `enrichment.google_place_id` |
 
@@ -456,7 +508,7 @@ Rules:
   this inside the platform terms in Section 15.
 - Only URLs already normalized by the social URL parser are linkable, so a card
   cannot carry a tracking-parameter link or a URL from an unsupported host.
-- The accessible label names the destination, for example "Trending on TikTok,
+- The accessible label names the destination, for example "Popular on TikTok,
   opens the post".
 - The same badges appear on itinerary stops, and the links behave identically
   there. "Why is this on my trip" is asked at least as often about a scheduled
@@ -763,7 +815,9 @@ Goal: ship the real product including the three interview-headline features.
 **M3. Full gather strategy**
 - Let travelers type up to four cities in one country, with at least one trip day per city.
 - Implement a city-scoped Google Places foundation for attractions, food, and lodging.
-- Implement Instagram, TikTok, and RedNote buzz mining with a 3-post threshold.
+- Implement Instagram, TikTok, and RedNote content-first discovery. One post
+  may introduce a place; explicit post engagement and repeated mentions rank
+  it higher when available.
 - Implement personal user-paste for those same three platforms and contributor provenance.
 - Implement profile-driven suggestions, capped at 2 per traveler and verified through Google Places.
 - Remove food with explicit hard-diet conflicts and warn when dietary details are unknown.
@@ -899,9 +953,14 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 
 | Default | Value | Where it lives |
 |---|---|---|
-| Automatic source mix | 60% Google foundation / up to 40% social buzz; personal attachments are additive | `config/gather.py` |
+| Automatic source mix | Up to 60% social buzz / Google foundation fills the remainder; personal attachments are additive | `config/gather.py` |
 | Candidate pool size | `days * 8` (acceptable range: `days * 5` to `days * 8`) | `config/gather.py` |
-| Buzz min source count | 3 | `config/gather.py` |
+| First-round mined names | 100 per trip | `config/gather.py` |
+| Verification budget ceiling | 40 Places checks per trip | `config/gather.py` |
+| Expected verification yield | 0.75 | `config/gather.py` |
+| Trending lane share | 70% of the verification budget | `config/gather.py` |
+| For You minimum interest fit | 2 of 3 | `config/gather.py` |
+| Social min source count | 1 | `config/gather.py` |
 | C2 profile-driven cap | 2 candidates per traveler | `config/gather.py` |
 | Social platforms | Instagram / TikTok / RedNote only | `agents/gather/social.py` |
 | Slots per day for shortlist target | 6 | `config/aggregate.py` |
@@ -928,7 +987,9 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 ## 17. Glossary
 
 - **Foundation:** city-matched Google Places candidates that keep the pool usable.
-- **Buzz:** candidates mentioned by at least three Instagram, TikTok, or RedNote posts.
+- **Buzz:** candidates named by Instagram, TikTok, or RedNote posts. Explicit
+  post engagement and repeated mentions strengthen ranking but are not an
+  eligibility requirement.
 - **Personal:** candidates from user paste (C1) or driven by the traveler's profile (C2).
 - **Delegate:** a per-traveler LLM context that produces badges and parses notes for THAT traveler only. Does not negotiate. Does not vote. Does not decide.
 - **Shortlist:** the group-confirmed subset of candidates that proceeds to scheduling.

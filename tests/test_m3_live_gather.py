@@ -13,6 +13,10 @@ from syncinerary.agents.gather.live import (
     gather_node,
     select_dense_pool,
 )
+from syncinerary.config.gather import (
+    gather_max_steps,
+    social_verify_budget,
+)
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -504,3 +508,22 @@ async def test_a_buzz_card_survives_even_when_it_stands_alone_geographically(mon
     candidates = await discover_candidates(trip, [])
 
     assert "Otaru Canal" in {c.name_canonical for c in candidates}
+
+
+def test_automatic_social_discovery_is_the_majority_pool_target():
+    """Traveler attachments add to a pool led by posts the app discovers."""
+    assert 0.5 < live_module.BUZZ_RATIO <= 0.7
+
+
+def test_gather_budget_reserves_a_reality_check_for_each_social_place():
+    assert gather_max_steps(default_max_steps=50, days=5) == (
+        50 + social_verify_budget(days=5)
+    )
+
+
+def test_gather_budget_tracks_trip_size_not_city_count():
+    """A four-city trip plans the same pool as a one-city trip of equal length.
+
+    The old per-city reservation scaled the spend to the wrong thing.
+    """
+    assert social_verify_budget(days=3) < social_verify_budget(days=7)
