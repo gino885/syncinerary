@@ -1,16 +1,24 @@
 """Platform-safe social URL normalization and deterministic search queries."""
 from __future__ import annotations
 
+import asyncio
+import base64
 import hashlib
 import re
 from enum import StrEnum
-from typing import Protocol
+from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel, Field
 
 from syncinerary.config import settings
+from syncinerary.config.gather import (
+    SOCIAL_COVER_MAX_BYTES,
+    SOCIAL_COVER_OCR_MAX_IMAGES,
+    SOCIAL_POST_READ_CACHE_TTL_SECONDS,
+    SOCIAL_POST_READ_MAX_POSTS,
+)
 from syncinerary.domain.models import SocialPlatform
 from syncinerary.harness import ToolDefinition
 from syncinerary.store.redis import get_redis
@@ -61,15 +69,45 @@ class DiscoveredSocialURL(BaseModel):
     reference: SocialReference
     query: str
     rank: int = Field(ge=1)
-    # Title and description as the search index already publishes them. This
-    # is the only post text read: nothing logs in and nothing fetches the
-    # post body from a platform that does not permit it.
+    # Title and description as the search index already publishes them. For
+    # Instagram and RedNote this is the only post text read: nothing logs in
+    # and nothing fetches the post body from a platform that does not permit
+    # it.
     title: str | None = None
     description: str | None = None
+    # TikTok only, filled by agents/gather/social_read.py from the official
+    # embed API: the caption, the creator, the cover frame, and the text the
+    # cover frame shows. Never set for the other two platforms.
+    caption: str | None = None
+    author_name: str | None = None
+    thumbnail_url: str | None = None
+    cover_text: str | None = None
 
     @property
     def indexed_text(self) -> str:
         return "\n".join(part for part in (self.title, self.description) if part)
+
+    @property
+    def evidence_text(self) -> str:
+        """Everything read about the post, labelled, without repeating a line.
+
+        The search index often stores the caption as the description, so the
+        same sentence would otherwise reach the extractor twice.
+        """
+        parts: list[str] = []
+        seen: set[str] = set()
+        for label, value in (
+            ("Title", self.title),
+            ("Snippet", self.description),
+            ("Caption", self.caption),
+            ("On screen", self.cover_text),
+        ):
+            cleaned = " ".join((value or "").split())
+            if not cleaned or cleaned.casefold() in seen:
+                continue
+            seen.add(cleaned.casefold())
+            parts.append(f"{label}: {cleaned}")
+        return "\n".join(parts)
 
 
 class BraveSocialSearchOutput(BaseModel):
@@ -453,10 +491,259 @@ def make_tiktok_oembed_tool(
     )
 
 
+class TikTokPostReadBatchInput(BaseModel):
+    """One read of a city's discovered TikTok posts, as one harness step."""
+
+    urls: list[str] = Field(min_length=1, max_length=SOCIAL_POST_READ_MAX_POSTS)
+    # Posts whose cover frame should be downloaded as well. The caller keeps
+    # this to the posts whose on-screen text is not already cached, so a
+    # repeated gather downloads nothing.
+    cover_urls: list[str] = Field(
+        default_factory=list,
+        max_length=SOCIAL_COVER_OCR_MAX_IMAGES,
+    )
+    max_cover_bytes: int = Field(default=SOCIAL_COVER_MAX_BYTES, ge=1)
+
+
+class CoverImage(BaseModel):
+    media_type: Literal["image/jpeg", "image/png", "image/webp", "image/gif"]
+    data: str = Field(min_length=1)
+
+
+class TikTokPostRead(BaseModel):
+    """What the official embed API says about one post, or why it could not."""
+
+    canonical_url: str
+    platform_id: str
+    caption: str | None = None
+    author_name: str | None = None
+    author_url: str | None = None
+    thumbnail_url: str | None = None
+    cover_image: CoverImage | None = None
+    cover_error: str | None = None
+    error: str | None = None
+
+
+class TikTokPostReadBatchOutput(BaseModel):
+    posts: list[TikTokPostRead]
+
+    @property
+    def failed(self) -> list[TikTokPostRead]:
+        return [post for post in self.posts if post.error is not None]
+
+
+_COVER_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_POST_READ_CONCURRENCY = 4
+_POST_READ_TIMEOUT_SECONDS = 10
+
+
+def _sniff_image_type(head: bytes) -> str | None:
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _https_url(value: object) -> str | None:
+    text = _optional_text(value)
+    return text if text is not None and text.startswith("https://") else None
+
+
+async def _download_cover(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+    max_bytes: int,
+) -> tuple[CoverImage | None, str | None]:
+    """Fetch a cover frame under a hard byte cap, or say why it was skipped."""
+    chunks: list[bytes] = []
+    total = 0
+    header_type = ""
+    try:
+        async with client.stream("GET", url, timeout=_POST_READ_TIMEOUT_SECONDS) as response:
+            if response.status_code != 200:
+                return None, f"cover_http_{response.status_code}"
+            header_type = (
+                response.headers.get("content-type", "").split(";")[0].strip().lower()
+            )
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    return None, "cover_too_large"
+                chunks.append(chunk)
+    except httpx.HTTPError as exc:
+        return None, f"cover_{type(exc).__name__}"
+
+    body = b"".join(chunks)
+    if not body:
+        return None, "cover_empty"
+    media_type = _sniff_image_type(body[:12]) or (
+        header_type if header_type in _COVER_MEDIA_TYPES else None
+    )
+    if media_type is None:
+        return None, "cover_not_an_image"
+    return (
+        CoverImage(
+            media_type=media_type,
+            data=base64.standard_b64encode(body).decode("ascii"),
+        ),
+        None,
+    )
+
+
+def _post_read_cache_key(canonical_url: str) -> str:
+    digest = hashlib.sha256(canonical_url.encode()).hexdigest()
+    return f"social:tiktok:post:v1:{digest}"
+
+
+async def _read_tiktok_metadata(
+    reference: SocialReference,
+    *,
+    client: httpx.AsyncClient,
+    cache: SocialSearchCache | None,
+) -> TikTokPostRead:
+    key = _post_read_cache_key(reference.canonical_url)
+    if cache is not None:
+        cached = await cache.get(key)
+        if cached is not None:
+            return TikTokPostRead.model_validate_json(cached)
+
+    base = {
+        "canonical_url": reference.canonical_url,
+        "platform_id": reference.platform_id,
+    }
+    try:
+        response = await client.get(
+            "https://www.tiktok.com/oembed",
+            params={"url": reference.canonical_url},
+            timeout=_POST_READ_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        return TikTokPostRead(**base, error=f"oembed_{type(exc).__name__}")
+    if response.status_code != 200:
+        return TikTokPostRead(**base, error=f"oembed_http_{response.status_code}")
+    try:
+        data = response.json()
+    except ValueError:
+        return TikTokPostRead(**base, error="oembed_invalid_json")
+    if not isinstance(data, dict):
+        return TikTokPostRead(**base, error="oembed_invalid_json")
+
+    read = TikTokPostRead(
+        **base,
+        caption=_optional_text(data.get("title")),
+        author_name=_optional_text(data.get("author_name")),
+        author_url=_https_url(data.get("author_url")),
+        thumbnail_url=_https_url(data.get("thumbnail_url")),
+    )
+    # Only a successful read is cached: a transient failure must not be
+    # remembered for a day.
+    if cache is not None:
+        await cache.set(
+            key,
+            read.model_dump_json(),
+            ex=SOCIAL_POST_READ_CACHE_TTL_SECONDS,
+        )
+    return read
+
+
+async def _read_tiktok_posts(
+    value: TikTokPostReadBatchInput,
+    *,
+    client: httpx.AsyncClient,
+    cache: SocialSearchCache | None = None,
+) -> TikTokPostReadBatchOutput:
+    """Read every post in the batch, recording per-post failures in place.
+
+    A removed video or an expired cover URL is normal, so one bad post never
+    fails the batch. Results keep the input order, which is the search rank
+    the caller relies on.
+    """
+    semaphore = asyncio.Semaphore(_POST_READ_CONCURRENCY)
+    cover_wanted: set[str] = set()
+    for url in value.cover_urls:
+        try:
+            cover_wanted.add(normalize_social_url(url).canonical_url)
+        except ValueError:
+            continue
+
+    async def read_one(url: str) -> TikTokPostRead:
+        try:
+            reference = normalize_social_url(url)
+        except ValueError:
+            return TikTokPostRead(canonical_url=url, platform_id="", error="not_a_tiktok_post")
+        if (
+            reference.platform is not SocialPlatform.TIKTOK
+            or reference.kind is not SocialReferenceKind.POST
+        ):
+            return TikTokPostRead(
+                canonical_url=reference.canonical_url,
+                platform_id=reference.platform_id,
+                error="not_a_tiktok_post",
+            )
+        async with semaphore:
+            read = await _read_tiktok_metadata(reference, client=client, cache=cache)
+            if (
+                read.error is None
+                and read.thumbnail_url is not None
+                and reference.canonical_url in cover_wanted
+            ):
+                cover, cover_error = await _download_cover(
+                    read.thumbnail_url,
+                    client=client,
+                    max_bytes=value.max_cover_bytes,
+                )
+                read = read.model_copy(
+                    update={"cover_image": cover, "cover_error": cover_error}
+                )
+        return read
+
+    posts = await asyncio.gather(*(read_one(url) for url in value.urls))
+    return TikTokPostReadBatchOutput(posts=list(posts))
+
+
+def make_tiktok_post_read_tool(
+    *,
+    client: httpx.AsyncClient | None = None,
+    cache: SocialSearchCache | None = None,
+) -> ToolDefinition:
+    """The batched read as one tool, so a city costs one harness step."""
+
+    async def read(value: TikTokPostReadBatchInput) -> TikTokPostReadBatchOutput:
+        if client is not None:
+            return await _read_tiktok_posts(value, client=client, cache=cache)
+        async with httpx.AsyncClient(timeout=20) as owned_client:
+            return await _read_tiktok_posts(
+                value,
+                client=owned_client,
+                cache=cache if cache is not None else get_redis(),
+            )
+
+    return ToolDefinition(
+        name="tiktok_post_read_batch",
+        input_model=TikTokPostReadBatchInput,
+        output_model=TikTokPostReadBatchOutput,
+        handler=read,
+    )
+
+
 __all__ = [
     "BRAVE_SEARCH_CACHE_TTL_SECONDS",
     "BraveSocialSearchInput",
     "BraveSocialSearchOutput",
+    "CoverImage",
     "DiscoveredSocialURL",
     "SocialLinkMetadata",
     "SocialLinkMetadataInput",
@@ -465,9 +752,13 @@ __all__ = [
     "SocialReference",
     "SocialReferenceKind",
     "TikTokOEmbedInput",
+    "TikTokPostRead",
+    "TikTokPostReadBatchInput",
+    "TikTokPostReadBatchOutput",
     "build_discovery_queries",
     "make_brave_social_search_tool",
     "make_social_link_metadata_tool",
     "make_tiktok_oembed_tool",
+    "make_tiktok_post_read_tool",
     "normalize_social_url",
 ]

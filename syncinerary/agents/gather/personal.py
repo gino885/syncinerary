@@ -9,9 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from syncinerary.agents.gather.attachments import ExtractedPlaceMention
 from syncinerary.agents.gather.cities import search_bias, trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
+from syncinerary.agents.gather.social_read import read_cover_text_for_url
 from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
 from syncinerary.config import settings
-from syncinerary.config.gather import PROFILE_DRIVEN_CAP_PER_TRAVELER
+from syncinerary.config.gather import (
+    PROFILE_DRIVEN_CAP_PER_TRAVELER,
+    SOCIAL_COVER_OCR_ENABLED,
+)
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -481,6 +485,18 @@ async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
     }
 
 
+async def _read_tiktok_cover_text(attachment: SourceAttachment) -> str | None:
+    """Cover-frame text for a pasted TikTok link, when there is a cover to read."""
+    if (
+        attachment.platform is not SocialPlatform.TIKTOK
+        or attachment.canonical_url is None
+        or not SOCIAL_COVER_OCR_ENABLED
+        or not attachment.metadata.get("platform_preview_url")
+    ):
+        return None
+    return await read_cover_text_for_url(attachment.canonical_url)
+
+
 async def resolve_link_attachment(
     attachment: SourceAttachment,
     trip: Trip,
@@ -506,6 +522,21 @@ async def resolve_link_attachment(
     if extraction.short_description:
         metadata["short_description"] = extraction.short_description
         attachment = attachment.model_copy(update={"metadata": metadata})
+    if not extraction.place_mentions:
+        # A TikTok cover frame often carries the title the caption left out.
+        # One bounded vision read, only on the path that would otherwise end
+        # in "type the place name and add again".
+        cover_text = await _read_tiktok_cover_text(attachment)
+        if cover_text:
+            metadata["cover_text"] = cover_text
+            attachment = attachment.model_copy(update={"metadata": metadata})
+            extraction = await extract_place_mentions(
+                f"{preview_caption}\nOn screen: {cover_text}",
+                platform=attachment.platform,
+            )
+            if extraction.short_description and not metadata.get("short_description"):
+                metadata["short_description"] = extraction.short_description
+                attachment = attachment.model_copy(update={"metadata": metadata})
     if not extraction.place_mentions:
         updated = await SourceAttachmentRepository(session).record_metadata(
             attachment.id,
