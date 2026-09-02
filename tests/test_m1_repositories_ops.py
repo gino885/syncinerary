@@ -4,6 +4,9 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest_asyncio
+import sqlalchemy as sa
+
 from syncinerary.domain.models import (
     AgentRun,
     EvalResult,
@@ -15,6 +18,7 @@ from syncinerary.domain.models import (
     Traveler,
     Trip,
 )
+from syncinerary.store import tables
 from syncinerary.store.repositories import (
     AgentRunRepository,
     EvalResultRepository,
@@ -24,6 +28,22 @@ from syncinerary.store.repositories import (
     TravelerRepository,
     TripRepository,
 )
+
+
+@pytest_asyncio.fixture
+async def empty_eval_tables(session):
+    """Start these tests from an empty eval rail.
+
+    `previous_commit_sha` is deliberately a table-wide query, and scenario
+    names are unique, so any run of `python -m syncinerary.eval.runner` on
+    the same database leaves rows that would make these assertions depend on
+    whoever ran the eval last. The delete happens inside the test's own
+    transaction, so it is rolled back with everything else.
+    """
+    await session.execute(sa.delete(tables.EvalResult))
+    await session.execute(sa.delete(tables.EvalScenario))
+    return session
+
 
 
 async def _trip(session) -> Trip:
@@ -146,7 +166,7 @@ async def test_agent_run_trace_id_joins_to_phoenix(session):
     assert runs[0].trace_id == "deadbeef"
 
 
-async def test_eval_scenario_round_trips_with_optional_disruption(session):
+async def test_eval_scenario_round_trips_with_optional_disruption(session, empty_eval_tables):
     repo = EvalScenarioRepository(session)
     clean = await repo.add(
         EvalScenario(
@@ -183,7 +203,7 @@ async def test_unknown_scenario_name_returns_none(session):
     assert await EvalScenarioRepository(session).get_by_name("nope") is None
 
 
-async def test_eval_results_are_tagged_by_commit(session):
+async def test_eval_results_are_tagged_by_commit(session, empty_eval_tables):
     scenario = await EvalScenarioRepository(session).add(
         EvalScenario(name="budget_tight", fixture={}, expected={})
     )
@@ -215,7 +235,7 @@ async def test_eval_results_are_tagged_by_commit(session):
     assert second[0].passed is False
 
 
-async def test_previous_commit_is_found_for_the_regression_diff(session):
+async def test_previous_commit_is_found_for_the_regression_diff(session, empty_eval_tables):
     """§12.3: the runner prints a diff against the last run."""
     scenario = await EvalScenarioRepository(session).add(
         EvalScenario(name="group_split", fixture={}, expected={})
@@ -231,7 +251,7 @@ async def test_previous_commit_is_found_for_the_regression_diff(session):
     assert await repo.previous_commit_sha("current") == "older"
 
 
-async def test_previous_commit_is_none_on_the_very_first_run(session):
+async def test_previous_commit_is_none_on_the_very_first_run(session, empty_eval_tables):
     scenario = await EvalScenarioRepository(session).add(
         EvalScenario(name="first_ever", fixture={}, expected={})
     )

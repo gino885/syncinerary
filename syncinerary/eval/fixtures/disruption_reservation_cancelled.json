@@ -1,0 +1,386 @@
+{
+  "name": "disruption_reservation_cancelled",
+  "description": "The restaurant cancels the booking. The rest of the day should survive and the group should be offered something instead.",
+  "destination": "Sapporo",
+  "cities": [
+    "Sapporo"
+  ],
+  "country": "Japan",
+  "start_date": "2026-09-27",
+  "days": 2,
+  "travelers": [
+    {
+      "slug": "gino",
+      "name": "Gino",
+      "interests": [
+        "museums"
+      ]
+    },
+    {
+      "slug": "ana",
+      "name": "Ana",
+      "interests": [
+        "coffee"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "slug": "chuo-sight-0a",
+      "name": "Chuo Museum 0",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "museum",
+      "price_tier": 2,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-sight-0b",
+      "name": "Chuo Park 0",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.356,
+      "area": "Chuo",
+      "category": "park",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-sight-0c",
+      "name": "Chuo Shrine 0",
+      "type": "attraction",
+      "lat": 43.062,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "shrine",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-lunch-0",
+      "name": "Chuo Noodle Bar 0",
+      "type": "food",
+      "lat": 43.06,
+      "lng": 141.355,
+      "area": "Chuo",
+      "category": "restaurant",
+      "price_tier": 2,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        11,
+        15
+      ]
+    },
+    {
+      "slug": "chuo-dinner-0",
+      "name": "Chuo Izakaya 0",
+      "type": "food",
+      "lat": 43.061,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "restaurant",
+      "price_tier": 2,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    },
+    {
+      "slug": "kita-sight-1a",
+      "name": "Kita Museum 1",
+      "type": "attraction",
+      "lat": 43.076,
+      "lng": 141.352,
+      "area": "Kita",
+      "category": "museum",
+      "price_tier": 2,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-sight-1b",
+      "name": "Kita Park 1",
+      "type": "attraction",
+      "lat": 43.076,
+      "lng": 141.354,
+      "area": "Kita",
+      "category": "park",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-sight-1c",
+      "name": "Kita Shrine 1",
+      "type": "attraction",
+      "lat": 43.082,
+      "lng": 141.348,
+      "area": "Kita",
+      "category": "shrine",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-lunch-1",
+      "name": "Kita Noodle Bar 1",
+      "type": "food",
+      "lat": 43.076,
+      "lng": 141.353,
+      "area": "Kita",
+      "category": "restaurant",
+      "price_tier": 2,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        11,
+        15
+      ]
+    },
+    {
+      "slug": "kita-dinner-1",
+      "name": "Kita Izakaya 1",
+      "type": "food",
+      "lat": 43.081,
+      "lng": 141.348,
+      "area": "Kita",
+      "category": "restaurant",
+      "price_tier": 2,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    },
+    {
+      "slug": "spare-hall",
+      "name": "Ward Concert Hall",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.359,
+      "area": "Chuo",
+      "category": "performing_arts_theater",
+      "price_tier": 2,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ],
+      "spare": true
+    },
+    {
+      "slug": "spare-museum",
+      "name": "Postal Museum",
+      "type": "attraction",
+      "lat": 43.065,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "museum",
+      "price_tier": 2,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ],
+      "spare": true
+    },
+    {
+      "slug": "spare-cafe",
+      "name": "Station Coffee Stand",
+      "type": "food",
+      "lat": 43.06,
+      "lng": 141.35,
+      "area": "Chuo",
+      "category": "restaurant",
+      "price_tier": 2,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        20
+      ],
+      "spare": true
+    }
+  ],
+  "votes": [
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0a",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0b",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0c",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-lunch-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-dinner-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1a",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1b",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1c",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-lunch-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-dinner-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0a",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0b",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0c",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-lunch-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-dinner-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1a",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1b",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1c",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-lunch-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-dinner-1",
+      "signal": "like"
+    }
+  ],
+  "weather": [
+    {
+      "day": 0,
+      "precipitation_probability": 10
+    },
+    {
+      "day": 1,
+      "precipitation_probability": 10
+    }
+  ],
+  "disruption": {
+    "trigger": "reservation_cancelled",
+    "day": 0,
+    "stop_index": 2
+  },
+  "expected": {
+    "replan_day": 0
+  }
+}

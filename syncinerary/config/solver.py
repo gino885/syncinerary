@@ -55,3 +55,12 @@ TOPUP_MAX_ROUNDS = 2
 # Without this the meal weighting will happily send a day across the region
 # for dinner, and take the restaurant the next day needed while it is there.
 TOPUP_MAX_DETOUR_KM = 12.0
+
+
+# CP-SAT search ceiling, per solve. Without it a hard day-assignment model
+# runs unbounded: a five-day trip with a full shortlist was found hanging
+# indefinitely by the M7 eval harness, which would have hung POST /plan the
+# same way. Every solve site already accepts a FEASIBLE result, so the limit
+# degrades from "provably optimal" to "the best plan found in ten seconds",
+# which is the right trade for a request a person is waiting on.
+SOLVER_TIME_LIMIT_SECONDS = 10.0

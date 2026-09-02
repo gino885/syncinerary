@@ -1,0 +1,536 @@
+{
+  "name": "budget_tight",
+  "description": "A daily budget the group cannot break. Cheap days must still be complete, and price has to be a real signal.",
+  "destination": "Sapporo",
+  "cities": [
+    "Sapporo"
+  ],
+  "country": "Japan",
+  "start_date": "2026-09-27",
+  "days": 3,
+  "travelers": [
+    {
+      "slug": "gino",
+      "name": "Gino",
+      "interests": [
+        "street food"
+      ]
+    },
+    {
+      "slug": "ana",
+      "name": "Ana",
+      "interests": [
+        "free museums"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "type": "budget_daily",
+      "kind": "hard",
+      "value": {
+        "max_price_tier_per_day": 6
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "slug": "chuo-sight-0a",
+      "name": "Chuo Museum 0",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "museum",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-sight-0b",
+      "name": "Chuo Park 0",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.356,
+      "area": "Chuo",
+      "category": "park",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-sight-0c",
+      "name": "Chuo Shrine 0",
+      "type": "attraction",
+      "lat": 43.062,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "shrine",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "chuo-lunch-0",
+      "name": "Chuo Noodle Bar 0",
+      "type": "food",
+      "lat": 43.06,
+      "lng": 141.355,
+      "area": "Chuo",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        11,
+        15
+      ]
+    },
+    {
+      "slug": "chuo-dinner-0",
+      "name": "Chuo Izakaya 0",
+      "type": "food",
+      "lat": 43.061,
+      "lng": 141.354,
+      "area": "Chuo",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    },
+    {
+      "slug": "kita-sight-1a",
+      "name": "Kita Museum 1",
+      "type": "attraction",
+      "lat": 43.076,
+      "lng": 141.352,
+      "area": "Kita",
+      "category": "museum",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-sight-1b",
+      "name": "Kita Park 1",
+      "type": "attraction",
+      "lat": 43.076,
+      "lng": 141.354,
+      "area": "Kita",
+      "category": "park",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-sight-1c",
+      "name": "Kita Shrine 1",
+      "type": "attraction",
+      "lat": 43.082,
+      "lng": 141.348,
+      "area": "Kita",
+      "category": "shrine",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "kita-lunch-1",
+      "name": "Kita Noodle Bar 1",
+      "type": "food",
+      "lat": 43.076,
+      "lng": 141.353,
+      "area": "Kita",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        11,
+        15
+      ]
+    },
+    {
+      "slug": "kita-dinner-1",
+      "name": "Kita Izakaya 1",
+      "type": "food",
+      "lat": 43.081,
+      "lng": 141.348,
+      "area": "Kita",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    },
+    {
+      "slug": "susuki-sight-2a",
+      "name": "Susuki Museum 2",
+      "type": "attraction",
+      "lat": 43.054,
+      "lng": 141.361,
+      "area": "Susuki",
+      "category": "museum",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "susuki-sight-2b",
+      "name": "Susuki Park 2",
+      "type": "attraction",
+      "lat": 43.054,
+      "lng": 141.363,
+      "area": "Susuki",
+      "category": "park",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 2,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "susuki-sight-2c",
+      "name": "Susuki Shrine 2",
+      "type": "attraction",
+      "lat": 43.064,
+      "lng": 141.353,
+      "area": "Susuki",
+      "category": "shrine",
+      "price_tier": 1,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "susuki-lunch-2",
+      "name": "Susuki Noodle Bar 2",
+      "type": "food",
+      "lat": 43.054,
+      "lng": 141.362,
+      "area": "Susuki",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        11,
+        15
+      ]
+    },
+    {
+      "slug": "susuki-dinner-2",
+      "name": "Susuki Izakaya 2",
+      "type": "food",
+      "lat": 43.063,
+      "lng": 141.353,
+      "area": "Susuki",
+      "category": "restaurant",
+      "price_tier": 1,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    },
+    {
+      "slug": "splurge-tower",
+      "name": "Observation Tower Suite",
+      "type": "attraction",
+      "lat": 43.06,
+      "lng": 141.362,
+      "area": "Chuo",
+      "category": "tourist_attraction",
+      "price_tier": 4,
+      "duration_min": 60,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        8,
+        21
+      ]
+    },
+    {
+      "slug": "splurge-kaiseki",
+      "name": "Kaiseki Ten",
+      "type": "food",
+      "lat": 43.054,
+      "lng": 141.361,
+      "area": "Susuki",
+      "category": "restaurant",
+      "price_tier": 4,
+      "duration_min": 75,
+      "fatigue_cost": 1,
+      "weather_dependent": false,
+      "dietary_tags": [],
+      "open_hours": [
+        17,
+        22
+      ]
+    }
+  ],
+  "votes": [
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0a",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0b",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-sight-0c",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-lunch-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "chuo-dinner-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1a",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1b",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-sight-1c",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-lunch-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "kita-dinner-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "susuki-sight-2a",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "susuki-sight-2b",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "susuki-sight-2c",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "susuki-lunch-2",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "susuki-dinner-2",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "splurge-tower",
+      "signal": "like"
+    },
+    {
+      "traveler": "gino",
+      "candidate": "splurge-kaiseki",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0a",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0b",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-sight-0c",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-lunch-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "chuo-dinner-0",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1a",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1b",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-sight-1c",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-lunch-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "kita-dinner-1",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "susuki-sight-2a",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "susuki-sight-2b",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "susuki-sight-2c",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "susuki-lunch-2",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "susuki-dinner-2",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "splurge-tower",
+      "signal": "like"
+    },
+    {
+      "traveler": "ana",
+      "candidate": "splurge-kaiseki",
+      "signal": "like"
+    }
+  ],
+  "weather": [
+    {
+      "day": 0,
+      "precipitation_probability": 10
+    },
+    {
+      "day": 1,
+      "precipitation_probability": 10
+    },
+    {
+      "day": 2,
+      "precipitation_probability": 10
+    }
+  ],
+  "expected": {
+    "min_scores": {
+      "meal_coverage": 0.6,
+      "wishlist_explained": 1.0
+    }
+  }
+}

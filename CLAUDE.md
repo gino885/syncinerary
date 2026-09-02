@@ -822,6 +822,15 @@ only exist once the two-stage solver ships.
 - Runner + CI integration.
 - **Done when:** F2 acceptance criteria met; CI runs eval on every PR; a deliberately bad change shows measurable regression in CI output.
 
+The default run makes no model calls. Two acceptance criteria pull against
+LLM-judged metrics: five minutes end to end, and CI on every pull request. A
+judge adds latency, a per-PR bill, and non-determinism to the very signal
+being measured, so every scorer that gates CI is deterministic and the
+narrative is checked for groundedness rather than judged. The model-judged
+path lives behind `--with-llm` and the `eval-llm` extra. This is the section
+2 boundary applied to the harness itself: the model writes, deterministic
+code decides whether the run passed.
+
 ### Phase C — Add-on (M8+)
 
 Optional features to demonstrate additional senior signals. Pick based on interview prep priorities. Recommended order if doing more than one: M8, M9, M10.
