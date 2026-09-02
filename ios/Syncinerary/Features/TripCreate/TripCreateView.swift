@@ -5,6 +5,7 @@ struct TripCreateView: View {
     let onResume: (TripSession) -> Void
 
     @State private var viewModel = TripCreateViewModel()
+    @State private var isShowingPreferences = false
     @Environment(RecentTripsStore.self) private var recentTrips
 
     var body: some View {
@@ -25,10 +26,7 @@ struct TripCreateView: View {
                 TextField("Country, for example Japan", text: $viewModel.country)
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
-                TextField("Cities, comma separated: Sapporo, Otaru", text: $viewModel.cities, axis: .vertical)
-                    .lineLimit(1...3)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
+                CityPickerView(viewModel: viewModel)
                 DatePicker("From", selection: $viewModel.startDate, displayedComponents: .date)
                 DatePicker("To", selection: $viewModel.endDate, in: viewModel.startDate..., displayedComponents: .date)
             } header: {
@@ -40,12 +38,17 @@ struct TripCreateView: View {
                     .textContentType(.name)
                 TextField("Home city, optional", text: $viewModel.creatorHomeCity)
                     .textContentType(.addressCity)
-                TextField("Interests: coffee, architecture, seafood", text: $viewModel.interests, axis: .vertical)
-                    .lineLimit(1...3)
-                TextField("Foods to avoid: peanuts, shellfish", text: $viewModel.dietaryExcludes, axis: .vertical)
-                    .lineLimit(1...3)
             } header: {
                 EyebrowText("You")
+            }
+
+            Section {
+                Button(action: showPreferences) {
+                    PreferenceSummaryRow(summary: viewModel.preferenceSummary)
+                }
+                .buttonStyle(.plain)
+            } header: {
+                EyebrowText("Preferences")
             }
 
             Section {
@@ -76,8 +79,17 @@ struct TripCreateView: View {
         .onChange(of: viewModel.startDate) {
             viewModel.adjustEndDate()
         }
+        .onChange(of: viewModel.country) {
+            viewModel.countryChanged()
+        }
         .alert("Couldn't create the trip", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
+        }
+        .sheet(isPresented: $isShowingPreferences) {
+            PreferencePickerSheet(
+                interests: $viewModel.interestSelection,
+                dietaryExcludes: $viewModel.dietarySelection
+            )
         }
     }
 
@@ -87,6 +99,10 @@ struct TripCreateView: View {
                 onCreated(session)
             }
         }
+    }
+
+    private func showPreferences() {
+        isShowingPreferences = true
     }
 }
 

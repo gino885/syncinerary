@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, Field
@@ -23,10 +24,22 @@ CITY_FIELD_MASK = (
     "places.primaryType,places.types"
 )
 
+CITY_DETAIL_FIELD_MASK = CITY_FIELD_MASK.replace("places.", "")
+CITY_AUTOCOMPLETE_FIELD_MASK = (
+    "suggestions.placePrediction.placeId,"
+    "suggestions.placePrediction.structuredFormat"
+)
+
 # Fallback extent for a city whose viewport the provider does not return.
 DEFAULT_CITY_RADIUS_KM = 20.0
 MIN_CITY_RADIUS_KM = 5.0
 MAX_CITY_RADIUS_KM = 60.0
+
+# Tokyo has no single municipal government. Google therefore returns the
+# traveler-facing city as a prefecture even when Text Search is asked for a
+# locality. Keep this exception narrow so regions such as Hokkaido do not
+# become valid city inputs.
+_CITY_EQUIVALENT_ADMIN_AREAS = {("JP", "tokyo")}
 
 _WEEKDAY_BY_GOOGLE_DAY = {
     0: "sun",
@@ -70,6 +83,26 @@ class PlaceSearchInput(BaseModel):
 class CityResolveInput(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     country: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class CitySuggestionInput(BaseModel):
+    query: str = Field(min_length=2, max_length=120)
+    country: str = Field(min_length=1, max_length=120)
+
+
+class CitySuggestion(BaseModel):
+    place_id: str
+    name: str
+    subtitle: str | None = None
+
+
+class CitySuggestionOutput(BaseModel):
+    suggestions: list[CitySuggestion] = Field(default_factory=list)
+
+
+class CityPlaceResolveInput(BaseModel):
+    place_id: str = Field(min_length=1, max_length=300)
+    query: str = Field(min_length=1, max_length=120)
 
 
 class ResolvedCity(BaseModel):
@@ -360,34 +393,106 @@ async def _resolve_city(
     )
     response.raise_for_status()
     for place in response.json().get("places", []):
-        if (
-            place.get("primaryType") != "locality"
-            and "locality" not in place.get("types", [])
-        ):
-            continue
-        location = place.get("location", {})
-        display_name = place.get("displayName", {}).get("text")
-        if not place.get("id") or not display_name:
-            continue
-        if "latitude" not in location or "longitude" not in location:
-            continue
-        country_name, country_code = _country_of(place)
-        return CityResolveOutput(
-            city=ResolvedCity(
-                query=value.name.strip(),
-                place_id=place["id"],
-                name=display_name,
-                formatted_address=place.get("formattedAddress"),
-                lat=location["latitude"],
-                lng=location["longitude"],
-                radius_km=_radius_from_viewport(place.get("viewport", {})),
-                country=country_name,
-                country_code=country_code,
-            )
-        )
+        city = _resolved_city(place, query=value.name.strip())
+        if city is not None:
+            return CityResolveOutput(city=city)
     # A name nothing matches is reported as unresolved rather than guessed at,
     # so the caller can tell the traveler instead of searching somewhere else.
     return CityResolveOutput()
+
+
+def _resolved_city(place: dict[str, Any], *, query: str) -> ResolvedCity | None:
+    location = place.get("location", {})
+    display_name = place.get("displayName", {}).get("text")
+    if not place.get("id") or not display_name:
+        return None
+    if "latitude" not in location or "longitude" not in location:
+        return None
+
+    country_name, country_code = _country_of(place)
+    types = set(place.get("types", []))
+    is_locality = place.get("primaryType") == "locality" or "locality" in types
+    is_city_equivalent = (
+        "administrative_area_level_1" in types
+        and ((country_code or "").upper(), display_name.casefold())
+        in _CITY_EQUIVALENT_ADMIN_AREAS
+        and query.casefold() == display_name.casefold()
+    )
+    if not is_locality and not is_city_equivalent:
+        return None
+
+    return ResolvedCity(
+        query=query,
+        place_id=place["id"],
+        name=display_name,
+        formatted_address=place.get("formattedAddress"),
+        lat=location["latitude"],
+        lng=location["longitude"],
+        radius_km=_radius_from_viewport(place.get("viewport", {})),
+        country=country_name,
+        country_code=country_code,
+    )
+
+
+async def _suggest_cities(
+    value: CitySuggestionInput,
+    *,
+    client: httpx.AsyncClient,
+    api_key: str,
+) -> CitySuggestionOutput:
+    """Return canonical city choices without resolving every keystroke."""
+    _require_key(api_key)
+    query = f"{value.query.strip()}, {value.country.strip()}"
+    response = await client.post(
+        "https://places.googleapis.com/v1/places:autocomplete",
+        headers={
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": CITY_AUTOCOMPLETE_FIELD_MASK,
+        },
+        json={"input": query, "includedPrimaryTypes": ["(cities)"]},
+    )
+    response.raise_for_status()
+
+    suggestions: list[CitySuggestion] = []
+    seen: set[str] = set()
+    for item in response.json().get("suggestions", []):
+        prediction = item.get("placePrediction", {})
+        place_id = prediction.get("placeId")
+        structured = prediction.get("structuredFormat", {})
+        name = structured.get("mainText", {}).get("text")
+        if not place_id or not name or place_id in seen:
+            continue
+        seen.add(place_id)
+        suggestions.append(
+            CitySuggestion(
+                place_id=place_id,
+                name=name,
+                subtitle=structured.get("secondaryText", {}).get("text"),
+            )
+        )
+    return CitySuggestionOutput(suggestions=suggestions[:5])
+
+
+async def _resolve_city_place(
+    value: CityPlaceResolveInput,
+    *,
+    client: httpx.AsyncClient,
+    api_key: str,
+) -> CityResolveOutput:
+    """Resolve the exact city prediction selected by the traveler."""
+    _require_key(api_key)
+    place_id = quote(value.place_id, safe="")
+    response = await client.get(
+        f"https://places.googleapis.com/v1/places/{place_id}",
+        headers={
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": CITY_DETAIL_FIELD_MASK,
+        },
+    )
+    response.raise_for_status()
+    return CityResolveOutput(
+        city=_resolved_city(response.json(), query=value.query.strip())
+    )
 
 
 def make_city_resolve_tool(
@@ -406,6 +511,48 @@ def make_city_resolve_tool(
     return ToolDefinition(
         name="google_places_city_resolve",
         input_model=CityResolveInput,
+        output_model=CityResolveOutput,
+        handler=resolve,
+    )
+
+
+def make_city_suggestion_tool(
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> ToolDefinition:
+    resolved_key = settings.google_maps_api_key if api_key is None else api_key
+
+    async def suggest(value: CitySuggestionInput) -> CitySuggestionOutput:
+        if client is not None:
+            return await _suggest_cities(value, client=client, api_key=resolved_key)
+        async with httpx.AsyncClient(timeout=20) as owned_client:
+            return await _suggest_cities(value, client=owned_client, api_key=resolved_key)
+
+    return ToolDefinition(
+        name="google_places_city_suggestions",
+        input_model=CitySuggestionInput,
+        output_model=CitySuggestionOutput,
+        handler=suggest,
+    )
+
+
+def make_city_place_resolve_tool(
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> ToolDefinition:
+    resolved_key = settings.google_maps_api_key if api_key is None else api_key
+
+    async def resolve(value: CityPlaceResolveInput) -> CityResolveOutput:
+        if client is not None:
+            return await _resolve_city_place(value, client=client, api_key=resolved_key)
+        async with httpx.AsyncClient(timeout=20) as owned_client:
+            return await _resolve_city_place(value, client=owned_client, api_key=resolved_key)
+
+    return ToolDefinition(
+        name="google_places_city_place_resolve",
+        input_model=CityPlaceResolveInput,
         output_model=CityResolveOutput,
         handler=resolve,
     )

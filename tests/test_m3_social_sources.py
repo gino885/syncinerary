@@ -14,6 +14,7 @@ from syncinerary.tools.fetch.social import (
     make_brave_social_search_tool,
     make_tiktok_oembed_tool,
     normalize_social_url,
+    parse_public_engagement,
 )
 
 
@@ -92,7 +93,7 @@ def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
     )
 
     assert first == second
-    assert first == ["北海道旅游美食攻略"]
+    assert first == ["北海道 必去景点 必吃美食 旅游攻略 探店"]
     assert all("Hokkaido" not in query for query in first)
 
 
@@ -103,7 +104,9 @@ def test_interests_refine_one_query_without_adding_provider_calls():
         interests=["ramen", "onsen", "coffee"],
     )
 
-    assert queries == ["Sapporo travel food guide ramen onsen"]
+    assert queries == [
+        "Sapporo must visit places must eat food travel guide ramen onsen"
+    ]
 
 
 def test_one_trip_uses_at_most_three_automatic_brave_searches():
@@ -178,7 +181,7 @@ async def test_brave_search_keeps_only_valid_platform_posts_and_deduplicates():
         )
 
     assert seen_queries == [
-        "site:instagram.com/reel Hokkaido travel food guide",
+        "site:instagram.com/reel Hokkaido must visit places must eat food travel guide",
     ]
     assert len(result.results) == 1
     assert result.results[0].reference.canonical_url == (
@@ -206,8 +209,57 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
         )
 
     assert seen_queries == [
-        "site:xiaohongshu.com 北海道旅游美食攻略",
+        "site:xiaohongshu.com 北海道 必去景点 必吃美食 旅游攻略 探店",
     ]
+
+
+def test_public_engagement_requires_explicit_like_and_comment_labels():
+    assert parse_public_engagement(
+        "12.4K Likes, 380 Comments. Save this Sapporo food tour."
+    ) == (12_400, 380)
+    # This is an account-level TikTok total, not engagement on this post.
+    assert parse_public_engagement("485.6KFollowers · 26.4MLikes") == (None, None)
+    assert parse_public_engagement("点赞 2.1万 · 评论 846") == (21_000, 846)
+
+
+async def test_brave_results_with_visible_post_engagement_rank_first():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "url": "https://www.tiktok.com/@one/video/7000000001",
+                            "title": "Sapporo places",
+                            "description": "A useful city guide.",
+                        },
+                        {
+                            "url": "https://www.tiktok.com/@two/video/7000000002",
+                            "title": "Sapporo must eats",
+                            "description": "12.4K Likes, 380 Comments.",
+                        },
+                    ]
+                }
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_brave_social_search_tool(client=client, api_key="test-key"),
+            BraveSocialSearchInput(
+                platform=SocialPlatform.TIKTOK,
+                destination="Sapporo",
+            ),
+        )
+
+    assert [post.reference.platform_id for post in result.results] == [
+        "7000000002",
+        "7000000001",
+    ]
+    assert result.results[0].like_count == 12_400
+    assert result.results[0].comment_count == 380
 
 
 async def test_brave_search_reuses_a_cached_city_platform_result():
@@ -235,7 +287,7 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
     assert calls == 1
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v1:")
+    assert cache.last_key.startswith("social:brave:v2:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():

@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a traveler did with the card on top of the deck. Carries the stamp
-/// it prints and the emoji it throws, so the deck, the burst, and the
+/// it prints and the small reaction it shows, so the deck, the charm, and the
 /// buttons all agree.
 enum SwipeDecision: Hashable, Sendable {
     case like
@@ -35,12 +35,12 @@ enum SwipeDecision: Hashable, Sendable {
         }
     }
 
-    var burstEmojis: [String] {
+    var reactionSymbol: String {
         switch self {
-        case .like: ["❤️", "🥰", "✨", "🍜", "📸"]
-        case .dislike: ["👋", "💨", "🙈"]
-        case .mustHave: ["⭐", "🌟", "🚀", "🎉"]
-        case .likeWithNote: ["📝", "💬", "❤️"]
+        case .like: "heart.fill"
+        case .dislike: "hand.wave.fill"
+        case .mustHave: "star.fill"
+        case .likeWithNote: "note.text"
         }
     }
 

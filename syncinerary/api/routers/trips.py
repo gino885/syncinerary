@@ -13,7 +13,7 @@ from typing import Annotated
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 
 from syncinerary.agents.delegate.note import NoteParsingUnavailable, parse_vote_note
 from syncinerary.agents.gather.attachments import (
@@ -28,7 +28,9 @@ from syncinerary.agents.gather.cities import (
     destination_label,
     normalize_city_names,
     resolve_cities,
+    resolve_selected_cities,
     resolve_timezone,
+    suggest_cities,
 )
 from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
@@ -40,6 +42,7 @@ from syncinerary.api.schemas import (
     CandidateCardOut,
     CandidatePhotoAttributionOut,
     CandidatePhotoOut,
+    CitySuggestionOut,
     GatherResponse,
     ItineraryDayOut,
     ItineraryOut,
@@ -62,6 +65,7 @@ from syncinerary.api.schemas import (
 )
 from syncinerary.config import settings
 from syncinerary.config.aggregate import MUST_GO_CAP_PER_DAY
+from syncinerary.config.gather import gather_max_steps
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
@@ -142,6 +146,30 @@ def _shortlist_out(shortlist, traveler_count: int) -> ShortlistOut:
     )
 
 
+@router.get("/city-suggestions", response_model=list[CitySuggestionOut])
+async def city_suggestions(
+    country: Annotated[str, Query(min_length=1, max_length=120)],
+    q: Annotated[str, Query(min_length=2, max_length=120)],
+) -> list[CitySuggestionOut]:
+    """Return city choices only when the traveler explicitly searches."""
+    trimmed_country = country.strip()
+    trimmed_query = q.strip()
+    if not trimmed_country or len(trimmed_query) < 2:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Enter a country and at least two letters of a city",
+        )
+    suggestions = await suggest_cities(trimmed_query, trimmed_country)
+    return [
+        CitySuggestionOut(
+            place_id=suggestion.place_id,
+            name=suggestion.name,
+            subtitle=suggestion.subtitle,
+        )
+        for suggestion in suggestions
+    ]
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreatedResponse:
     """Create a trip and its creator traveler.
@@ -168,7 +196,14 @@ async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreat
     # Resolved here rather than during gather so a misspelled city comes back
     # while the traveler is still looking at the form.
     try:
-        resolved = await resolve_cities(cities, payload.country)
+        if payload.city_place_ids:
+            resolved = await resolve_selected_cities(
+                cities,
+                payload.city_place_ids,
+                payload.country,
+            )
+        else:
+            resolved = await resolve_cities(cities, payload.country)
         timezone = await resolve_timezone(resolved[0])
     except (CityOutsideCountry, UnknownCity) as exc:
         raise HTTPException(
@@ -758,7 +793,14 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
         travelers = await TravelerRepository(session).list_for_trip(trip_id)
         constraints = await ConstraintRepository(session).list_for_trip(trip_id)
         try:
-            async with tracked_run(trip_id=trip_id, kind="gather"):
+            async with tracked_run(
+                trip_id=trip_id,
+                kind="gather",
+                max_steps=gather_max_steps(
+                    default_max_steps=settings.sync_max_steps,
+                    days=trip.days,
+                ),
+            ):
                 await graph.ainvoke(
                     TripState(trip=trip, travelers=travelers, constraints=constraints),
                     config,

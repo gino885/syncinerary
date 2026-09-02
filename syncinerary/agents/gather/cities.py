@@ -14,10 +14,15 @@ from __future__ import annotations
 from syncinerary.domain.models import Trip
 from syncinerary.harness import run_tool
 from syncinerary.tools.places import (
+    CityPlaceResolveInput,
     CityResolveInput,
+    CitySuggestion,
+    CitySuggestionInput,
     PlaceSearchBias,
     ResolvedCity,
+    make_city_place_resolve_tool,
     make_city_resolve_tool,
+    make_city_suggestion_tool,
 )
 from syncinerary.tools.timezone import (
     TimezoneLookupInput,
@@ -129,6 +134,44 @@ async def resolve_cities(
     return resolved
 
 
+async def suggest_cities(query: str, country: str) -> list[CitySuggestion]:
+    """Return provider-backed city choices after an explicit traveler search."""
+    result = await run_tool(
+        make_city_suggestion_tool(),
+        CitySuggestionInput(query=query.strip(), country=country.strip()),
+        state={"node": "gather_city_suggestions", "query": query.strip()},
+    )
+    return result.suggestions
+
+
+async def resolve_selected_cities(
+    names: list[str],
+    place_ids: list[str],
+    country: str,
+) -> list[ResolvedCity]:
+    """Resolve the exact Google choices selected in the trip form."""
+    if len(names) != len(place_ids):
+        raise ValueError("Every selected city needs one place ID")
+
+    resolved: list[ResolvedCity] = []
+    for name, place_id in zip(names, place_ids, strict=True):
+        result = await run_tool(
+            make_city_place_resolve_tool(),
+            CityPlaceResolveInput(place_id=place_id, query=name),
+            state={"node": "gather_city_selection", "name": name},
+        )
+        if result.city is None:
+            raise UnknownCity(name, country)
+        if not _same_country(result.city, country):
+            raise CityOutsideCountry(
+                name,
+                country,
+                result.city.country or "another country",
+            )
+        resolved.append(result.city)
+    return resolved
+
+
 async def resolve_timezone(city: ResolvedCity) -> str:
     """The destination's IANA zone, from the first city the trip covers."""
     result = await run_tool(
@@ -175,8 +218,10 @@ __all__ = [
     "destination_label",
     "normalize_city_names",
     "resolve_cities",
+    "resolve_selected_cities",
     "resolve_timezone",
     "resolve_trip_cities",
     "search_bias",
+    "suggest_cities",
     "trip_cities",
 ]

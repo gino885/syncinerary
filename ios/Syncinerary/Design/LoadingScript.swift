@@ -4,18 +4,18 @@ import Foundation
 /// so the words match what the server is doing.
 struct LoadingScript: Hashable, Sendable {
     let title: String
-    let lines: [String]
+    let lines: [LoadingLine]
 
     static func gathering(city: String) -> LoadingScript {
         LoadingScript(
             title: "Finding places in \(city)",
             lines: [
-                "Asking TikTok what's hot in \(city) 🔥",
-                "Reading the captions so you don't have to 📱",
-                "Counting how many posts agree ✅",
-                "Checking the places exist on the map 🗺️",
-                "Skipping the tourist traps 🪤",
-                "Shuffling the good stuff to the top 🔀",
+                LoadingLine(text: "Searching Instagram, TikTok, and RedNote", symbolName: "flame.fill"),
+                LoadingLine(text: "Reading public captions", symbolName: "text.bubble.fill"),
+                LoadingLine(text: "Counting where posts agree", symbolName: "checkmark.seal.fill"),
+                LoadingLine(text: "Checking each place on the map", symbolName: "map.fill"),
+                LoadingLine(text: "Removing weak matches", symbolName: "eye.slash.fill"),
+                LoadingLine(text: "Putting trending finds first", symbolName: "shuffle"),
             ]
         )
     }
@@ -23,25 +23,25 @@ struct LoadingScript: Hashable, Sendable {
     static let deck = LoadingScript(
         title: "Dealing your cards",
         lines: [
-            "Laying out the deck 🃏",
-            "Adding your friends' hints 💬",
+            LoadingLine(text: "Laying out the deck", symbolName: "rectangle.stack.fill"),
+            LoadingLine(text: "Adding your friends' finds", symbolName: "person.2.fill"),
         ]
     )
 
     static let shortlist = LoadingScript(
         title: "Counting the votes",
         lines: [
-            "Tallying the votes 🗳️",
-            "Finding what everyone agreed on 🤝",
-            "Politely ignoring the dislikes 🙈",
+            LoadingLine(text: "Tallying the votes", symbolName: "checklist"),
+            LoadingLine(text: "Finding what everyone agreed on", symbolName: "person.2.fill"),
+            LoadingLine(text: "Leaving disliked places out", symbolName: "hand.thumbsdown.fill"),
         ]
     )
 
     static let stay = LoadingScript(
         title: "Comparing places to stay",
         lines: [
-            "Comparing pillows 🛏️",
-            "Finding a bed near the action 📍",
+            LoadingLine(text: "Comparing places to stay", symbolName: "bed.double.fill"),
+            LoadingLine(text: "Finding a base near the action", symbolName: "mappin.and.ellipse"),
         ]
     )
 
@@ -49,12 +49,12 @@ struct LoadingScript: Hashable, Sendable {
         LoadingScript(
             title: "Building your \(city) days",
             lines: [
-                "Checking the forecast ☔",
-                "Asking the solver nicely 🧮",
-                "Keeping your must-gos safe ⭐",
-                "Timing lunch for when you're hungry 🍜",
-                "Measuring walks in coffee breaks ☕",
-                "Writing your trip story ✍️",
+                LoadingLine(text: "Checking the forecast", symbolName: "cloud.rain.fill"),
+                LoadingLine(text: "Fitting the day together", symbolName: "calendar.badge.clock"),
+                LoadingLine(text: "Keeping your must-gos safe", symbolName: "star.fill"),
+                LoadingLine(text: "Making time for meals", symbolName: "fork.knife"),
+                LoadingLine(text: "Measuring every walk", symbolName: "figure.walk"),
+                LoadingLine(text: "Writing your trip story", symbolName: "text.document.fill"),
             ]
         )
     }
@@ -62,8 +62,8 @@ struct LoadingScript: Hashable, Sendable {
     static let itinerary = LoadingScript(
         title: "Unrolling the map",
         lines: [
-            "Unrolling the map 🗺️",
-            "Polishing your days ✨",
+            LoadingLine(text: "Unrolling the map", symbolName: "map.fill"),
+            LoadingLine(text: "Polishing your days", symbolName: "sparkles"),
         ]
     )
 }

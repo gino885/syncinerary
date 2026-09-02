@@ -9,7 +9,9 @@ from syncinerary.domain.models import CandidatePlace, CandidateType
 from syncinerary.harness import run_tool
 from syncinerary.store.repositories import CandidatePlaceRepository
 from syncinerary.tools.places.google_places import (
+    CityPlaceResolveInput,
     CityResolveInput,
+    CitySuggestionInput,
     PhotoAttribution,
     PlaceMatch,
     PlacePhotoInput,
@@ -17,7 +19,9 @@ from syncinerary.tools.places.google_places import (
     PlaceSearchBias,
     PlaceSearchInput,
     PlaceSearchOutput,
+    make_city_place_resolve_tool,
     make_city_resolve_tool,
+    make_city_suggestion_tool,
     make_place_photo_tool,
     make_place_search_tool,
 )
@@ -481,6 +485,124 @@ async def test_a_city_name_is_resolved_to_a_real_place_with_an_extent():
     assert city.name == "Sapporo"
     assert city.query == "Sapporo"
     assert 5 <= city.radius_km <= 60
+
+
+async def test_city_autocomplete_returns_google_city_choices():
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/places:autocomplete"
+        assert request.read() == (
+            b'{"input":"Tok, Japan","includedPrimaryTypes":["(cities)"]}'
+        )
+        return httpx.Response(
+            200,
+            json={
+                "suggestions": [
+                    {
+                        "placePrediction": {
+                            "placeId": "ChIJ-tokyo-city",
+                            "structuredFormat": {
+                                "mainText": {"text": "Tokyo"},
+                                "secondaryText": {"text": "Japan"},
+                            },
+                        }
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_suggestion_tool(client=client, api_key="test-key"),
+            CitySuggestionInput(query="Tok", country="Japan"),
+        )
+
+    assert [suggestion.name for suggestion in result.suggestions] == ["Tokyo"]
+    assert result.suggestions[0].place_id == "ChIJ-tokyo-city"
+    assert result.suggestions[0].subtitle == "Japan"
+
+
+async def test_a_selected_city_is_resolved_by_its_google_place_id():
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/v1/places/ChIJ-tokyo-city"
+        return httpx.Response(
+            200,
+            json={
+                "id": "ChIJ-tokyo-city",
+                "displayName": {"text": "Tokyo"},
+                "formattedAddress": "Tokyo, Japan",
+                "primaryType": "locality",
+                "types": ["colloquial_area", "locality", "political"],
+                "addressComponents": [
+                    {"longText": "Tokyo", "shortText": "Tokyo", "types": ["locality"]},
+                    {"longText": "Japan", "shortText": "JP", "types": ["country"]},
+                ],
+                "location": {"latitude": 35.6804, "longitude": 139.7690},
+                "viewport": {
+                    "low": {"latitude": 35.5190, "longitude": 139.5629},
+                    "high": {"latitude": 35.8174, "longitude": 139.9189},
+                },
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_place_resolve_tool(client=client, api_key="test-key"),
+            CityPlaceResolveInput(place_id="ChIJ-tokyo-city", query="Tokyo"),
+        )
+
+    assert result.city is not None
+    assert result.city.name == "Tokyo"
+    assert result.city.radius_km < 30
+
+
+async def test_tokyo_is_accepted_when_google_classifies_it_as_an_administrative_area():
+    """Tokyo is city-like to travelers even though Google models it as a prefecture."""
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJ-tokyo",
+                        "displayName": {"text": "Tokyo"},
+                        "primaryType": "administrative_area_level_1",
+                        "types": ["administrative_area_level_1", "political"],
+                        "formattedAddress": "Tokyo, Japan",
+                        "addressComponents": [
+                            {
+                                "longText": "Tokyo",
+                                "shortText": "Tokyo",
+                                "types": ["administrative_area_level_1", "political"],
+                            },
+                            {
+                                "longText": "Japan",
+                                "shortText": "JP",
+                                "types": ["country", "political"],
+                            },
+                        ],
+                        "location": {"latitude": 35.6764, "longitude": 139.6500},
+                        "viewport": {
+                            "low": {"latitude": 34.5776, "longitude": 138.2991},
+                            "high": {"latitude": 36.4408, "longitude": 141.2405},
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_city_resolve_tool(client=client, api_key="test-key"),
+            CityResolveInput(name="Tokyo", country="Japan"),
+        )
+
+    assert result.city is not None
+    assert result.city.name == "Tokyo"
+    assert result.city.country_code == "JP"
 
 
 async def test_city_resolution_skips_a_non_city_result():

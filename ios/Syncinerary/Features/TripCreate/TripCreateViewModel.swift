@@ -7,17 +7,20 @@ final class TripCreateViewModel {
     /// Both start empty on purpose: there is no default destination for the
     /// traveler to plan around by accident.
     var country = ""
-    /// Free text, comma separated.
-    var cities = ""
+    var cityQuery = ""
+    var selectedCities: [CitySuggestion] = []
+    var citySuggestions: [CitySuggestion] = []
+    var citySearchMessage: String?
     var creatorName = ""
     var creatorHomeCity = ""
-    var interests = ""
-    var dietaryExcludes = ""
+    var interestSelection = PreferenceSelection()
+    var dietarySelection = PreferenceSelection()
     var startDate: Date
     var endDate: Date
     var dayStart: Date
     var dayEnd: Date
     var isSubmitting = false
+    var isSearchingCities = false
     var isShowingError = false
     var errorMessage = ""
 
@@ -34,7 +37,16 @@ final class TripCreateViewModel {
         dayEnd = calendar.date(bySettingHour: 21, minute: 0, second: 0, of: .now) ?? .now
     }
 
-    var cityNames: [String] { commaSeparated(cities) }
+    var cityNames: [String] { selectedCities.map(\.name) }
+
+    var cityPlaceIDs: [String] { selectedCities.map(\.placeID) }
+
+    var preferenceSummary: String {
+        PreferenceSelection.tripSummary(
+            interests: interestSelection,
+            dietary: dietarySelection
+        )
+    }
 
     var trimmedCountry: String {
         country.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,9 +61,59 @@ final class TripCreateViewModel {
             && !isSubmitting
     }
 
+    var canSearchCities: Bool {
+        !trimmedCountry.isEmpty
+            && cityQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2
+            && selectedCities.count < 4
+            && !isSearchingCities
+    }
+
     func adjustEndDate() {
         guard endDate < startDate else { return }
         endDate = Calendar.current.date(byAdding: .day, value: 4, to: startDate) ?? startDate
+    }
+
+    func countryChanged() {
+        selectedCities = []
+        citySuggestions = []
+        citySearchMessage = nil
+    }
+
+    func searchCities() async {
+        guard canSearchCities else { return }
+        isSearchingCities = true
+        citySearchMessage = nil
+        defer { isSearchingCities = false }
+
+        do {
+            let results = try await apiClient.citySuggestions(
+                country: trimmedCountry,
+                query: cityQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let selectedIDs = Set(selectedCities.map(\.placeID))
+            citySuggestions = results.filter { !selectedIDs.contains($0.placeID) }
+            if citySuggestions.isEmpty {
+                citySearchMessage = "No matching cities found. Try another spelling."
+            }
+        } catch {
+            citySuggestions = []
+            citySearchMessage = error.localizedDescription
+        }
+    }
+
+    func selectCity(_ suggestion: CitySuggestion) {
+        guard selectedCities.count < 4 else { return }
+        guard !selectedCities.contains(where: { $0.placeID == suggestion.placeID }) else {
+            return
+        }
+        selectedCities.append(suggestion)
+        cityQuery = ""
+        citySuggestions = []
+        citySearchMessage = nil
+    }
+
+    func removeCity(_ suggestion: CitySuggestion) {
+        selectedCities.removeAll { $0.placeID == suggestion.placeID }
     }
 
     func createTrip() async -> TripSession? {
@@ -61,13 +123,16 @@ final class TripCreateViewModel {
 
         let request = TripCreateRequest(
             cities: cityNames,
+            cityPlaceIDs: cityPlaceIDs,
             country: trimmedCountry,
             startDate: apiDate(startDate),
             endDate: apiDate(endDate),
             creatorName: creatorName.trimmingCharacters(in: .whitespacesAndNewlines),
             creatorHomeCity: optionalText(creatorHomeCity),
-            creatorInterests: commaSeparated(interests),
-            creatorDietaryExcludes: commaSeparated(dietaryExcludes)
+            creatorInterests: interestSelection.values(in: PreferenceCatalog.interests),
+            creatorDietaryExcludes: dietarySelection.values(
+                in: PreferenceCatalog.dietaryExcludes
+            )
         )
 
         do {
@@ -108,17 +173,6 @@ final class TripCreateViewModel {
     private func optionalText(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func commaSeparated(_ value: String) -> [String] {
-        var seen: Set<String> = []
-        return value
-            .split(separator: ",")
-            .compactMap { part in
-                let normalized = part.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
-                return normalized
-            }
     }
 
     private func show(_ error: Error) {

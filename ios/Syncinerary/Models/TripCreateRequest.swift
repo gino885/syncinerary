@@ -3,6 +3,9 @@ struct TripCreateRequest: Encodable, Sendable {
     /// and derives the trip's display name from them, so nothing here is
     /// chosen from a fixed list.
     let cities: [String]
+    /// Canonical Google choices paired with `cities`, so the backend resolves
+    /// exactly what the traveler selected instead of repeating a text guess.
+    let cityPlaceIDs: [String]
     /// One country per trip: it disambiguates repeated city names and keeps
     /// each city's days together instead of alternating across the trip.
     let country: String
@@ -15,6 +18,7 @@ struct TripCreateRequest: Encodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case cities
+        case cityPlaceIDs = "city_place_ids"
         case country
         case startDate = "start_date"
         case endDate = "end_date"

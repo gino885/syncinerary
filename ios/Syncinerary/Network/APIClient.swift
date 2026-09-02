@@ -50,6 +50,16 @@ actor APIClient {
         try await post(path: "trips", body: request)
     }
 
+    func citySuggestions(country: String, query: String) async throws -> [CitySuggestion] {
+        try await get(
+            path: "trips/city-suggestions",
+            queryItems: [
+                URLQueryItem(name: "country", value: country),
+                URLQueryItem(name: "q", value: query),
+            ]
+        )
+    }
+
     func gather(tripID: UUID) async throws -> GatherResponse {
         try await post(path: "trips/\(tripID)/gather", body: EmptyRequest())
     }

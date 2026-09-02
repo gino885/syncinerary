@@ -82,6 +82,11 @@ class DiscoveredSocialURL(BaseModel):
     author_name: str | None = None
     thumbnail_url: str | None = None
     cover_text: str | None = None
+    # Only populated when the public search result labels a number as this
+    # post's likes or comments. Account follower/total-like counts are not
+    # treated as post engagement.
+    like_count: int | None = Field(default=None, ge=0)
+    comment_count: int | None = Field(default=None, ge=0)
 
     @property
     def indexed_text(self) -> str:
@@ -237,9 +242,51 @@ def build_discovery_queries(
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("RedNote discovery requires a localized destination")
         local = destination_localized.strip()
-        return [f"{local}旅游美食攻略{suffix}"]
+        return [f"{local} 必去景点 必吃美食 旅游攻略 探店{suffix}"]
 
-    return [f"{destination} travel food guide{suffix}"]
+    return [
+        f"{destination} must visit places must eat food travel guide{suffix}"
+    ]
+
+
+_ENGLISH_ENGAGEMENT_PATTERNS = {
+    "like": re.compile(r"(?<![\w.])(\d[\d,.]*\s*[KMB]?)\s+likes?\b", re.IGNORECASE),
+    "comment": re.compile(
+        r"(?<![\w.])(\d[\d,.]*\s*[KMB]?)\s+comments?\b", re.IGNORECASE
+    ),
+}
+_CHINESE_ENGAGEMENT_PATTERNS = {
+    "like": re.compile(r"(?:点赞\s*([\d,.]+\s*[万亿]?)|([\d,.]+\s*[万亿]?)\s*点赞)"),
+    "comment": re.compile(r"(?:评论\s*([\d,.]+\s*[万亿]?)|([\d,.]+\s*[万亿]?)\s*评论)"),
+}
+
+
+def _compact_count(value: str) -> int:
+    cleaned = value.replace(",", "").replace(" ", "").upper()
+    multipliers = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000, "万": 10_000, "亿": 100_000_000}
+    multiplier = multipliers.get(cleaned[-1], 1)
+    number = cleaned[:-1] if multiplier != 1 else cleaned
+    return round(float(number) * multiplier)
+
+
+def parse_public_engagement(text: str) -> tuple[int | None, int | None]:
+    """Read explicitly labelled post likes/comments from a public snippet.
+
+    Requiring a space before English labels deliberately ignores compact
+    account statistics such as ``26.4MLikes`` that TikTok search snippets
+    commonly show next to follower totals.
+    """
+    values: dict[str, int | None] = {"like": None, "comment": None}
+    for signal in values:
+        match = _ENGLISH_ENGAGEMENT_PATTERNS[signal].search(text)
+        raw = match.group(1) if match is not None else None
+        if raw is None:
+            chinese = _CHINESE_ENGAGEMENT_PATTERNS[signal].search(text)
+            if chinese is not None:
+                raw = chinese.group(1) or chinese.group(2)
+        if raw is not None:
+            values[signal] = _compact_count(raw)
+    return values["like"], values["comment"]
 
 
 # Scoped to the host, not to a path prefix: "site:tiktok.com/@" matched nothing
@@ -264,7 +311,7 @@ async def _search_brave(
 
     cache_payload = value.model_dump_json()
     cache_digest = hashlib.sha256(cache_payload.encode()).hexdigest()
-    cache_key = f"social:brave:v1:{cache_digest}"
+    cache_key = f"social:brave:v2:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -303,16 +350,34 @@ async def _search_brave(
             ):
                 continue
             seen.add(reference.canonical_url)
+            title = row.get("title")
+            description = row.get("description")
+            engagement_text = "\n".join(
+                value for value in (title, description) if isinstance(value, str)
+            )
+            like_count, comment_count = parse_public_engagement(engagement_text)
             results.append(
                 DiscoveredSocialURL(
                     reference=reference,
                     query=scoped_query,
                     rank=rank,
-                    title=row.get("title"),
-                    description=row.get("description"),
+                    title=title,
+                    description=description,
+                    like_count=like_count,
+                    comment_count=comment_count,
                 )
             )
 
+    # Explicit post engagement is stronger evidence than search position.
+    # When the index exposes no metric, preserve its deterministic rank.
+    results.sort(
+        key=lambda post: (
+            -(post.like_count is not None or post.comment_count is not None),
+            -((post.like_count or 0) + 4 * (post.comment_count or 0)),
+            post.rank,
+            post.reference.canonical_url,
+        )
+    )
     output = BraveSocialSearchOutput(results=results)
     if cache is not None:
         await cache.set(

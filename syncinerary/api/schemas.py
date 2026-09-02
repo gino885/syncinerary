@@ -67,6 +67,14 @@ class TripCreateRequest(BaseModel):
             StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
         ]
     ] = Field(min_length=1, max_length=MAX_CITIES_PER_TRIP)
+    # New clients send the Google prediction they selected. Older clients may
+    # omit this and keep the text-resolution path during the transition.
+    city_place_ids: list[
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
+        ]
+    ] = Field(default_factory=list, max_length=MAX_CITIES_PER_TRIP)
     start_date: date
     end_date: date
     # M1 has no invite flow, so the creator is the only traveler (§15 keeps
@@ -93,7 +101,15 @@ class TripCreateRequest(BaseModel):
     def _check_dates(self) -> TripCreateRequest:
         if self.end_date < self.start_date:
             raise ValueError("end_date must not be before start_date")
+        if self.city_place_ids and len(self.city_place_ids) != len(self.cities):
+            raise ValueError("city_place_ids must match cities")
         return self
+
+
+class CitySuggestionOut(BaseModel):
+    place_id: str
+    name: str
+    subtitle: str | None = None
 
 
 class TripOut(BaseModel):
@@ -182,6 +198,7 @@ class SourceAttachmentOut(BaseModel):
 class SourceBadgeKind(str, Enum):
     CLASSIC = "classic"
     TRENDING = "trending"
+    SOCIAL = "social"
     DISCOVERED = "discovered"
     ATTACHED_BY_YOU = "attached_by_you"
     ATTACHED_BY_GROUP = "attached_by_group"
@@ -343,11 +360,23 @@ def source_badges(
         ] if isinstance(platforms, list) else []
         # The badge opens the highest-ranked post; the card details list all.
         top = next(iter(_buzz_posts(candidate)), None)
+        detailed_posts = candidate.enrichment.get("social_posts")
+        has_engagement = isinstance(detailed_posts, list) and any(
+            isinstance(post, dict)
+            and (post.get("like_count") is not None or post.get("comment_count") is not None)
+            for post in detailed_posts
+        )
         badges.append(
             SourceBadgeOut(
-                kind=SourceBadgeKind.TRENDING,
+                kind=(
+                    SourceBadgeKind.TRENDING
+                    if has_engagement
+                    else SourceBadgeKind.SOCIAL
+                ),
                 label=(
-                    f"Trending on {', '.join(named)}" if named else "Trending"
+                    f"{'Popular' if has_engagement else 'Found'} on {', '.join(named)}"
+                    if named
+                    else ("Popular post" if has_engagement else "Found on social")
                 ),
                 url=top.url if top is not None else None,
                 platform=top.label if top is not None else None,

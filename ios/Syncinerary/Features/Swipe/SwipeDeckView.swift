@@ -8,12 +8,12 @@ struct SwipeDeckView: View {
     let cards: [CandidateCard]
     let photos: [UUID: CandidatePhoto]
     @Binding var throwRequest: SwipeDecision?
+    @Binding var isThrowing: Bool
     let onDecision: (SwipeDecision) -> Void
     let onDetails: (CandidateCard) -> Void
 
     @State private var dragOffset = CGSize.zero
     @State private var topOpacity = 1.0
-    @State private var isThrowing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let decisionDistance = 120.0

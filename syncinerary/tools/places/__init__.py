@@ -1,8 +1,12 @@
 """Google Places tools used by gather enrichment and card images."""
 
 from syncinerary.tools.places.google_places import (
+    CityPlaceResolveInput,
     CityResolveInput,
     CityResolveOutput,
+    CitySuggestion,
+    CitySuggestionInput,
+    CitySuggestionOutput,
     PlaceMatch,
     PlacePhotoInput,
     PlacePhotoOutput,
@@ -10,14 +14,20 @@ from syncinerary.tools.places.google_places import (
     PlaceSearchInput,
     PlaceSearchOutput,
     ResolvedCity,
+    make_city_place_resolve_tool,
     make_city_resolve_tool,
+    make_city_suggestion_tool,
     make_place_photo_tool,
     make_place_search_tool,
 )
 
 __all__ = [
+    "CityPlaceResolveInput",
     "CityResolveInput",
     "CityResolveOutput",
+    "CitySuggestion",
+    "CitySuggestionInput",
+    "CitySuggestionOutput",
     "PlaceMatch",
     "PlacePhotoInput",
     "PlacePhotoOutput",
@@ -25,7 +35,9 @@ __all__ = [
     "PlaceSearchInput",
     "PlaceSearchOutput",
     "ResolvedCity",
+    "make_city_place_resolve_tool",
     "make_city_resolve_tool",
+    "make_city_suggestion_tool",
     "make_place_photo_tool",
     "make_place_search_tool",
 ]

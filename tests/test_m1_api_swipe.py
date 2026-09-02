@@ -22,6 +22,7 @@ from syncinerary.store.repositories import (
     TripRepository,
     VoteRepository,
 )
+from syncinerary.tools.places import CitySuggestion, ResolvedCity
 
 TRIP_BODY = {
     "cities": ["Hokkaido"],
@@ -57,6 +58,76 @@ async def test_health_reports_the_milestone(client):
 
 
 # ----- trip creation -----
+
+
+async def test_city_suggestions_return_choices_for_the_country(client, monkeypatch):
+    async def suggest(query, country):
+        assert query == "Tok"
+        assert country == "Japan"
+        return [
+            CitySuggestion(
+                place_id="ChIJ-tokyo-city",
+                name="Tokyo",
+                subtitle="Japan",
+            )
+        ]
+
+    monkeypatch.setattr(trips_router_module, "suggest_cities", suggest, raising=False)
+
+    response = await client.get(
+        "/trips/city-suggestions",
+        params={"country": "Japan", "q": "Tok"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "place_id": "ChIJ-tokyo-city",
+            "name": "Tokyo",
+            "subtitle": "Japan",
+        }
+    ]
+
+
+async def test_create_trip_uses_the_city_place_id_selected_by_the_traveler(
+    client, monkeypatch
+):
+    seen: list[tuple[list[str], list[str], str]] = []
+
+    async def resolve_selected(names, place_ids, country):
+        seen.append((names, place_ids, country))
+        return [
+            ResolvedCity(
+                query="Tokyo",
+                place_id="ChIJ-tokyo-city",
+                name="Tokyo",
+                formatted_address="Tokyo, Japan",
+                lat=35.6804,
+                lng=139.7690,
+                radius_km=24,
+                country="Japan",
+                country_code="JP",
+            )
+        ]
+
+    monkeypatch.setattr(
+        trips_router_module,
+        "resolve_selected_cities",
+        resolve_selected,
+        raising=False,
+    )
+    response = await client.post(
+        "/trips",
+        json={
+            **TRIP_BODY,
+            "cities": ["Tokyo"],
+            "city_place_ids": ["ChIJ-tokyo-city"],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert seen == [(["Tokyo"], ["ChIJ-tokyo-city"], "Japan")]
+    assert response.json()["trip"]["cities"] == ["Tokyo"]
 
 
 async def test_create_trip_returns_trip_and_traveler_identity(client):
