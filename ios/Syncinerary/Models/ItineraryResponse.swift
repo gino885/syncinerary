@@ -1,6 +1,12 @@
 import Foundation
 
 struct ItineraryResponse: Decodable, Sendable {
+    var usesTransitous: Bool {
+        days.contains { day in
+            day.stops.contains { $0.usesTransitous }
+        }
+    }
+
     let versionID: UUID
     let versionNo: Int
     let status: String

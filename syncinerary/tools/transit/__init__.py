@@ -1,12 +1,12 @@
 """Pluggable transit duration tool."""
 
-from syncinerary.tools.transit.google_directions import (
-    DirectionsConfigurationError,
-    DirectionsError,
-    DirectionsRateLimited,
-    DirectionsResponseError,
-    DirectionsRouteUnavailable,
-    GoogleDirectionsClient,
+from syncinerary.tools.transit.google_routes import (
+    GoogleRoutesClient,
+    RoutesConfigurationError,
+    RoutesError,
+    RoutesRateLimited,
+    RoutesResponseError,
+    RoutesRouteUnavailable,
     parse_duration_seconds,
 )
 from syncinerary.tools.transit.models import (
@@ -20,22 +20,39 @@ from syncinerary.tools.transit.models import (
     choose_mode,
     haversine_km,
 )
+from syncinerary.tools.transit.provider import TransitProviderName, make_transit_client
+from syncinerary.tools.transit.transitous import (
+    TransitousClient,
+    TransitousConfigurationError,
+    TransitousError,
+    TransitousRateLimited,
+    TransitousResponseError,
+    TransitousRouteUnavailable,
+)
 
 __all__ = [
-    "DirectionsConfigurationError",
-    "DirectionsError",
-    "DirectionsRateLimited",
-    "DirectionsResponseError",
-    "DirectionsRouteUnavailable",
-    "GoogleDirectionsClient",
+    "GoogleRoutesClient",
     "PairwiseTransitRequest",
+    "RoutesConfigurationError",
+    "RoutesError",
+    "RoutesRateLimited",
+    "RoutesResponseError",
+    "RoutesRouteUnavailable",
     "TransitDuration",
     "TransitLocation",
     "TransitMatrix",
     "TransitMode",
+    "TransitProviderName",
     "TransitRequest",
     "TransitUnavailable",
+    "TransitousClient",
+    "TransitousConfigurationError",
+    "TransitousError",
+    "TransitousRateLimited",
+    "TransitousResponseError",
+    "TransitousRouteUnavailable",
     "choose_mode",
     "haversine_km",
+    "make_transit_client",
     "parse_duration_seconds",
 ]

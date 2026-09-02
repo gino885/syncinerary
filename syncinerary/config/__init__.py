@@ -2,6 +2,7 @@
 (gather.py, aggregate.py, solver.py, harness.py). Values mirror CLAUDE.md §16.
 """
 from decimal import Decimal
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     google_maps_api_key: str = ""
     brave_search_api_key: str = ""
     attachment_upload_dir: str = ".data/attachments"
+    sync_transit_provider: Literal["google", "transitous"] = "google"
 
     # LLM
     anthropic_api_key: str = ""

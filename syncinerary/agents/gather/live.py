@@ -58,6 +58,7 @@ _FOOD_TYPES = {
     "ice_cream_shop",
     "market",
     "restaurant",
+    "steak_house",
 }
 _LODGING_TYPES = {
     "bed_and_breakfast",
@@ -145,7 +146,7 @@ def _nearest_city(lat: float, lng: float, cities: list[ResolvedCity]) -> Resolve
     )
 
 
-def _to_candidate(
+def candidate_from_place(
     place: PlaceMatch,
     trip: Trip,
     query: str,
@@ -349,7 +350,9 @@ async def discover_candidates(
                             }
                         )
                     continue
-                by_place_id[place.place_id] = _to_candidate(place, trip, query, city=city)
+                by_place_id[place.place_id] = candidate_from_place(
+                    place, trip, query, city=city
+                )
 
     activity_clusters = _dense_clusters(
         [
@@ -386,7 +389,7 @@ async def discover_candidates(
             )
             for place in result.matches:
                 if place.place_id not in by_place_id:
-                    by_place_id[place.place_id] = _to_candidate(
+                    by_place_id[place.place_id] = candidate_from_place(
                         place, trip, query, city=city
                     )
 
@@ -521,6 +524,7 @@ async def gather_node(state: TripState) -> dict[str, Any]:
 __all__ = [
     "LiveDiscoveryInsufficient",
     "build_search_queries",
+    "candidate_from_place",
     "discover_candidates",
     "gather_node",
     "select_dense_pool",

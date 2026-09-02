@@ -241,6 +241,31 @@ def test_solver_minimizes_total_transit_after_maximizing_placements():
         assert current.start_minute >= previous.end_minute + current.transit_from_prev_min
 
 
+def test_solver_preserves_transitous_attribution_on_the_scheduled_leg():
+    first = _place("First", 43.06, 141.35)
+    second = _place("Second", 43.10, 141.40)
+    matrix = _matrix([first, second])
+    matrix = matrix.model_copy(
+        update={
+            "legs": [
+                leg.model_copy(
+                    update={"mode": TransitMode.TRANSIT, "provider": "transitous"}
+                )
+                for leg in matrix.legs
+            ]
+        }
+    )
+
+    route = solve_day(
+        [first, second],
+        day=0,
+        trip_date=date(2026, 5, 21),
+        transit=matrix,
+    )
+
+    assert route.stops[1].transit_from_prev_mode == "transit_transitous"
+
+
 def test_closed_candidate_is_unplaced_with_specific_reason():
     closed = _place("Closed Thursdays", 43.06, 141.35, hours=[])
 

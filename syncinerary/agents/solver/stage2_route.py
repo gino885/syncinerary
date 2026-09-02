@@ -53,11 +53,13 @@ from syncinerary.store.repositories import (
     WishlistNotPlacedRepository,
 )
 from syncinerary.tools.transit import (
-    GoogleDirectionsClient,
+    GoogleRoutesClient,
     PairwiseTransitRequest,
     TransitLocation,
     TransitMatrix,
+    TransitousClient,
     haversine_km,
+    make_transit_client,
 )
 from syncinerary.tools.weather import OpenMeteoClient, WeatherForecast
 
@@ -250,10 +252,12 @@ def solve_day(
     transit: TransitMatrix,
     options: SolverOptions | None = None,
     required_candidate_ids: set[UUID] | None = None,
+    fixed_start_minutes: dict[UUID, int] | None = None,
 ) -> DayRoute:
     """Solve one day's optional path with opening and transit constraints."""
     options = options or SolverOptions()
-    required = required_candidate_ids or set()
+    fixed_starts = fixed_start_minutes or {}
+    required = (required_candidate_ids or set()) | set(fixed_starts)
     if not candidates:
         return DayRoute(day=day)
 
@@ -329,7 +333,11 @@ def solve_day(
         if origin_id is not None and destination_id is not None:
             leg_by_pair[(origin_id, destination_id)] = (
                 leg.duration_minutes,
-                leg.mode.value,
+                (
+                    f"{leg.mode.value}_{leg.provider}"
+                    if leg.provider
+                    else leg.mode.value
+                ),
             )
 
     model = cp_model.CpModel()
@@ -357,6 +365,8 @@ def solve_day(
         starts[index] = model.new_int_var(day_start, day_end - duration, f"start_{index}")
         ends[index] = model.new_int_var(day_start + duration, day_end, f"end_{index}")
         model.add(ends[index] == starts[index] + duration)
+        if candidate.id in fixed_starts:
+            model.add(starts[index] == fixed_starts[candidate.id])
 
         start_costs[index] = model.new_int_var(0, day_end - day_start, f"start_cost_{index}")
         model.add(start_costs[index] == starts[index] - day_start).only_enforce_if(
@@ -585,6 +595,7 @@ async def _solve_one_day(
     transit_provider: TransitProvider,
     options: SolverOptions,
     required_candidate_ids: set[UUID] | None = None,
+    fixed_start_minutes: dict[UUID, int] | None = None,
 ) -> DayRoute:
     """Fetch this day's pairwise transit and route it."""
     timezone = ZoneInfo(options.timezone)
@@ -623,6 +634,7 @@ async def _solve_one_day(
         transit=matrix,
         options=options,
         required_candidate_ids=required_candidate_ids,
+        fixed_start_minutes=fixed_start_minutes,
     )
 
 
@@ -824,11 +836,13 @@ async def solve_full_routes(
     options: SolverOptions | None = None,
     must_go_ids: set[UUID] | None = None,
     pinned_days: dict[UUID, int] | None = None,
+    fixed_start_minutes: dict[UUID, int] | None = None,
     weights: SolverObjectiveWeights | None = None,
 ) -> SolverResult:
     """Run the M5 Stage 1 assignment, then route each decided day once."""
     options = options or SolverOptions()
-    must_go = must_go_ids or set()
+    fixed_starts = fixed_start_minutes or {}
+    must_go = (must_go_ids or set()) | set(fixed_starts)
     pinned = pinned_days or {}
     assignment = assign_days(
         candidates,
@@ -851,6 +865,11 @@ async def solve_full_routes(
             options=options,
             required_candidate_ids=(must_go | set(pinned))
             & {candidate.id for candidate in bucket},
+            fixed_start_minutes={
+                candidate.id: fixed_starts[candidate.id]
+                for candidate in bucket
+                if candidate.id in fixed_starts
+            },
         )
         for day, bucket in enumerate(assignment.buckets)
     ]
@@ -868,8 +887,8 @@ async def solve_full_routes(
     )
 
 
-def _make_transit_client() -> GoogleDirectionsClient:
-    return GoogleDirectionsClient()
+def _make_transit_client() -> GoogleRoutesClient | TransitousClient:
+    return make_transit_client()
 
 
 def _make_weather_client() -> OpenMeteoClient:

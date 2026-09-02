@@ -120,6 +120,100 @@ actor APIClient {
         )
     }
 
+    func approveReplan(
+        tripID: UUID,
+        eventID: UUID,
+        travelerID: UUID
+    ) async throws -> ReplanProposalResponse {
+        try await post(
+            path: "trips/\(tripID)/replans/\(eventID)/approve",
+            body: ReplanDecisionRequest(travelerID: travelerID)
+        )
+    }
+
+    func rejectReplan(
+        tripID: UUID,
+        eventID: UUID,
+        travelerID: UUID
+    ) async throws -> ReplanProposalResponse {
+        try await post(
+            path: "trips/\(tripID)/replans/\(eventID)/reject",
+            body: ReplanDecisionRequest(travelerID: travelerID)
+        )
+    }
+
+    func pendingReplans(
+        tripID: UUID,
+        travelerID: UUID
+    ) async throws -> [ReplanProposalResponse] {
+        try await get(
+            path: "trips/\(tripID)/replans/pending",
+            queryItems: [URLQueryItem(name: "traveler_id", value: travelerID.uuidString)]
+        )
+    }
+
+    static func replanWebSocketURL(
+        baseURL: URL,
+        tripID: UUID,
+        travelerID: UUID
+    ) throws -> URL {
+        let endpoint = baseURL.appending(path: "trips/\(tripID)/replans/ws")
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidResponse
+        }
+        switch components.scheme {
+        case "http":
+            components.scheme = "ws"
+        case "https":
+            components.scheme = "wss"
+        default:
+            throw APIError.invalidResponse
+        }
+        components.queryItems = [
+            URLQueryItem(name: "traveler_id", value: travelerID.uuidString)
+        ]
+        guard let url = components.url else {
+            throw APIError.invalidResponse
+        }
+        return url
+    }
+
+    func nextReplanProposal(
+        tripID: UUID,
+        travelerID: UUID
+    ) async throws -> ReplanProposalResponse {
+        let url = try Self.replanWebSocketURL(
+            baseURL: baseURL,
+            tripID: tripID,
+            travelerID: travelerID
+        )
+        let task = session.webSocketTask(with: url)
+        task.resume()
+        defer { task.cancel(with: .goingAway, reason: nil) }
+
+        let message = try await task.receive()
+        let data: Data
+        switch message {
+        case let .data(value):
+            data = value
+        case let .string(value):
+            data = Data(value.utf8)
+        @unknown default:
+            throw APIError.invalidResponse
+        }
+        do {
+            let envelope = try decoder.decode(ReplanEnvelope.self, from: data)
+            guard envelope.type == "replan_proposed" else {
+                throw APIError.invalidResponse
+            }
+            return envelope.proposal
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.decoding(error.localizedDescription)
+        }
+    }
+
     private func get<Response: Decodable & Sendable>(
         path: String,
         queryItems: [URLQueryItem] = []

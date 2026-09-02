@@ -27,12 +27,6 @@ class TransitLocation(BaseModel):
     lng: float = Field(ge=-180, le=180)
 
     @property
-    def google_value(self) -> str:
-        if self.place_id:
-            return f"place_id:{self.place_id}"
-        return f"{self.lat:.6f},{self.lng:.6f}"
-
-    @property
     def cache_id(self) -> str:
         if self.place_id:
             return f"place:{self.place_id}"
@@ -65,6 +59,7 @@ class TransitDuration(BaseModel):
     duration_seconds: int = Field(gt=0)
     duration_minutes: int = Field(gt=0)
     cache_hit: bool = False
+    provider: str | None = None
 
 
 class PairwiseTransitRequest(BaseModel):
@@ -89,7 +84,7 @@ class TransitMatrix(BaseModel):
 
 
 def haversine_km(origin: TransitLocation, destination: TransitLocation) -> float:
-    """Straight-line distance used only to choose a Directions travel mode."""
+    """Straight-line distance used only to choose a routing mode."""
     earth_radius_km = 6371.0088
     lat1, lng1 = radians(origin.lat), radians(origin.lng)
     lat2, lng2 = radians(destination.lat), radians(destination.lng)

@@ -40,6 +40,15 @@ class ReplanEventRepository(BaseRepository[tables.ReplanEvent, ReplanEvent]):
             tables.ReplanEvent.status == ReplanStatus.PENDING,
         )
 
+    async def get_for_update(self, event_id: UUID) -> ReplanEvent | None:
+        """Lock one approval decision so only its first answer can win."""
+        row = await self.session.scalar(
+            select(tables.ReplanEvent)
+            .where(tables.ReplanEvent.id == event_id)
+            .with_for_update()
+        )
+        return self.to_model(row) if row is not None else None
+
     async def decide(
         self, event_id: UUID, status: ReplanStatus, decided_by: UUID
     ) -> ReplanEvent | None:

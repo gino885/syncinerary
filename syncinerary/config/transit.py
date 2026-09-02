@@ -1,8 +1,19 @@
-"""Google Directions and Redis cache settings for the M1 transit tool."""
+"""Google Routes and Redis cache settings for the transit tool."""
 
-DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
-DIRECTIONS_TIMEOUT_SECONDS = 15.0
-DIRECTIONS_MAX_CONCURRENCY = 8
+ROUTES_MATRIX_URL = (
+    "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+)
+ROUTES_FIELD_MASK = (
+    "originIndex,destinationIndex,status,condition,distanceMeters,duration"
+)
+ROUTES_TIMEOUT_SECONDS = 20.0
+
+TRANSITOUS_ONE_TO_MANY_URL = (
+    "https://api.transitous.org/api/experimental/one-to-many-intermodal"
+)
+TRANSITOUS_TIMEOUT_SECONDS = 30.0
+TRANSITOUS_MAX_TRAVEL_MINUTES = 180
+TRANSITOUS_USER_AGENT = "Syncinerary/0.1.0 (https://github.com/gino885/syncinerary)"
 
 TRANSIT_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7
 REDIS_CONNECT_TIMEOUT_SECONDS = 2.0
