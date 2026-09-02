@@ -24,3 +24,11 @@ The eval harness surfaced these. None blocks the milestone.
 - [ ] `budget_daily` is carried on the `budget_tight` fixture but nothing
       reads it: there is no budget constraint in the solver yet. The fixture
       is ready for it.
+
+## Social discovery follow-ups
+
+- [ ] Add RedNote comment-level discovery if an approved or licensed source
+      becomes available. Rank places named in high-liked comments and places
+      repeated across independent comments. The current public-search path
+      does not expose reliable comment bodies or comment like counts, and must
+      not scrape logged-in RedNote pages.

@@ -7,7 +7,7 @@ final class SwipeViewModel {
     let session: TripSession
 
     var candidates: [CandidateCard] = []
-    var currentIndex = 0
+    var position = SwipeDeckPosition()
     var isLoading = false
     var isShowingError = false
     var errorMessage = ""
@@ -26,6 +26,10 @@ final class SwipeViewModel {
         self.session = session
         self.apiClient = apiClient
     }
+
+    var currentIndex: Int { position.index }
+
+    var canGoBack: Bool { currentIndex > 0 }
 
     var currentCandidate: CandidateCard? {
         guard candidates.indices.contains(currentIndex) else { return nil }
@@ -72,7 +76,8 @@ final class SwipeViewModel {
     /// background. A failure puts the card back rather than losing the vote.
     func decide(_ decision: SwipeDecision) async {
         guard let candidate = currentCandidate else { return }
-        currentIndex += 1
+        let candidateIndex = currentIndex
+        position.advance(total: candidates.count)
         decisionCount += 1
         lastDecision = decision
         await prefetchPhotos()
@@ -88,9 +93,16 @@ final class SwipeViewModel {
                 )
             )
         } catch {
-            currentIndex = max(0, currentIndex - 1)
+            if currentIndex > candidateIndex {
+                position = SwipeDeckPosition(index: candidateIndex)
+            }
             show(error)
         }
+    }
+
+    func showPrevious() {
+        position.moveBack()
+        lastDecision = nil
     }
 
     private func prefetchPhotos() async {
