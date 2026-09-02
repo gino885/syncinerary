@@ -14,7 +14,7 @@ struct ItineraryDayHeader: View {
             )
             VStack(alignment: .leading, spacing: 0) {
                 Text(dateText)
-                    .font(AppType.subtitle)
+                    .font(AppType.dayDate)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel("\(day.stops.count) stops")
             }

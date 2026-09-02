@@ -26,7 +26,7 @@ struct ItineraryStopRow: View {
                 }
 
                 Text(stop.name)
-                    .font(AppType.subtitle)
+                    .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
 
                 if !metaLine.isEmpty {

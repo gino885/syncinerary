@@ -8,7 +8,7 @@ struct RecentTripRow: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.trip.destination)
-                    .font(AppType.subtitle)
+                    .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel("\(TripDate.range(session.trip.startDate, session.trip.endDate)) · \(session.trip.days) days")
             }

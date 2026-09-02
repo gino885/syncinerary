@@ -11,7 +11,7 @@ struct StampView: View {
 
     var body: some View {
         Text(mark.text)
-            .font(.system(size: 15 * scale, design: .monospaced).weight(.bold))
+            .font(.system(size: max(11, 15 * scale), design: .monospaced).weight(.bold))
             .textCase(.uppercase)
             .tracking(2 * scale)
             .foregroundStyle(mark.ink)
@@ -27,7 +27,7 @@ struct StampView: View {
                     .stroke(mark.ink, lineWidth: 1 * scale)
             }
             .rotationEffect(.degrees(mark.angle))
-            .opacity(0.85)
+            .opacity(0.92)
             .accessibilityHidden(isDecorative)
     }
 }

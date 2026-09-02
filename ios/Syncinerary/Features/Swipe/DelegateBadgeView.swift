@@ -16,7 +16,7 @@ struct DelegateBadgeView: View {
                 .padding(.top, AppTheme.spacingXS)
         } label: {
             Text(badge.text)
-                .font(AppType.subtitle)
+                .font(AppType.rowTitle)
                 .foregroundStyle(ink)
         }
         .tint(AppTheme.faded)

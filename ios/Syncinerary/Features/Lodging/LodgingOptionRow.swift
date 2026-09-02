@@ -8,7 +8,7 @@ struct LodgingOptionRow: View {
         HStack(alignment: .top, spacing: AppTheme.spacingM) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.name)
-                    .font(AppType.subtitle)
+                    .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel(metaLine)
                 if let address = option.address {

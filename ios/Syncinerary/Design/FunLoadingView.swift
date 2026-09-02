@@ -23,7 +23,7 @@ struct FunLoadingView: View {
             VStack(alignment: .leading, spacing: AppTheme.spacingM) {
                 ForEach(previousLines, id: \.self) { line in
                     Text(line)
-                        .font(AppType.subtitle)
+                        .font(AppType.body)
                         .foregroundStyle(AppTheme.faded)
                         .strikethrough(color: AppTheme.rule)
                 }

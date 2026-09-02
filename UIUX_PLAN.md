@@ -350,12 +350,20 @@ thing here, which is the point.
 Type:
 
 - **Display: Instrument Serif**, bundled (SIL OFL, licence kept beside the
-  file). High-contrast, slightly odd, and rare in generated work. Place
-  names, screen titles, the loading line.
-- **Body: the system face.** It is a good face and, inside an iOS app, not a
-  tell.
+  file). High-contrast, slightly odd, and rare in generated work. It is a
+  *display* face with thin hairlines, so it is only ever set at 24pt and
+  above and always on full ink: screen titles, place names, the date at the
+  head of a day, the loading line.
+- **Reading sizes: the system face.** Every list row title is the system
+  headline weight. A display serif at 21pt in a list of forty rows is
+  unreadable, which is exactly what the first attempt at this direction did.
 - **Figures: the system monospaced face**, uppercase with tracking, for
   times, dates, counts, and stamp text.
+
+Contrast is measured, not eyeballed. Against the light paper the first pass
+put faded ink at 4.20:1 and vermilion at 3.94:1, both under the 4.5:1 needed
+for normal text, and both are used at footnote size. They were darkened to
+6.10:1 and 4.94:1. Every ink now passes on both grounds.
 
 ### Second-pass critique
 

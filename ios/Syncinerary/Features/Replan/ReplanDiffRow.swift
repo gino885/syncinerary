@@ -14,7 +14,7 @@ struct ReplanDiffRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(AppType.subtitle)
+                    .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel(detail)
             }

@@ -9,7 +9,7 @@ struct WishlistSection: View {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.name)
-                            .font(AppType.subtitle)
+                            .font(AppType.rowTitle)
                             .foregroundStyle(AppTheme.ink)
                         Text(item.reasonText)
                             .font(.subheadline)

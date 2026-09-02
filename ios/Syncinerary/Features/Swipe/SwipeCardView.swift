@@ -35,7 +35,7 @@ struct SwipeCardView: View {
                         .frame(minWidth: AppLayout.minimumTapHeight, minHeight: AppLayout.minimumTapHeight)
                 }
 
-                MetaLabel(metaLine)
+                MetaLabel(metaLine, color: AppTheme.ink)
 
                 SourceBadgesView(badges: candidate.sourceBadges)
 

@@ -11,7 +11,7 @@ struct ShortlistCandidateRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(candidate.nameCanonical)
-                    .font(AppType.subtitle)
+                    .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel(metaLine)
                 SourceBadgesView(badges: candidate.sourceBadges)

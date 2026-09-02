@@ -1,7 +1,7 @@
 {
   "colors" : [
     {
-      "color" : { "color-space" : "srgb", "components" : { "alpha" : "1.000", "red" : "0.431", "green" : "0.443", "blue" : "0.502" } },
+      "color" : { "color-space" : "srgb", "components" : { "alpha" : "1.000", "red" : "0.333", "green" : "0.345", "blue" : "0.416" } },
       "idiom" : "universal"
     },
     {
