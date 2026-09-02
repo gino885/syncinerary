@@ -129,6 +129,16 @@ class ProfileSuggestionInput(BaseModel):
     travelers: list[TravelerProfileInput] = Field(default_factory=list)
 
 
+class PublicMetadataUnavailable(RuntimeError):
+    """We could not look the post up, as opposed to looking and finding nothing.
+
+    The difference decides whether the attachment is terminal. A missing Brave
+    key is a deployment problem that a re-run fixes, so the attachment stays
+    pending. A lookup that ran and returned nothing will return nothing next
+    time too, so that one is failed with a reason.
+    """
+
+
 class TextPlaceExtractionUnavailable(RuntimeError):
     """A caption could not be converted into typed place evidence."""
 
@@ -391,7 +401,14 @@ async def _resolve_place_name(
 ) -> SourceAttachment:
     found = await _find_place_for_trip(place_name, trip)
     if found is None:
-        return attachment
+        # Section 8.3: a name that does not resolve inside the trip's cities
+        # never enters the pool. Say so rather than leaving it pending.
+        return await _fail(
+            attachment,
+            session,
+            reason=FAILURE_PLACE_NOT_IN_TRIP,
+            metadata={**attachment.metadata, "unresolved_place_name": place_name},
+        )
 
     match, city_name = found
     place_types = [*match.types]
@@ -471,7 +488,9 @@ async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
         }
 
     if not settings.brave_search_api_key:
-        return {}
+        raise PublicMetadataUnavailable(
+            "BRAVE_SEARCH_API_KEY is not configured, so link metadata cannot be read"
+        )
 
     indexed = await run_tool(
         make_social_link_metadata_tool(),
@@ -497,20 +516,55 @@ async def _read_tiktok_cover_text(attachment: SourceAttachment) -> str | None:
     return await read_cover_text_for_url(attachment.canonical_url)
 
 
+# Why a link could not become a card. The traveler sees these, so each one
+# has to imply what they can do next, and NEEDS_PLACE_NAME is the common case:
+# Instagram and RedNote permalinks are almost never in a search index, and
+# section 15 rules out reading the post itself, so the only way forward is for
+# the person who pasted it to say what place it is.
+FAILURE_NEEDS_PLACE_NAME = "needs_place_name"
+FAILURE_NO_PLACE_IN_TEXT = "no_place_named_in_post"
+FAILURE_PLACE_NOT_IN_TRIP = "place_not_found_in_trip_cities"
+
+
+async def _fail(
+    attachment: SourceAttachment,
+    session: AsyncSession,
+    *,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> SourceAttachment:
+    updated = await SourceAttachmentRepository(session).mark_failed(
+        attachment.id,
+        metadata=metadata if metadata is not None else dict(attachment.metadata),
+        reason=reason,
+    )
+    return updated or attachment
+
+
 async def resolve_link_attachment(
     attachment: SourceAttachment,
     trip: Trip,
     session: AsyncSession,
 ) -> SourceAttachment:
-    """Use confirmed names first, then permitted platform metadata."""
+    """Use confirmed names first, then permitted platform metadata.
+
+    Every path out of here is terminal. An attachment that cannot be resolved
+    is marked failed with a reason rather than left pending, because pending
+    reads as "still working" to both the UI and the next gather.
+    """
     if attachment.metadata.get("submitted_place_name"):
         return await resolve_named_attachment(attachment, trip, session)
     if attachment.canonical_url is None:
-        return attachment
+        return await _fail(attachment, session, reason=FAILURE_NEEDS_PLACE_NAME)
 
-    public = await _read_public_metadata(attachment)
-    if not public.get("caption"):
+    try:
+        public = await _read_public_metadata(attachment)
+    except PublicMetadataUnavailable:
+        # Retryable: leave it pending so configuring the key and re-running
+        # picks it up, rather than burning the attachment on a config gap.
         return attachment
+    if not public.get("caption"):
+        return await _fail(attachment, session, reason=FAILURE_NEEDS_PLACE_NAME)
 
     metadata = {**attachment.metadata, **public}
     attachment = attachment.model_copy(update={"metadata": metadata})
@@ -538,11 +592,12 @@ async def resolve_link_attachment(
                 metadata["short_description"] = extraction.short_description
                 attachment = attachment.model_copy(update={"metadata": metadata})
     if not extraction.place_mentions:
-        updated = await SourceAttachmentRepository(session).record_metadata(
-            attachment.id,
+        return await _fail(
+            attachment,
+            session,
+            reason=FAILURE_NO_PLACE_IN_TEXT,
             metadata=metadata,
         )
-        return updated or attachment
     return await _resolve_place_name(
         extraction.place_mentions[0].name,
         attachment=attachment,
@@ -552,8 +607,12 @@ async def resolve_link_attachment(
 
 
 __all__ = [
+    "FAILURE_NEEDS_PLACE_NAME",
+    "FAILURE_NO_PLACE_IN_TEXT",
+    "FAILURE_PLACE_NOT_IN_TRIP",
     "ProfileSuggestionBatch",
     "ProfileSuggestionInput",
+    "PublicMetadataUnavailable",
     "TextPlaceExtraction",
     "TextPlaceExtractionUnavailable",
     "discover_profile_candidates",

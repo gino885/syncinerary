@@ -102,7 +102,10 @@ async def test_post_reel_link_strips_tracking_and_identifies_contributor(client)
     assert response.status_code == 201
     assert response.json()["platform"] == "instagram"
     assert response.json()["input_type"] == "link"
-    assert response.json()["status"] == "pending"
+    # Instagram permalinks are essentially never in a search index and section
+    # 15 rules out reading the post, so this link is terminal on arrival and
+    # says what the traveler can do about it.
+    assert response.json()["status"] == "failed"
     assert response.json()["canonical_url"] == (
         "https://www.instagram.com/reel/DcbEs5IpTCt/"
     )
@@ -162,7 +165,7 @@ async def test_post_rednote_short_link_is_preserved_for_enrichment(client):
     assert response.status_code == 201
     assert response.json()["platform"] == "rednote"
     assert response.json()["canonical_url"] == "https://xhslink.com/o/8YJmF0qK4t"
-    assert response.json()["status"] == "pending"
+    assert response.json()["status"] == "failed"
 
 
 async def test_pending_link_can_be_resubmitted_with_a_place_name(
@@ -707,3 +710,84 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
 
     assert response.status_code == 415
     assert list(tmp_path.rglob("*")) == []
+
+
+async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client):
+    """The bug this replaced: five real Instagram links sat at 'pending'
+    forever with no error and no prompt, so the traveler waited for a card
+    that was never coming."""
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Hokkaido"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.instagram.com/reel/DcbEs5IpTCt/",
+        },
+    )
+
+    assert response.json()["status"] == "failed"
+    assert response.json()["failure_reason"] == "needs_place_name"
+    assert response.json()["candidate_id"] is None
+
+
+async def test_a_missing_search_key_leaves_the_link_retryable(client, monkeypatch):
+    """A deployment gap must not burn the attachment: configuring the key and
+    re-running should still pick it up, so this one stays pending."""
+    monkeypatch.setattr(personal_module.settings, "brave_search_api_key", "")
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Hokkaido"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.instagram.com/reel/DcbEs5IpTCt/",
+        },
+    )
+
+    assert response.json()["status"] == "pending"
+    assert response.json()["failure_reason"] is None
+
+
+async def test_naming_the_place_rescues_a_failed_link(client):
+    """needs_place_name has to be actionable, or it is just a nicer dead end."""
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Hokkaido"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+    trip_id = created.json()["trip"]["id"]
+
+    failed = await client.post(
+        f"/trips/{trip_id}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.instagram.com/reel/DcbEs5IpTCt/",
+            "place_name": "Otaru Canal",
+        },
+    )
+
+    assert failed.json()["submitted_place_name"] == "Otaru Canal"

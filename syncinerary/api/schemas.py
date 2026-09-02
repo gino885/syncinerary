@@ -173,6 +173,9 @@ class SourceAttachmentOut(BaseModel):
     has_screenshot: bool
     submitted_place_name: str | None
     candidate_id: UUID | None
+    # Why a failed attachment failed. The client uses this to ask for a place
+    # name instead of showing a dead card with no way forward.
+    failure_reason: str | None
     contributor: AttachmentContributorOut
 
     @classmethod
@@ -191,6 +194,7 @@ class SourceAttachmentOut(BaseModel):
             has_screenshot=attachment.screenshot_storage_key is not None,
             submitted_place_name=attachment.metadata.get("submitted_place_name"),
             candidate_id=attachment.metadata.get("candidate_id"),
+            failure_reason=attachment.metadata.get("failure_reason"),
             contributor=AttachmentContributorOut(id=traveler.id, name=traveler.name),
         )
 
