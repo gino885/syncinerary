@@ -33,8 +33,18 @@ tracked, and the app targets iOS 17 or later.
 
 The prototype plans up to four cities in one country. A gather uses one
 automatic Brave search per city for Instagram, TikTok, and RedNote. The result
-for the same city, platform, and interests is cached for 24 hours. Automated
-tests use local stubs and do not spend provider requests.
+for the same city, platform, and interests is cached for 24 hours. TikTok
+posts are then read through the official embed API (caption, creator, cover
+frame) in one batched call per city, and the text on the cover frames is
+transcribed in one vision call; both are capped in `config/gather.py` and
+cached. Instagram and RedNote stay at the search snippet. Automated tests use
+local stubs and do not spend provider requests.
+
+Source badges on swipe cards and itinerary stops link out to the post that
+named the place (or to the place's Google Maps page), the platform's own app
+when installed and Safari otherwise. The post is never rendered in the app. A
+card also lists every post behind it under "From the posts", with what each
+one said.
 
 For the full product, city combinations should be suggested from trip length
 and real transit time: one city for 1 to 3 days, up to two nearby cities for 4
