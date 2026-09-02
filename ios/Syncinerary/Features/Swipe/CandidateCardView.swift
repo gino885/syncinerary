@@ -28,6 +28,16 @@ struct CandidateCardView: View {
 
                 SourceBadgesView(badges: candidate.sourceBadges)
 
+                if let description = candidate.description {
+                    Text(description)
+                        .font(.subheadline)
+                    if let source = candidate.descriptionSource {
+                        Label("From \(source)", systemImage: "sparkles")
+                            .font(.footnote)
+                            .foregroundStyle(.blue)
+                    }
+                }
+
                 if let delegateBadge = candidate.delegateBadge {
                     DelegateBadgeView(badge: delegateBadge)
                 }
@@ -46,6 +56,7 @@ struct CandidateCardView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                SourcePostsView(posts: candidate.sourcePosts)
 
                 if let notice = candidate.dietaryNotice {
                     Label(notice, systemImage: "exclamationmark.triangle")
@@ -78,11 +89,24 @@ struct CandidateCardView: View {
             durationEstimateMin: 60,
             dietaryTags: [],
             dietaryNotice: nil,
+            description: "Lanterns along the whole park at dusk.",
+            descriptionSource: "TikTok",
             sourceBadges: [
                 SourceBadge(
                     kind: "attached_by_you",
                     label: "Attached by you",
-                    contributorName: "Gino"
+                    contributorName: "Gino",
+                    url: "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                    platform: "TikTok"
+                )
+            ],
+            sourcePosts: [
+                SourcePost(
+                    platform: "tiktok",
+                    label: "TikTok",
+                    url: "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                    authorName: "Travel Notes",
+                    highlight: "Lanterns along the whole park at dusk."
                 )
             ],
             delegateBadge: nil

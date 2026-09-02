@@ -40,7 +40,15 @@ struct ItineraryStopRow: View {
                 )
                 .foregroundStyle(.secondary)
             }
+
+            SourcePostsView(posts: stop.sourcePosts)
         }
-        .accessibilityElement(children: .combine)
+        // A row with links keeps them reachable one by one; a row without
+        // any reads as one element, as before.
+        .accessibilityElement(children: hasLinks ? .contain : .combine)
+    }
+
+    private var hasLinks: Bool {
+        !stop.sourcePosts.isEmpty || stop.sourceBadges.contains { $0.linkURL != nil }
     }
 }
