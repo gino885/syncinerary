@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import platform
 import subprocess
 import sys
 import time
@@ -31,6 +32,19 @@ from syncinerary.eval.scorers import QUALITY_TOLERANCE, score_narrative
 from syncinerary.store.repositories import EvalResultRepository, EvalScenarioRepository
 
 BANNER = "Syncinerary eval"
+
+
+def platform_tag() -> str:
+    """Which machine shape a run happened on.
+
+    Two fixtures have models the solver cannot prove optimal inside its
+    budget, and the plan it settles for differs between instruction sets:
+    the same commit scores 0.80 meal coverage on arm64 and 0.70 on x86-64.
+    Every fixture that does reach optimality is identical everywhere. So a
+    diff is only meaningful between runs on the same architecture, and the
+    runner has to know which one produced the numbers it is comparing.
+    """
+    return f"{platform.system().lower()}-{platform.machine().lower()}"
 
 
 def commit_sha() -> str:
@@ -185,14 +199,15 @@ async def store_results(outcomes: list[CaseOutcome], sha: str) -> None:
                 EvalResult(
                     scenario_id=scenario.id,
                     commit_sha=sha,
-                    scores=outcome.scores.as_dict(),
+                    scores={**outcome.scores.as_dict(), "platform": platform_tag()},
                     passed=outcome.scores.passed,
                 )
             )
 
 
-async def previous_quality(sha: str) -> dict[str, dict[str, float]] | None:
-    """The previous commit's quality numbers, by fixture name."""
+async def previous_quality(sha: str) -> tuple[dict[str, dict[str, float]], str] | None:
+    """The previous commit's quality numbers, by fixture name, and where they
+    were measured."""
     from syncinerary.store.db import session_scope
 
     async with session_scope() as session:
@@ -204,11 +219,13 @@ async def previous_quality(sha: str) -> dict[str, dict[str, float]] | None:
             scenario.id: scenario.name for scenario in await EvalScenarioRepository(session).list_all()
         }
         by_fixture: dict[str, dict[str, float]] = {}
+        where = ""
         for result in await results.list_for_commit(previous_sha):
             name = scenarios.get(result.scenario_id)
             if name is not None:
                 by_fixture[name] = dict(result.scores.get("quality", {}))
-        return by_fixture or None
+                where = result.scores.get("platform", "") or where
+        return (by_fixture, where) if by_fixture else None
 
 
 # ------------------------------------------------------------------ output
@@ -217,12 +234,15 @@ async def previous_quality(sha: str) -> dict[str, dict[str, float]] | None:
 def print_report(
     outcomes: list[CaseOutcome],
     summary: dict[str, Any],
-    previous: dict[str, dict[str, float]] | None,
+    previous: tuple[dict[str, dict[str, float]], str] | None,
     tolerance: float,
 ) -> list[str]:
     """Print the report. Returns the regressions found, as readable lines."""
-    print(f"{BANNER} at {summary['commit'][:12]}\n")
+    here = platform_tag()
+    print(f"{BANNER} at {summary['commit'][:12]} on {here}\n")
     regressions: list[str] = []
+    prior_scores, prior_platform = previous or ({}, "")
+    comparable = bool(previous) and prior_platform in ("", here)
 
     for outcome in outcomes:
         verdict = "PASS" if outcome.scores.passed else "FAIL"
@@ -230,7 +250,7 @@ def print_report(
         for failure in outcome.scores.failures:
             print(f"        {failure.line}")
 
-        prior = (previous or {}).get(outcome.fixture, {})
+        prior = prior_scores.get(outcome.fixture, {}) if comparable else {}
         for score in outcome.scores.quality:
             was = prior.get(score.name)
             arrow = ""
@@ -252,6 +272,12 @@ def print_report(
     )
     if previous is None:
         print("No previous commit stored, so nothing to diff against.")
+    elif not comparable:
+        print(
+            f"The previous run was on {prior_platform}, this one on {here}. "
+            "Solver budgets settle differently between architectures, so the "
+            "numbers are not compared."
+        )
     elif regressions:
         print(f"\n{len(regressions)} quality regression(s):")
         for line in regressions:

@@ -169,7 +169,7 @@ Built on `m7-eval-harness`, four commits on top of `main`.
 | `python -m eval.runner` runs all fixtures and prints scores plus a diff vs the last commit | met. The diff was demonstrated across two commits: the first run said "nothing to diff against", the second compared against it |
 | A deliberately bad change shows a measurable regression | met. `--break fatigue-cap` fails two fixtures on `fatigue_within_budget` and reports transit efficiency dropping 0.87 to 0.84; exit code 1 against 0 for a clean run |
 | CI fails the PR if a feasibility scorer regresses | met. A second CI job runs the suite and the runner exits non-zero on any feasibility or harness failure |
-| Five-minute end-to-end runtime on a laptop | met with room. 10.6 seconds for all ten |
+| Five-minute end-to-end runtime on a laptop | met with room. 10.6 seconds for all ten here, 32 seconds in an x86-64 container |
 
 Ten fixtures, all passing. 484 tests pass, 29 of them new and about the
 harness itself rather than the planner.
@@ -196,6 +196,16 @@ harness itself rather than the planner.
   `max_deterministic_time`, measured in the solver's own work units, with the
   wall clock kept only as a backstop against a pathological model. Fixed in
   `M7-6`.
+- **Scores that differ between CPU architectures.** CI kept failing while the
+  same suite passed locally and in an arm64 container. Running it in an
+  x86-64 container reproduced it: the baseline scored 0.80 meal coverage on
+  arm64 and 0.70 on x86-64, from the same commit. A deterministic budget is
+  reproducible for one instruction set, not across them. Only the two
+  fixtures whose models exhaust the budget differ; the eight that prove
+  optimality are identical everywhere. Floors are now set to hold on any CPU,
+  each stored result records the platform it came from, and the runner
+  refuses to call a cross-architecture difference a regression. Fixed in
+  `M7-9`.
 - **A fixture that proved nothing.** The `must-go` sabotage originally passed
   every fixture, because the baseline had no capacity pressure and the pin
   never changed the outcome. A remote, downvoted place was added so the pin
@@ -211,6 +221,10 @@ harness itself rather than the planner.
   optimality, so their plans are the best found within it. The plans are now
   identical on any machine, so the diff is sound, but it is still worth
   knowing why those two models are hard.
+- A diff is only meaningful between runs on the same architecture. CI always
+  runs x86-64 so its history is self-consistent, and a developer comparing
+  against their own local history is too, but mixing the two is not. The
+  runner says so rather than reporting nonsense.
 - More search made one fixture worse: `weather_storm_day3` scored 1.0 meal
   coverage at a budget of 4 units and 0.75 at 8. The objective is optimising
   something that trades against meals, which is a real finding about the

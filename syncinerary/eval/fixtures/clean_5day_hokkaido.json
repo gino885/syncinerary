@@ -1,6 +1,6 @@
 {
   "name": "clean_5day_hokkaido",
-  "description": "Baseline: five days, five walkable clusters, no conflicts. Carries one remote place the group voted down, so a must-go pin has something to prove: without the pin the solver drops it on merit.",
+  "description": "Baseline: five days, five walkable clusters, no conflicts. Carries one remote place the group voted down, so a must-go pin has something to prove: without the pin the solver drops it on merit. Its floors are set to hold on any CPU: this is one of two fixtures whose model exhausts the solver's budget rather than proving optimality, and such a plan differs between architectures.",
   "destination": "Sapporo",
   "cities": [
     "Sapporo"
@@ -789,7 +789,7 @@
     ],
     "min_scores": {
       "must_go_coverage": 1.0,
-      "meal_coverage": 0.8,
+      "meal_coverage": 0.6,
       "worst_traveler_satisfaction": 0.5,
       "wishlist_explained": 1.0
     }
