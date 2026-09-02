@@ -314,26 +314,28 @@ def test_every_solve_is_bounded_both_ways():
             )
 
 
-async def test_the_same_fixture_scores_the_same_on_a_slower_machine():
+async def test_the_same_fixture_scores_the_same_twice():
     """A wall-clock-limited search scored the same fixture 0.8, then 0.6,
-    then 0.8 again as the budget changed. The deterministic budget is what
-    makes a diff between two commits mean anything."""
-    from syncinerary.agents.solver import stage1_days, stage2_route
-
+    then 0.8 again as the budget changed, and CI disagreed with a laptop on
+    the same commit. Scores that move on their own make every diff noise."""
     fixture = load_by_name("clean_5day_hokkaido")
-    original = stage1_days.SOLVER_TIME_LIMIT_SECONDS
-    try:
-        scores = []
-        for wall_clock in (original, original / 10):
-            stage1_days.SOLVER_TIME_LIMIT_SECONDS = wall_clock
-            stage2_route.SOLVER_TIME_LIMIT_SECONDS = wall_clock
-            outcome = await run_plan_case(fixture)
-            scores.append(outcome.scores.quality_map())
-    finally:
-        stage1_days.SOLVER_TIME_LIMIT_SECONDS = original
-        stage2_route.SOLVER_TIME_LIMIT_SECONDS = original
+    first = await run_plan_case(fixture)
+    second = await run_plan_case(fixture)
+    assert first.scores.quality_map() == second.scores.quality_map()
 
-    assert scores[0] == scores[1]
+
+async def test_the_deterministic_budget_is_what_binds_not_the_wall_clock():
+    """The wall clock is a backstop, and a backstop that fires routinely is
+    not a backstop: it is a second, machine-dependent limit. The hardest
+    fixture has to finish well inside it, with room for a slower runner.
+    """
+    from syncinerary.config.solver import SOLVER_TIME_LIMIT_SECONDS
+
+    outcome = await run_plan_case(load_by_name("clean_5day_hokkaido"))
+    assert outcome.solver_result is not None
+    # A quarter of the backstop, so a machine four times slower than the one
+    # running this test still never reaches it.
+    assert outcome.seconds < SOLVER_TIME_LIMIT_SECONDS / 4
 
 
 def test_the_eval_package_imports_no_llm_sdk():
