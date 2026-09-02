@@ -3,6 +3,9 @@ import Foundation
 @main
 enum APIContractTests {
     static func main() throws {
+        try chooseTripPreferences()
+        try moveBackwardThroughTheSwipeDeck()
+        try decodeCitySuggestions()
         try encodeSeveralTypedCities()
         try encodeTripCreateRequest()
         try decodeTripCreatedResponse()
@@ -10,6 +13,7 @@ enum APIContractTests {
         try encodeAttachmentLinkRequest()
         try decodeSourceAttachmentResponse()
         try decodeCandidateCard()
+        try summarizeSourcePostLinks()
         try decodeCandidatePhoto()
         try decodeLodgingOptions()
         try encodeLodgingSelection()
@@ -28,11 +32,76 @@ enum APIContractTests {
         print("iOS API contract tests passed")
     }
 
+    private static func chooseTripPreferences() throws {
+        var selection = PreferenceSelection()
+        selection.toggle(PreferenceCatalog.interests[1])
+        selection.toggle(PreferenceCatalog.interests[0])
+
+        try require(
+            selection.values(in: PreferenceCatalog.interests) == ["local food", "coffee"],
+            "Selected preferences must follow the catalog order sent to the API"
+        )
+        try require(
+            selection.summary(in: PreferenceCatalog.interests, empty: "Choose")
+                == "Local food, Coffee",
+            "Selected preferences must have a compact human-readable summary"
+        )
+
+        var dietary = PreferenceSelection()
+        dietary.toggle(PreferenceCatalog.dietaryExcludes[0])
+        try require(
+            PreferenceSelection.tripSummary(
+                interests: selection,
+                dietary: dietary
+            ) == "Local food, Coffee · 1 to avoid",
+            "The planning form must summarize food exclusions in natural language"
+        )
+
+        selection.toggle(PreferenceCatalog.interests[1])
+        try require(
+            selection.values(in: PreferenceCatalog.interests) == ["local food"],
+            "Tapping a selected preference must remove it"
+        )
+    }
+
+    private static func moveBackwardThroughTheSwipeDeck() throws {
+        var position = SwipeDeckPosition()
+        position.advance(total: 3)
+        position.advance(total: 3)
+        try require(position.index == 2, "Two decisions must advance two cards")
+
+        position.moveBack()
+        try require(position.index == 1, "Previous must return to the last card")
+        position.moveBack()
+        position.moveBack()
+        try require(position.index == 0, "Previous must never move before the first card")
+
+        position.advance(total: 3)
+        position.advance(total: 3)
+        position.advance(total: 3)
+        try require(position.index == 3, "The deck must be able to reach completion")
+        position.moveBack()
+        try require(position.index == 2, "The final decision must also be reviewable")
+    }
+
+    private static func decodeCitySuggestions() throws {
+        let data = Data(
+            #"[{"place_id":"ChIJ-tokyo-city","name":"Tokyo","subtitle":"Japan"}]"#.utf8
+        )
+        let suggestions = try JSONDecoder().decode([CitySuggestion].self, from: data)
+        try require(suggestions[0].name == "Tokyo", "City suggestion names must decode")
+        try require(
+            suggestions[0].placeID == "ChIJ-tokyo-city",
+            "City suggestion place IDs must decode"
+        )
+    }
+
     /// Cities are typed, so the request carries a list and must not
     /// reintroduce a single chosen destination.
     private static func encodeSeveralTypedCities() throws {
         let request = TripCreateRequest(
             cities: ["Sapporo", "Otaru"],
+            cityPlaceIDs: ["ChIJ-sapporo", "ChIJ-otaru"],
             country: "Japan",
             startDate: "2026-09-25",
             endDate: "2026-09-29",
@@ -51,6 +120,10 @@ enum APIContractTests {
             "A trip must be able to search more than one typed city"
         )
         try require(
+            payload["city_place_ids"] as? [String] == ["ChIJ-sapporo", "ChIJ-otaru"],
+            "A trip must send the exact city choices"
+        )
+        try require(
             payload["country"] as? String == "Japan",
             "A trip must name the one country its cities are in"
         )
@@ -63,6 +136,7 @@ enum APIContractTests {
     private static func encodeTripCreateRequest() throws {
         let request = TripCreateRequest(
             cities: ["Sapporo"],
+            cityPlaceIDs: ["ChIJ-sapporo"],
             country: "Japan",
             startDate: "2026-09-25",
             endDate: "2026-09-29",
@@ -237,6 +311,43 @@ enum APIContractTests {
         )
         try require(response.dietaryNotice == nil, "A non-food card has no dietary notice")
         try require(response.delegateBadge?.type == "confirm", "Personal delegate badges must decode")
+    }
+
+    private static func summarizeSourcePostLinks() throws {
+        let posts = [
+            SourcePost(
+                platform: "tiktok",
+                label: "TikTok",
+                url: "https://www.tiktok.com/@one/video/7481234567890123456",
+                authorName: nil,
+                highlight: nil
+            ),
+            SourcePost(
+                platform: "tiktok",
+                label: "TikTok",
+                url: "https://www.tiktok.com/@two/video/7481234567890123457",
+                authorName: nil,
+                highlight: nil
+            ),
+            SourcePost(
+                platform: "instagram",
+                label: "Instagram",
+                url: "https://www.instagram.com/reel/Da2UDmNtLvp/",
+                authorName: nil,
+                highlight: nil
+            ),
+        ]
+
+        let links = SourcePost.platformLinks(from: posts)
+        try require(
+            links.map(\.label) == ["TikTok", "Instagram"],
+            "A card must name each social platform that supplied evidence"
+        )
+        try require(
+            links[0].url.absoluteString
+                == "https://www.tiktok.com/@one/video/7481234567890123456",
+            "Each platform name must link to its highest-ranked original post"
+        )
     }
 
     private static func decodeLodgingOptions() throws {
