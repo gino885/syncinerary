@@ -71,13 +71,32 @@ def _buzz_candidate(**enrichment) -> CandidatePlace:
     )
 
 
-def test_trending_badge_opens_the_best_ranked_post_and_names_its_platform():
-    trending, _discovered = source_badges(_buzz_candidate())
+def test_public_social_badge_opens_the_best_ranked_post_and_names_its_platform():
+    social, _discovered = source_badges(_buzz_candidate())
 
-    assert trending.kind.value == "trending"
-    assert trending.label == "Trending on TikTok, Instagram"
-    assert trending.url == TIKTOK
-    assert trending.platform == "TikTok"
+    assert social.kind.value == "social"
+    assert social.label == "Found on TikTok, Instagram"
+    assert social.url == TIKTOK
+    assert social.platform == "TikTok"
+
+
+def test_explicit_engagement_supports_a_popular_badge():
+    candidate = _buzz_candidate(
+        social_posts=[
+            {
+                "platform": "tiktok",
+                "url": TIKTOK,
+                "rank": 1,
+                "like_count": 12_400,
+                "comment_count": 380,
+            }
+        ]
+    )
+
+    popular, _discovered = source_badges(candidate)
+
+    assert popular.kind.value == "trending"
+    assert popular.label == "Popular on TikTok, Instagram"
 
 
 def test_discovered_badge_opens_the_google_maps_place_page():

@@ -7,8 +7,9 @@ struct SwipeView: View {
     @State private var noteCandidate: CandidateCard?
     @State private var detailCandidate: CandidateCard?
     @State private var throwRequest: SwipeDecision?
-    @State private var burst: [EmojiParticle] = []
-    @State private var burstGeneration = 0
+    @State private var reaction: SwipeDecision?
+    @State private var reactionGeneration = 0
+    @State private var isDeckAnimating = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(session: TripSession, onVotingComplete: @escaping (TripSession) -> Void) {
@@ -27,7 +28,9 @@ struct SwipeView: View {
                     SwipeProgressHeader(
                         current: viewModel.currentIndex,
                         total: viewModel.candidates.count,
-                        progressText: viewModel.progressText
+                        progressText: viewModel.progressText,
+                        canGoBack: viewModel.canGoBack && !isDeckAnimating,
+                        onPrevious: showPrevious
                     )
 
                     ZStack {
@@ -35,10 +38,16 @@ struct SwipeView: View {
                             cards: viewModel.upcoming,
                             photos: viewModel.photos,
                             throwRequest: $throwRequest,
+                            isThrowing: $isDeckAnimating,
                             onDecision: decide,
                             onDetails: showDetails
                         )
-                        EmojiBurstView(particles: burst)
+                        if let reaction {
+                            DecisionCharmView(decision: reaction)
+                                .id(reactionGeneration)
+                                .padding(AppTheme.spacingM)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        }
                     }
                     .frame(maxHeight: .infinity)
 
@@ -47,7 +56,7 @@ struct SwipeView: View {
                     }
 
                     SwipeActionBar(
-                        isDisabled: false,
+                        isDisabled: isDeckAnimating,
                         onDislike: dislike,
                         onLikeWithNote: showNote,
                         onLike: like,
@@ -58,7 +67,10 @@ struct SwipeView: View {
                 .padding(.horizontal, AppTheme.spacingL)
                 .animation(AppTheme.fade, value: viewModel.showsHint)
             } else if viewModel.isComplete {
-                VotingCompleteView(onContinue: continueToShortlist)
+                VotingCompleteView(
+                    onContinue: continueToShortlist,
+                    onReviewLast: showPrevious
+                )
             } else {
                 ContentUnavailableView(
                     "No places yet",
@@ -117,23 +129,30 @@ struct SwipeView: View {
     // MARK: The deck reports a decision once the card has left
 
     private func decide(_ decision: SwipeDecision) {
-        launchBurst(for: decision)
+        launchReaction(for: decision)
         AccessibilityNotification.Announcement(decision.announcement).post()
         Task {
             await viewModel.decide(decision)
         }
     }
 
-    private func launchBurst(for decision: SwipeDecision) {
-        burstGeneration += 1
-        let generation = burstGeneration
-        burst = EmojiParticle.burst(decision.burstEmojis)
+    private func launchReaction(for decision: SwipeDecision) {
+        reactionGeneration += 1
+        let generation = reactionGeneration
+        reaction = decision
         Task {
-            try? await Task.sleep(for: .seconds(1.6))
-            if generation == burstGeneration {
-                burst = []
+            try? await Task.sleep(for: .milliseconds(720))
+            if generation == reactionGeneration {
+                reaction = nil
             }
         }
+    }
+
+    private func showPrevious() {
+        withAnimation(AppTheme.settle) {
+            viewModel.showPrevious()
+        }
+        AccessibilityNotification.Announcement("Showing previous card").post()
     }
 
     private func continueToShortlist() {

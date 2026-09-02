@@ -39,6 +39,8 @@ struct SwipeCardView: View {
 
                 SourceBadgesView(badges: candidate.sourceBadges)
 
+                SourcePlatformLinksView(posts: candidate.sourcePosts)
+
                 if let description = candidate.description {
                     Text(description)
                         .font(.subheadline)
