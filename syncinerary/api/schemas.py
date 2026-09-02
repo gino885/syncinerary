@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Annotated, Any
+from urllib.parse import quote
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
@@ -42,6 +43,7 @@ from syncinerary.domain.models import (
     Vote,
     WishlistNotPlaced,
 )
+from syncinerary.tools.fetch.social import SocialReferenceKind, normalize_social_url
 
 ProfileValue = Annotated[
     str,
@@ -189,6 +191,21 @@ class SourceBadgeOut(BaseModel):
     kind: SourceBadgeKind
     label: str
     contributor_name: str | None = None
+    # CLAUDE.md section 8.5, source links. A badge whose provenance has a
+    # public URL carries it here and the client renders a link; a badge
+    # without one stays plain text. Never a search page, never synthesized.
+    url: str | None = None
+    platform: str | None = None
+
+
+class SourcePostOut(BaseModel):
+    """One post behind a card, so the badge count can be checked against it."""
+
+    platform: str
+    label: str
+    url: str
+    author_name: str | None = None
+    highlight: str | None = None
 
 
 PLATFORM_LABELS = {
@@ -196,6 +213,107 @@ PLATFORM_LABELS = {
     "tiktok": "TikTok",
     "rednote": "RedNote",
 }
+GOOGLE_MAPS_LABEL = "Google Maps"
+
+
+def _linkable_social_url(value: object) -> str | None:
+    """Only a URL the social parser accepts is linkable (section 8.5).
+
+    Re-normalizing at output time means a row that somehow holds a tracking
+    link or an unsupported host renders with no link rather than a bad one.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        reference = normalize_social_url(value)
+    except ValueError:
+        return None
+    # A discovery page is a search, and section 8.5 never links to a search
+    # page in place of a post.
+    if reference.kind is SocialReferenceKind.SEARCH:
+        return None
+    return reference.canonical_url
+
+
+def _post_out(
+    url_value: object,
+    platform_value: object,
+    *,
+    author_name: object = None,
+    highlight: object = None,
+) -> SourcePostOut | None:
+    url = _linkable_social_url(url_value)
+    if url is None:
+        return None
+    platform = platform_value if isinstance(platform_value, str) else None
+    if platform not in PLATFORM_LABELS:
+        platform = normalize_social_url(url).platform.value
+    return SourcePostOut(
+        platform=platform,
+        label=PLATFORM_LABELS[platform],
+        url=url,
+        author_name=author_name if isinstance(author_name, str) else None,
+        highlight=highlight if isinstance(highlight, str) else None,
+    )
+
+
+def _buzz_posts(candidate: CandidatePlace) -> list[SourcePostOut]:
+    """The posts behind a buzz card, in search-rank order, without repeats.
+
+    Rows written before per-post details existed only hold a URL list; they
+    still list their posts, just without an author or a quote.
+    """
+    posts: list[SourcePostOut] = []
+    seen: set[str] = set()
+    detailed = candidate.enrichment.get("social_posts")
+    if isinstance(detailed, list) and detailed:
+        entries = [
+            _post_out(
+                entry.get("url"),
+                entry.get("platform"),
+                author_name=entry.get("author_name"),
+                highlight=entry.get("highlight"),
+            )
+            for entry in detailed
+            if isinstance(entry, dict)
+        ]
+    else:
+        urls = candidate.enrichment.get("social_post_urls")
+        entries = [_post_out(url, None) for url in (urls if isinstance(urls, list) else [])]
+    for post in entries:
+        if post is not None and post.url not in seen:
+            seen.add(post.url)
+            posts.append(post)
+    return posts
+
+
+def _attached_post(candidate: CandidatePlace) -> SourcePostOut | None:
+    """The post a traveler shared, when the attachment was a link."""
+    return _post_out(
+        candidate.enrichment.get("source_url"),
+        candidate.enrichment.get("platform"),
+    )
+
+
+def source_posts(candidate: CandidatePlace) -> list[SourcePostOut]:
+    """Every post behind a card: buzz posts first, then the traveler's own."""
+    posts = _buzz_posts(candidate)
+    attached = _attached_post(candidate)
+    if attached is not None and all(post.url != attached.url for post in posts):
+        posts.append(attached)
+    return posts
+
+
+def google_maps_place_url(candidate: CandidatePlace) -> str | None:
+    """The place's Google Maps page, in the documented Maps URLs form."""
+    place_id = candidate.enrichment.get("google_place_id")
+    if not isinstance(place_id, str) or not place_id:
+        return None
+    return (
+        "https://www.google.com/maps/search/?api=1"
+        f"&query={quote(candidate.name_canonical, safe='')}"
+        f"&query_place_id={quote(place_id, safe='')}"
+    )
 
 
 def source_badges(
@@ -223,20 +341,27 @@ def source_badges(
             for platform in platforms
             if platform in PLATFORM_LABELS
         ] if isinstance(platforms, list) else []
+        # The badge opens the highest-ranked post; the card details list all.
+        top = next(iter(_buzz_posts(candidate)), None)
         badges.append(
             SourceBadgeOut(
                 kind=SourceBadgeKind.TRENDING,
                 label=(
                     f"Trending on {', '.join(named)}" if named else "Trending"
                 ),
+                url=top.url if top is not None else None,
+                platform=top.label if top is not None else None,
             )
         )
 
     if any(source.type == "discovery" for source in candidate.sources):
+        maps_url = google_maps_place_url(candidate)
         badges.append(
             SourceBadgeOut(
                 kind=SourceBadgeKind.DISCOVERED,
                 label="Found on Google Maps",
+                url=maps_url,
+                platform=GOOGLE_MAPS_LABEL if maps_url is not None else None,
             )
         )
 
@@ -245,6 +370,7 @@ def source_badges(
         for source in candidate.sources
         if source.type == "personal" and source.subtype == "user_paste" and source.by
     }
+    attached = _attached_post(candidate)
     for contributor_id in sorted(contributors, key=str):
         contributor_name = names.get(contributor_id)
         is_viewer = contributor_id == viewer_id
@@ -261,6 +387,8 @@ def source_badges(
                     else f"Attached by {contributor_name or 'group'}"
                 ),
                 contributor_name=contributor_name,
+                url=attached.url if attached is not None else None,
+                platform=attached.label if attached is not None else None,
             )
         )
     return badges
@@ -296,7 +424,12 @@ class CandidateCardOut(BaseModel):
     duration_estimate_min: int
     dietary_tags: list[str]
     dietary_notice: str | None
+    # What the source said about the place, and which source: a post's own
+    # words for a buzz or attached card, the place listing otherwise.
+    description: str | None
+    description_source: str | None
     source_badges: list[SourceBadgeOut]
+    source_posts: list[SourcePostOut]
     delegate_badge: DelegateBadgeOut | None
 
     @classmethod
@@ -314,6 +447,7 @@ class CandidateCardOut(BaseModel):
             viewer_id=viewer_id,
             contributor_names=contributor_names,
         )
+        description, description_source = _itinerary_description(candidate)
 
         return cls(
             id=candidate.id,
@@ -329,7 +463,10 @@ class CandidateCardOut(BaseModel):
             duration_estimate_min=candidate.duration_estimate_min,
             dietary_tags=candidate.dietary_tags,
             dietary_notice=dietary_notice(candidate, constraints or []),
+            description=description,
+            description_source=description_source,
             source_badges=badges,
+            source_posts=source_posts(candidate),
             delegate_badge=(
                 DelegateBadgeOut.of(delegate_badge)
                 if delegate_badge is not None
@@ -659,6 +796,7 @@ class ItineraryStopOut(BaseModel):
     transit_from_prev_mode: str | None
     meal_slot: str | None
     source_badges: list[SourceBadgeOut]
+    source_posts: list[SourcePostOut]
 
     @classmethod
     def of(
@@ -690,6 +828,7 @@ class ItineraryStopOut(BaseModel):
                 if candidate
                 else []
             ),
+            source_posts=source_posts(candidate) if candidate else [],
         )
 
 
@@ -716,6 +855,16 @@ def _itinerary_description(
     if candidate is None:
         return None, None
 
+    # A traveler's own post first, then what the posts behind a buzz card
+    # said, then the place listing. Each is labelled with where it came from.
+    pasted = candidate.enrichment.get("source_description")
+    if _is_pasted(candidate) and isinstance(pasted, str) and pasted.strip():
+        return _brief(pasted), _description_source(candidate)
+
+    highlight = candidate.enrichment.get("social_highlight")
+    if isinstance(highlight, str) and highlight.strip():
+        return _brief(highlight), _highlight_source(candidate)
+
     raw_description = candidate.enrichment.get("source_description")
     if isinstance(raw_description, str) and raw_description.strip():
         return _brief(raw_description), _description_source(candidate)
@@ -739,14 +888,33 @@ def _itinerary_description(
     return description, _description_source(candidate)
 
 
+DESCRIPTION_SOURCE_LABELS = {
+    "instagram": "Instagram Reel",
+    "tiktok": "TikTok",
+    "rednote": "RedNote",
+}
+
+
+def _is_pasted(candidate: CandidatePlace) -> bool:
+    return candidate.enrichment.get("platform") in DESCRIPTION_SOURCE_LABELS
+
+
+def _highlight_source(candidate: CandidatePlace) -> str:
+    """Which platform's post the card's highlight was quoted from."""
+    detailed = candidate.enrichment.get("social_posts")
+    if isinstance(detailed, list):
+        for entry in detailed:
+            if isinstance(entry, dict) and entry.get("highlight"):
+                return DESCRIPTION_SOURCE_LABELS.get(
+                    str(entry.get("platform")), "Social discovery"
+                )
+    return "Social discovery"
+
+
 def _description_source(candidate: CandidatePlace) -> str:
     platform = candidate.enrichment.get("platform")
-    if platform == "instagram":
-        return "Instagram Reel"
-    if platform == "tiktok":
-        return "TikTok"
-    if platform == "rednote":
-        return "RedNote"
+    if isinstance(platform, str) and platform in DESCRIPTION_SOURCE_LABELS:
+        return DESCRIPTION_SOURCE_LABELS[platform]
     if candidate.enrichment.get("google_place_id"):
         return "Google Places"
     if any(source.type == "backbone" for source in candidate.sources):
