@@ -3,7 +3,7 @@ name = "syncinerary"
 # PEP 440 local version segment. "0.1.0-M1" (what M0 shipped) is NOT a valid
 # version and made `pip install -e .` fail outright, so the milestone marker
 # moves into the local segment where PEP 440 allows it.
-version = "0.1.0+m2"
+version = "0.1.0+m7"
 description = "Group Travel Agent OS"
 requires-python = ">=3.12"
 
@@ -47,6 +47,15 @@ dev = [
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
   "ruff>=0.7",
+]
+# The eval suite (M7) is deterministic and needs nothing beyond `dev`: it
+# runs on every pull request and must not spend money or return a different
+# number twice. `deepeval` is here for the opt-in `--with-llm` path only. It
+# is deliberately not in `dev`, because it pulls in an OpenAI client and a
+# telemetry package, neither of which belongs in this project's default
+# environment (CLAUDE.md 2 and 15).
+eval-llm = [
+  "deepeval>=1.0",
 ]
 
 [build-system]

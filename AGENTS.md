@@ -197,3 +197,29 @@ Layout follows `CLAUDE.md` §6, with `solver/` and `delegate/` under
 
 See **`HANDOFF.md`** for where the work stopped, what is blocked, and the
 remaining M1 steps in order. Delete that file when M1 merges; this one stays.
+
+## 8. The eval harness
+
+`python -m syncinerary.eval.runner` runs the ten fixtures in
+`syncinerary/eval/fixtures/`, prints a verdict and quality scores per
+fixture, diffs against the previous commit's stored run, and exits non-zero
+on a failure or a regression. It needs Postgres, like the test suite.
+
+Three things that are easy to get wrong here:
+
+- **It makes no model calls by default**, and it must stay that way. It runs
+  on every pull request; a judge would add cost and noise to the signal it
+  exists to measure. `--with-llm` is the opt-in path.
+- **Disruption fixtures run inside a transaction that is rolled back.** The
+  trip they seed exists only so the rescue agent has something to replan.
+  Only `eval_result` rows are committed, through their own session.
+- **`previous_commit_sha` is a table-wide query**, so running the eval on a
+  developer database leaves rows that would otherwise break the eval
+  repository tests. Those tests clear the two tables inside their own
+  transaction; keep that if you add more.
+
+To prove the suite still bites, run it against a deliberate breakage:
+
+```bash
+.venv/bin/python -m syncinerary.eval.runner --break fatigue-cap --no-store
+```
