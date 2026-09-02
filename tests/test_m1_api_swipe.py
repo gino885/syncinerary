@@ -180,7 +180,10 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
         "duration_estimate_min",
         "dietary_tags",
         "dietary_notice",
+        "description",
+        "description_source",
         "source_badges",
+        "source_posts",
         "delegate_badge",
     }
     # Raw provenance and enrichment stay behind the display-safe badges.
@@ -277,6 +280,9 @@ async def test_deck_labels_personal_sources_for_the_current_traveler(client, ses
             "kind": "attached_by_you",
             "label": "Attached by you",
             "contributor_name": "Gino",
+            # No post URL on this row, so the badge stays plain text.
+            "url": None,
+            "platform": None,
         }
     ]
 
@@ -317,6 +323,8 @@ async def test_deck_names_the_friend_who_attached_a_source(client, session):
             "kind": "attached_by_group",
             "label": "Attached by Ana",
             "contributor_name": "Ana",
+            "url": None,
+            "platform": None,
         }
     ]
 

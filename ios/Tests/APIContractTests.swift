@@ -176,10 +176,27 @@ enum APIContractTests {
                 "duration_estimate_min": 60,
                 "dietary_tags": [],
                 "dietary_notice": null,
+                "description": "Lanterns along the whole park at dusk.",
+                "description_source": "TikTok",
                 "source_badges": [{
                     "kind": "attached_by_you",
                     "label": "Attached by you",
-                    "contributor_name": "Gino"
+                    "contributor_name": "Gino",
+                    "url": "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                    "platform": "TikTok"
+                }, {
+                    "kind": "discovered",
+                    "label": "Found on Google Maps",
+                    "contributor_name": null,
+                    "url": null,
+                    "platform": null
+                }],
+                "source_posts": [{
+                    "platform": "tiktok",
+                    "label": "TikTok",
+                    "url": "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                    "author_name": "Travel Notes",
+                    "highlight": "Lanterns along the whole park at dusk."
                 }],
                 "delegate_badge": {
                     "type": "confirm",
@@ -194,6 +211,30 @@ enum APIContractTests {
         try require(response.nameCanonical == "Odori Park", "Candidate names must decode")
         try require(response.durationEstimateMin == 60, "Candidate durations must decode")
         try require(response.sourceBadges[0].label == "Attached by you", "Source badges must decode")
+        try require(
+            response.sourceBadges[0].linkURL?.absoluteString
+                == "https://www.tiktok.com/@traveler/video/7481234567890123456",
+            "A badge with a public origin must decode its link"
+        )
+        try require(
+            response.sourceBadges[0].accessibilityLabel == "Attached by you, opens the post",
+            "A linked badge must say what a tap does"
+        )
+        try require(
+            response.sourceBadges[1].linkURL == nil
+                && response.sourceBadges[1].accessibilityLabel == "Found on Google Maps",
+            "A badge without a public origin stays plain text"
+        )
+        try require(
+            response.description == "Lanterns along the whole park at dusk."
+                && response.descriptionSource == "TikTok",
+            "The card must carry the source's own words and name the source"
+        )
+        try require(
+            response.sourcePosts[0].title == "TikTok by Travel Notes"
+                && response.sourcePosts[0].highlight == "Lanterns along the whole park at dusk.",
+            "The card must list the posts behind it with who said what"
+        )
         try require(response.dietaryNotice == nil, "A non-food card has no dietary notice")
         try require(response.delegateBadge?.type == "confirm", "Personal delegate badges must decode")
     }
@@ -370,8 +411,11 @@ enum APIContractTests {
                         "source_badges": [{
                             "kind": "discovered",
                             "label": "Found on Google Maps",
-                            "contributor_name": null
-                        }]
+                            "contributor_name": null,
+                            "url": "https://www.google.com/maps/search/?api=1&query=Odori%20Park&query_place_id=ChIJ-odori",
+                            "platform": "Google Maps"
+                        }],
+                        "source_posts": []
                     }, {
                         "candidate_id": "77777777-7777-7777-7777-777777777777",
                         "name": "Ramen Yokocho",
@@ -386,7 +430,22 @@ enum APIContractTests {
                         "source_badges": [{
                             "kind": "trending",
                             "label": "Trending on TikTok, RedNote",
-                            "contributor_name": null
+                            "contributor_name": null,
+                            "url": "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                            "platform": "TikTok"
+                        }],
+                        "source_posts": [{
+                            "platform": "tiktok",
+                            "label": "TikTok",
+                            "url": "https://www.tiktok.com/@traveler/video/7481234567890123456",
+                            "author_name": null,
+                            "highlight": "An alley of ramen counters."
+                        }, {
+                            "platform": "rednote",
+                            "label": "RedNote",
+                            "url": "https://www.xiaohongshu.com/explore/64f1c2d3e4b5a6",
+                            "author_name": null,
+                            "highlight": null
                         }]
                     }]
                 }],
@@ -430,6 +489,20 @@ enum APIContractTests {
         try require(
             response.days[0].stops[1].sourceBadges[0].kind == "trending",
             "Buzz provenance must survive onto the itinerary"
+        )
+        try require(
+            response.days[0].stops[0].sourceBadges[0].accessibilityLabel
+                == "Found on Google Maps, opens Google Maps",
+            "A Google Maps badge on a stop must open the place page"
+        )
+        try require(
+            response.days[0].stops[1].sourceBadges[0].linkURL?.host() == "www.tiktok.com",
+            "A trending badge on a stop must open the post that named it"
+        )
+        try require(
+            response.days[0].stops[1].sourcePosts.count == 2
+                && response.days[0].stops[1].sourcePosts[1].title == "RedNote",
+            "A stop must list every post behind it"
         )
         try require(response.wishlistNotPlaced.count == 1, "Wishlist reasons must decode")
     }

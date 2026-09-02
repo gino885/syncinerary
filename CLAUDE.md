@@ -368,6 +368,24 @@ Only official APIs or platform-permitted public metadata may be used.
 
 `sources[]` includes `{type:'buzz', score:<value>, sources_count:<n>}`.
 
+**What is read per platform.** Nothing permits a transcript of a reel or a
+video, so "reading a post" means the text a platform publishes about it.
+
+| Platform | Automatic discovery reads | A pasted link reads | Why not more |
+|---|---|---|---|
+| TikTok | The search snippet, plus the caption, creator, and cover frame from the official embed API (`tiktok.com/oembed`, no key). A cheap vision call transcribes the text on the cover frame | The same, with the cover frame read only when the caption names no place | Downloading the video or audio is not permitted |
+| Instagram | The search snippet only | The search snippet for that URL | Meta's embed terms forbid using its data for anything but an embed view |
+| RedNote | The search snippet only | The search snippet for that URL | No public API |
+
+The read is bounded (`config/gather.py`): one batched read step and one
+vision step per city, at most `SOCIAL_COVER_OCR_MAX_IMAGES` cover frames, post
+metadata cached for a day and cover text for a week, and
+`SOCIAL_COVER_OCR_ENABLED=False` turns the vision step off entirely. NER runs
+over everything read and returns, per mention, a short highlight quoted from
+that post; the highlight becomes the card's description and each post is kept
+on the candidate as `enrichment.social_posts` (platform, URL, rank, creator,
+highlight) in search-rank order.
+
 ### 8.3 Personal attachments
 
 Two sub-sources.
@@ -413,6 +431,36 @@ Each card shows badges based on `sources[]`:
 - 👥 Attached by group (has a user-paste source from another traveler; show the contributor's name in the accessible label and card details)
 
 These badges are separate from delegate badges (Section 9). Source badges are about provenance; delegate badges are about per-person fit.
+
+**Source links.** A badge whose provenance has a public URL is a link, so a
+traveler can read the post the card came from instead of taking the badge on
+trust. This is the difference between claiming a place is trending and showing
+who said so.
+
+| Badge | Opens | Read from |
+|---|---|---|
+| 🔥 Trending | the post that named the place | `enrichment.social_post_urls`, labelled by `enrichment.social_platforms` |
+| ❤️ Attached by you / 👥 Attached by group | the post that traveler shared | `enrichment.source_url` |
+| 🗺️ Found on Google Maps | the place's Google Maps page | `enrichment.google_place_id` |
+
+Rules:
+
+- The badge opens the highest-ranked URL. When a buzz card has several posts
+  behind it, the card details list all of them so the count on the badge can be
+  checked against the posts it came from.
+- A badge with no public URL stays plain text. Never synthesize a link, and
+  never link to a search page in place of a missing post.
+- Links open outward, in the platform's own app when it is installed and the
+  system browser otherwise. The post is never rendered inside the app, its body
+  is never fetched, and no login is ever presented. Linking out is what keeps
+  this inside the platform terms in Section 15.
+- Only URLs already normalized by the social URL parser are linkable, so a card
+  cannot carry a tracking-parameter link or a URL from an unsupported host.
+- The accessible label names the destination, for example "Trending on TikTok,
+  opens the post".
+- The same badges appear on itinerary stops, and the links behave identically
+  there. "Why is this on my trip" is asked at least as often about a scheduled
+  stop as about a swipe card.
 
 Every swipe card includes a primary image when a permitted image is available. For a user attachment, prefer the submitted screenshot crop or a platform-provided public preview and label it as user-attached. For an automatically discovered place, use an attributed Google Places photo. If neither is permitted or available, show the standard place placeholder rather than hotlinking or copying a restricted image.
 
@@ -741,6 +789,24 @@ Goal: ship the real product including the three interview-headline features.
 - Explainer narrative + wishlist-not-placed reasons.
 - **Done when:** the same shortlist plans differently under three different weather scenarios (sunny / rainy / mixed); user-pinned anchors honored; wishlist surfaces with quantified reasons.
 
+**M5a. Source links on cards**
+
+Sits between M5 and M6 rather than renumbering the milestones after it. It is
+small, and it is placed after M5 because the itinerary rows it also applies to
+only exist once the two-stage solver ships.
+
+- Every source badge that has a public origin URL becomes a link (Section 8.5).
+- The badge payload carries an optional URL and a platform label; a badge
+  without one is rendered as plain text.
+- Buzz cards list every post behind them in the card details, not just the one
+  the badge opens.
+- Same behavior on the swipe deck and on itinerary stops.
+- **Done when:** a buzz card opens the Instagram, TikTok, or RedNote post that
+  named it; a card a traveler attached opens the post they shared; a card found
+  only by place search opens its Google Maps page; a card with no public URL
+  shows its badge with no link and no placeholder; and no link path fetches a
+  post body or presents a login.
+
 **M6. Feature 4 — Replan + HITL approval gate**
 - Disruption marking endpoint per `trigger_type`.
 - Rescue agent.
@@ -864,6 +930,7 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 - **Wishlist not-placed:** shortlisted cards the solver could not fit, surfaced with reasons.
 - **Trace:** structured JSON record of decisions an agent made; persisted for replan (F4) and eval (F2).
 - **Source badge:** the 🗺️ 🔥 ❤️ 👥 icons on a card indicating provenance (Google discovery / buzz / your personal / group personal). Separate from delegate badge.
+- **Source link:** the outward link on a source badge that opens the post or place page the card came from. Present only when the provenance carries a public URL.
 - **Delegate badge:** the per-person warning or confirm chip on a card.
 
 ---

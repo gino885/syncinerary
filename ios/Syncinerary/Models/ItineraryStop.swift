@@ -36,6 +36,7 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     let transitFromPrevMode: String?
     let mealSlot: String?
     let sourceBadges: [SourceBadge]
+    let sourcePosts: [SourcePost]
 
     enum CodingKeys: String, CodingKey {
         case candidateID = "candidate_id"
@@ -49,5 +50,6 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
         case transitFromPrevMode = "transit_from_prev_mode"
         case mealSlot = "meal_slot"
         case sourceBadges = "source_badges"
+        case sourcePosts = "source_posts"
     }
 }

@@ -20,10 +20,23 @@ struct SourceBadgesView: View {
     @ViewBuilder
     private var badgeLabels: some View {
         ForEach(badges, id: \.self) { badge in
-            Label(badge.label, systemImage: symbol(for: badge.kind))
+            // A badge with a public origin opens it outward: the platform's
+            // own app when installed, the system browser otherwise. The post
+            // is never rendered in here. A badge without one stays plain.
+            if let url = badge.linkURL {
+                Link(destination: url) {
+                    Label(badge.label, systemImage: symbol(for: badge.kind))
+                        .underline()
+                }
                 .font(.subheadline)
                 .foregroundStyle(color(for: badge.kind))
-                .accessibilityLabel(badge.label)
+                .accessibilityLabel(badge.accessibilityLabel)
+            } else {
+                Label(badge.label, systemImage: symbol(for: badge.kind))
+                    .font(.subheadline)
+                    .foregroundStyle(color(for: badge.kind))
+                    .accessibilityLabel(badge.accessibilityLabel)
+            }
         }
     }
 

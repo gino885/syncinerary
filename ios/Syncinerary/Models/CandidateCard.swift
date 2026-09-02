@@ -14,7 +14,10 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
     let durationEstimateMin: Int
     let dietaryTags: [String]
     let dietaryNotice: String?
+    let description: String?
+    let descriptionSource: String?
     let sourceBadges: [SourceBadge]
+    let sourcePosts: [SourcePost]
     let delegateBadge: DelegateBadge?
 
     enum CodingKeys: String, CodingKey {
@@ -31,7 +34,10 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
         case durationEstimateMin = "duration_estimate_min"
         case dietaryTags = "dietary_tags"
         case dietaryNotice = "dietary_notice"
+        case description
+        case descriptionSource = "description_source"
         case sourceBadges = "source_badges"
+        case sourcePosts = "source_posts"
         case delegateBadge = "delegate_badge"
     }
 }
