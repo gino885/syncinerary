@@ -29,6 +29,7 @@ from syncinerary.config.solver import (
     NEARBY_WALKING_KM,
     OPTIONAL_MEALS,
     REQUIRED_MEALS,
+    SOLVER_TIME_LIMIT_SECONDS,
     TOPUP_CANDIDATES_PER_ROUND,
     TOPUP_MAX_DETOUR_KM,
     TOPUP_MAX_ROUNDS,
@@ -491,6 +492,7 @@ def solve_day(
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
+    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         if required:

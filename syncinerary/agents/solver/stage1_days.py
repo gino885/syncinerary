@@ -17,6 +17,7 @@ from syncinerary.config.solver import (
     DEFAULT_DAY_START_HOUR,
     FOOD_PER_DAY_MAX,
     MEALS_PER_DAY_MIN,
+    SOLVER_TIME_LIMIT_SECONDS,
     WALKING_MINUTES_PER_DAY,
 )
 from syncinerary.domain.models import CandidatePlace, CandidateScore, CandidateType, Trip, Vote
@@ -169,6 +170,7 @@ def cluster_nearby_evenly(
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
+    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
     status = solver.solve(assignment)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError("Could not build balanced geographic day groups")
@@ -450,6 +452,7 @@ def assign_days(
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
+    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError("Could not assign shortlist candidates to feasible days")
