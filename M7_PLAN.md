@@ -169,7 +169,7 @@ Built on `m7-eval-harness`, four commits on top of `main`.
 | `python -m eval.runner` runs all fixtures and prints scores plus a diff vs the last commit | met. The diff was demonstrated across two commits: the first run said "nothing to diff against", the second compared against it |
 | A deliberately bad change shows a measurable regression | met. `--break fatigue-cap` fails two fixtures on `fatigue_within_budget` and reports transit efficiency dropping 0.87 to 0.84; exit code 1 against 0 for a clean run |
 | CI fails the PR if a feasibility scorer regresses | met. A second CI job runs the suite and the runner exits non-zero on any feasibility or harness failure |
-| Five-minute end-to-end runtime on a laptop | met with room. 24 seconds for all ten |
+| Five-minute end-to-end runtime on a laptop | met with room. 10.6 seconds for all ten |
 
 Ten fixtures, all passing. 484 tests pass, 29 of them new and about the
 harness itself rather than the planner.
@@ -186,6 +186,16 @@ harness itself rather than the planner.
   repaired by moving stops the group already picked, so nothing is chosen and
   the quantified reasoning sits on the rejections. The check now follows what
   the agent actually did.
+- **A wall-clock limit that made every score a coin flip.** The first fix for
+  the hang used `max_time_in_seconds`, and CI failed on the merge even though
+  the suite was green locally. A time-limited CP-SAT search returns whatever
+  it found by the deadline, so the answer depends on how fast the machine is:
+  the same fixture scored 0.8 meal coverage at a ten-second budget, 0.6 at
+  two seconds, and 0.8 again at half a second. Every cross-machine comparison
+  the harness exists to make would have been noise. The binding limit is now
+  `max_deterministic_time`, measured in the solver's own work units, with the
+  wall clock kept only as a backstop against a pathological model. Fixed in
+  `M7-6`.
 - **A fixture that proved nothing.** The `must-go` sabotage originally passed
   every fixture, because the baseline had no capacity pressure and the pin
   never changed the outcome. A remote, downvoted place was added so the pin
@@ -197,10 +207,14 @@ harness itself rather than the planner.
   still fits its days, so the solver schedules the pinned place with or
   without the pin, and the breakage surfaces as a meal-coverage regression
   instead. A fixture with real capacity pressure would make it direct.
-- Two fixtures hit the ten-second solver ceiling, so their plans are the best
-  found in that budget rather than provably optimal. Their scores are stable
-  across runs, so the diff still works, but it is worth knowing why those two
-  models are hard.
+- Two fixtures exhaust the deterministic budget rather than proving
+  optimality, so their plans are the best found within it. The plans are now
+  identical on any machine, so the diff is sound, but it is still worth
+  knowing why those two models are hard.
+- More search made one fixture worse: `weather_storm_day3` scored 1.0 meal
+  coverage at a budget of 4 units and 0.75 at 8. The objective is optimising
+  something that trades against meals, which is a real finding about the
+  weighting rather than about the harness.
 - `budget_daily` sits on the `budget_tight` fixture and nothing reads it: the
   solver has no budget constraint yet. The fixture is ready for one.
 

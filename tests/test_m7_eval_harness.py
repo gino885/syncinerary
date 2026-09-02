@@ -290,17 +290,50 @@ async def test_a_planning_fixture_finishes_well_inside_the_suite_budget():
     assert outcome.seconds < 30
 
 
-def test_the_solver_search_is_bounded():
-    """Found by this harness: an unbounded CP-SAT solve hung a 5-day plan."""
-    from syncinerary.agents.solver import stage1_days, stage2_route
-    from syncinerary.config.solver import SOLVER_TIME_LIMIT_SECONDS
+def test_every_solve_is_bounded_both_ways():
+    """Found by this harness: an unbounded CP-SAT solve hung a 5-day plan.
 
+    Both limits matter. The wall clock stops a pathological model; the
+    deterministic budget is what makes the answer the same on every machine,
+    without which no eval score could be compared across two runners.
+    """
+    from syncinerary.agents.solver import stage1_days, stage2_route
+    from syncinerary.config.solver import (
+        SOLVER_DETERMINISTIC_LIMIT,
+        SOLVER_TIME_LIMIT_SECONDS,
+    )
+
+    assert SOLVER_DETERMINISTIC_LIMIT > 0
     assert SOLVER_TIME_LIMIT_SECONDS > 0
     for module in (stage1_days, stage2_route):
         source = Path(module.__file__).read_text()
-        assert source.count("solver.parameters.max_time_in_seconds") == source.count(
-            "solver = cp_model.CpSolver()"
-        ), f"{module.__name__} has an unbounded solve"
+        solves = source.count("solver = cp_model.CpSolver()")
+        for parameter in ("max_time_in_seconds", "max_deterministic_time"):
+            assert source.count(f"solver.parameters.{parameter}") == solves, (
+                f"{module.__name__} has a solve without {parameter}"
+            )
+
+
+async def test_the_same_fixture_scores_the_same_on_a_slower_machine():
+    """A wall-clock-limited search scored the same fixture 0.8, then 0.6,
+    then 0.8 again as the budget changed. The deterministic budget is what
+    makes a diff between two commits mean anything."""
+    from syncinerary.agents.solver import stage1_days, stage2_route
+
+    fixture = load_by_name("clean_5day_hokkaido")
+    original = stage1_days.SOLVER_TIME_LIMIT_SECONDS
+    try:
+        scores = []
+        for wall_clock in (original, original / 10):
+            stage1_days.SOLVER_TIME_LIMIT_SECONDS = wall_clock
+            stage2_route.SOLVER_TIME_LIMIT_SECONDS = wall_clock
+            outcome = await run_plan_case(fixture)
+            scores.append(outcome.scores.quality_map())
+    finally:
+        stage1_days.SOLVER_TIME_LIMIT_SECONDS = original
+        stage2_route.SOLVER_TIME_LIMIT_SECONDS = original
+
+    assert scores[0] == scores[1]
 
 
 def test_the_eval_package_imports_no_llm_sdk():
