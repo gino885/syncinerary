@@ -285,9 +285,13 @@ def test_an_unknown_sabotage_is_refused():
 
 
 async def test_a_planning_fixture_finishes_well_inside_the_suite_budget():
-    """The whole suite has five minutes; no single plan may eat it."""
+    """The whole suite has five minutes; no single plan may eat it.
+
+    Generous on purpose. This is a smoke alarm for a plan that has started
+    taking minutes, not a benchmark of the runner it happens to be on.
+    """
     outcome = await run_plan_case(load_by_name("group_split"))
-    assert outcome.seconds < 30
+    assert outcome.seconds < 60
 
 
 def test_every_solve_is_bounded_both_ways():
@@ -333,9 +337,12 @@ async def test_the_deterministic_budget_is_what_binds_not_the_wall_clock():
 
     outcome = await run_plan_case(load_by_name("clean_5day_hokkaido"))
     assert outcome.solver_result is not None
-    # A quarter of the backstop, so a machine four times slower than the one
-    # running this test still never reaches it.
-    assert outcome.seconds < SOLVER_TIME_LIMIT_SECONDS / 4
+    # Deliberately not a fraction of the backstop chosen to look demanding:
+    # that is a guess about how fast the machine is, and guessing that is the
+    # mistake this whole change exists to stop making. A solve that hit the
+    # backstop takes the full budget, so anything comfortably below it proves
+    # the deterministic limit is the one that fired.
+    assert outcome.seconds < SOLVER_TIME_LIMIT_SECONDS * 0.8
 
 
 def test_the_eval_package_imports_no_llm_sdk():
