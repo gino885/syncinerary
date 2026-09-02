@@ -41,7 +41,7 @@ final class ShortlistViewModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            async let state = apiClient.buildShortlist(tripID: session.trip.id)
+            async let state = loadState()
             async let deck = apiClient.candidates(
                 tripID: session.trip.id,
                 travelerID: session.travelerID
@@ -113,6 +113,16 @@ final class ShortlistViewModel {
         } catch {
             show(error)
             return false
+        }
+    }
+
+    /// Building is only allowed once, when voting ends. A trip reopened at
+    /// this step already has its shortlist, so read it back instead.
+    private func loadState() async throws -> ShortlistStateResponse {
+        do {
+            return try await apiClient.buildShortlist(tripID: session.trip.id)
+        } catch {
+            return try await apiClient.shortlist(tripID: session.trip.id)
         }
     }
 

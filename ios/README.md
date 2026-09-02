@@ -68,7 +68,30 @@ xcrun swiftc -parse-as-library \
 /tmp/syncinerary-api-contract-tests
 ```
 
-## Physical device note
+## Development knobs
 
-For testing on a physical iPhone, replace `localhost` in `APIClient.swift` with
-your Mac's LAN IP (e.g. `192.168.1.42:8000`).
+All three are read from the environment or from UserDefaults, so they can be
+set as launch arguments in the scheme or through `xcrun simctl`:
+
+| Knob | Effect |
+|---|---|
+| `SYNC_API_BASE_URL` | Backend origin, default `http://localhost:8000`. On a physical iPhone set it to your Mac's LAN IP, for example `http://192.168.1.42:8000` |
+| `SYNC_RESUME_TRIP_ID` | Reopens that saved trip at launch, at the step the server reports |
+| `SYNC_RESUME_ROUTE` | With the above, forces the step: `gathering`, `savedPosts`, `swipe`, `shortlist`, `lodging`, or `itinerary` |
+
+Example, to open the deck of a saved trip in the simulator:
+
+```bash
+xcrun simctl launch booted com.local.syncinerary -SYNC_RESUME_TRIP_ID <trip uuid> -SYNC_RESUME_ROUTE swipe
+```
+
+Saved trips live in UserDefaults under `recentTripSessions` (see
+`RecentTripsStore`); the "Continue planning" section on the first screen lists
+them.
+
+## Known simulator limitation
+
+On a macOS 15 host, the iOS 26 simulator draws emoji in SwiftUI text as "?"
+boxes. The glyphs are correct in source and render on a device; chips that
+carry meaning (source badges, meal slots, transit) use SF Symbols so nothing
+functional depends on emoji.

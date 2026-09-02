@@ -2,29 +2,20 @@ import SwiftUI
 
 struct FriendsPlanningHeader: View {
     var body: some View {
-        VStack {
-            Image(systemName: "person.3.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.blue)
-                .accessibilityHidden(true)
-
-            Text("Bring everyone’s finds together")
-                .font(.title2)
-                .bold()
-                .multilineTextAlignment(.center)
-
-            Text("Paste Instagram, TikTok, or RedNote links. Add the place name only when the link does not reveal it.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
+            EyebrowText("Saved posts")
+            Text("Paste what the group has been sending.")
+                .font(AppType.name)
+                .foregroundStyle(AppTheme.ink)
         }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(.blue.opacity(0.08))
-        .clipShape(.rect(cornerRadius: AppLayout.cardCornerRadius))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, AppTheme.spacingS)
+        .padding(.horizontal, AppTheme.spacingXS)
     }
 }
 
 #Preview {
     FriendsPlanningHeader()
         .padding()
+        .background(AppTheme.paper)
 }

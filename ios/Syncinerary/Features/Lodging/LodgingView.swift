@@ -15,12 +15,14 @@ struct LodgingView: View {
 
         Group {
             if viewModel.isLoading {
-                ProgressView("Comparing places to stay…")
+                FunLoadingView(script: .stay)
+            } else if viewModel.isPlanning {
+                FunLoadingView(script: .plan(city: viewModel.session.trip.cities.first ?? viewModel.session.trip.destination))
             } else if viewModel.options.isEmpty {
                 ContentUnavailableView(
-                    "No lodging found",
+                    "No stays found",
                     systemImage: "bed.double",
-                    description: Text("Try creating the trip again or choose another city.")
+                    description: Text("Try another city.")
                 )
             } else {
                 List {
@@ -29,32 +31,40 @@ struct LodgingView: View {
                             Button {
                                 viewModel.choose(option)
                             } label: {
-                                LodgingOptionRow(
-                                    option: option,
-                                    isSelected: viewModel.selectedID == option.id
-                                )
+                                LodgingOptionRow(option: option, isSelected: viewModel.selectedID == option.id)
                             }
                             .buttonStyle(.plain)
                         }
                     } header: {
-                        Text("Top places near your trip")
+                        EyebrowText("Stay · \(TripDate.range(viewModel.options[0].tripStartDate, viewModel.options[0].tripEndDate))")
                     } footer: {
                         Text(viewModel.options[0].availabilityNote)
+                            .font(.footnote)
+                            .foregroundStyle(AppTheme.faded)
                     }
+                    .journalRow()
 
                     Section {
-                        Button("Choose stay and build itinerary", systemImage: "calendar.badge.clock", action: plan)
+                        Button("Choose and build the days", action: plan)
+                            .buttonStyle(.stamp(ink: AppTheme.jade))
                             .disabled(viewModel.selectedID == nil || viewModel.isPlanning)
-                            .frame(minHeight: AppLayout.minimumTapHeight)
+                            .listRowInsets(ListRowInsets.stamp)
+                            .listRowSeparator(.hidden)
                     }
+                    .journalRow()
                 }
+                .listStyle(.plain)
+                .listRowSeparatorTint(AppTheme.rule)
+                .animation(AppTheme.stampDown, value: viewModel.selectedID)
             }
         }
-        .navigationTitle("Choose a stay")
+        .journalPage()
+        .navigationTitle("Stay")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.load()
         }
-        .alert("Couldn’t choose lodging", isPresented: $viewModel.isShowingError) { } message: {
+        .alert("Couldn't choose the stay", isPresented: $viewModel.isShowingError) { } message: {
             Text(viewModel.errorMessage)
         }
     }

@@ -1,61 +1,77 @@
 import SwiftUI
 
+/// Where a place came from, in the margin-note voice: small caps and an
+/// arrow when it opens outward (the platform's app when installed, Safari
+/// otherwise). The post is never rendered in here; a badge with no public
+/// URL stays plain (CLAUDE.md 8.5).
 struct SourceBadgesView: View {
     let badges: [SourceBadge]
 
     var body: some View {
         if !badges.isEmpty {
             ViewThatFits(in: .horizontal) {
-                HStack {
-                    badgeLabels
+                HStack(spacing: AppTheme.spacingL) {
+                    labels
                 }
-
-                VStack(alignment: .leading) {
-                    badgeLabels
+                VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
+                    labels
                 }
             }
         }
     }
 
     @ViewBuilder
-    private var badgeLabels: some View {
+    private var labels: some View {
         ForEach(badges, id: \.self) { badge in
-            // A badge with a public origin opens it outward: the platform's
-            // own app when installed, the system browser otherwise. The post
-            // is never rendered in here. A badge without one stays plain.
             if let url = badge.linkURL {
                 Link(destination: url) {
-                    Label(badge.label, systemImage: symbol(for: badge.kind))
-                        .underline()
+                    HStack(spacing: AppTheme.spacingXS) {
+                        Text(shortLabel(for: badge))
+                            .underline()
+                        Image(systemName: "arrow.up.right")
+                            .accessibilityHidden(true)
+                    }
+                    .font(AppType.mono)
+                    .textCase(.uppercase)
+                    .foregroundStyle(tint(for: badge.kind))
                 }
-                .font(.subheadline)
-                .foregroundStyle(color(for: badge.kind))
                 .accessibilityLabel(badge.accessibilityLabel)
             } else {
-                Label(badge.label, systemImage: symbol(for: badge.kind))
-                    .font(.subheadline)
-                    .foregroundStyle(color(for: badge.kind))
+                MetaLabel(shortLabel(for: badge), color: tint(for: badge.kind))
                     .accessibilityLabel(badge.accessibilityLabel)
             }
         }
     }
 
-    private func symbol(for kind: String) -> String {
-        switch kind {
-        case "classic": "mappin.circle.fill"
-        case "trending": "flame.fill"
-        case "discovered": "map.fill"
-        case "attached_by_you": "heart.fill"
-        default: "person.2.fill"
+    /// The margin has no room for sentences: "Google Maps", "TikTok",
+    /// "From Ana".
+    private func shortLabel(for badge: SourceBadge) -> String {
+        switch badge.kind {
+        case "discovered": "Google Maps"
+        case "trending": badge.platform ?? "Trending"
+        case "classic": "Classic"
+        case "attached_by_you": "You added this"
+        default: badge.contributorName.map { "From \($0)" } ?? badge.label
         }
     }
 
-    private func color(for kind: String) -> Color {
+    /// Vermilion for what other people are talking about, violet for what
+    /// the group added by hand, faded ink for the place listing. Provenance
+    /// is this product's point, so the human sources get the loud inks.
+    private func tint(for kind: String) -> Color {
         switch kind {
-        case "trending": .orange
-        case "discovered": .green
-        case "attached_by_you": .pink
-        default: .blue
+        case "trending": AppTheme.stamp
+        case "attached_by_you", "attached_by_group": AppTheme.violet
+        default: AppTheme.faded
         }
     }
+}
+
+#Preview {
+    SourceBadgesView(badges: [
+        SourceBadge(kind: "trending", label: "Trending on TikTok", contributorName: nil, url: "https://www.tiktok.com/@a/video/7481234567890123456", platform: "TikTok"),
+        SourceBadge(kind: "discovered", label: "Found on Google Maps", contributorName: nil, url: nil, platform: nil),
+    ])
+    .padding()
+    .background(AppTheme.paper)
 }

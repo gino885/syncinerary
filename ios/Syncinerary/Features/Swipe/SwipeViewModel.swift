@@ -9,13 +9,18 @@ final class SwipeViewModel {
     var candidates: [CandidateCard] = []
     var currentIndex = 0
     var isLoading = false
-    var isSubmittingVote = false
     var isShowingError = false
     var errorMessage = ""
-    var currentPhoto: CandidatePhoto?
+    /// Photos for the visible cards, fetched a few ahead so the next card
+    /// never appears blank.
+    var photos: [UUID: CandidatePhoto] = [:]
+    var lastDecision: SwipeDecision?
+    var decisionCount = 0
 
     private let apiClient: APIClient
     private var hasLoaded = false
+    private var photoAttempts: Set<UUID> = []
+    private let visibleCards = 3
 
     init(session: TripSession, apiClient: APIClient = .shared) {
         self.session = session
@@ -27,13 +32,23 @@ final class SwipeViewModel {
         return candidates[currentIndex]
     }
 
+    /// The card on top and the ones peeking out behind it.
+    var upcoming: [CandidateCard] {
+        guard candidates.indices.contains(currentIndex) else { return [] }
+        return Array(candidates[currentIndex...].prefix(visibleCards))
+    }
+
     var isComplete: Bool {
         hasLoaded && !candidates.isEmpty && currentIndex >= candidates.count
     }
 
+    var showsHint: Bool {
+        currentIndex < 2
+    }
+
     var progressText: String {
         guard !candidates.isEmpty else { return "No cards" }
-        return "\(min(currentIndex + 1, candidates.count)) of \(candidates.count)"
+        return "Card \(min(currentIndex + 1, candidates.count)) of \(candidates.count)"
     }
 
     func load() async {
@@ -47,16 +62,20 @@ final class SwipeViewModel {
                 travelerID: session.travelerID
             )
             hasLoaded = true
-            await loadCurrentPhoto()
+            await prefetchPhotos()
         } catch {
             show(error)
         }
     }
 
-    func vote(_ signal: VoteSignal, noteText: String? = nil) async {
-        guard let candidate = currentCandidate, !isSubmittingVote else { return }
-        isSubmittingVote = true
-        defer { isSubmittingVote = false }
+    /// The deck already moved on when this runs, so the vote posts in the
+    /// background. A failure puts the card back rather than losing the vote.
+    func decide(_ decision: SwipeDecision) async {
+        guard let candidate = currentCandidate else { return }
+        currentIndex += 1
+        decisionCount += 1
+        lastDecision = decision
+        await prefetchPhotos()
 
         do {
             _ = try await apiClient.vote(
@@ -64,24 +83,36 @@ final class SwipeViewModel {
                 request: VoteRequest(
                     travelerID: session.travelerID,
                     candidateID: candidate.id,
-                    signal: signal,
-                    noteText: noteText
+                    signal: decision.voteSignal,
+                    noteText: decision.noteText
                 )
             )
-            currentIndex += 1
-            await loadCurrentPhoto()
         } catch {
+            currentIndex = max(0, currentIndex - 1)
             show(error)
         }
     }
 
-    private func loadCurrentPhoto() async {
-        currentPhoto = nil
-        guard let candidate = currentCandidate else { return }
-        currentPhoto = try? await apiClient.candidatePhoto(
-            tripID: session.trip.id,
-            candidateID: candidate.id
-        )
+    private func prefetchPhotos() async {
+        let pending = upcoming.filter { !photoAttempts.contains($0.id) }
+        guard !pending.isEmpty else { return }
+        for candidate in pending {
+            photoAttempts.insert(candidate.id)
+        }
+        let tripID = session.trip.id
+        let apiClient = apiClient
+        await withTaskGroup(of: (UUID, CandidatePhoto?).self) { group in
+            for candidate in pending {
+                group.addTask {
+                    (candidate.id, try? await apiClient.candidatePhoto(tripID: tripID, candidateID: candidate.id))
+                }
+            }
+            for await (id, photo) in group {
+                if let photo {
+                    photos[id] = photo
+                }
+            }
+        }
     }
 
     private func show(_ error: Error) {

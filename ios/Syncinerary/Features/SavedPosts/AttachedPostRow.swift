@@ -3,18 +3,23 @@ import SwiftUI
 struct AttachedPostRow: View {
     let attachment: SourceAttachmentResponse
 
+    private var isReady: Bool {
+        attachment.status == "ready"
+    }
+
     var body: some View {
-        Label {
-            VStack(alignment: .leading) {
-                Text(platformName)
-                    .bold()
-                Text(statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(attachment.status == "ready" ? .green : .secondary)
+        HStack(alignment: .firstTextBaseline, spacing: AppTheme.spacingM) {
+            MetaLabel(platformName, color: AppTheme.ink)
+                .frame(minWidth: 84, alignment: .leading)
+            Text(isReady ? "Added to the deck" : "Add the place name, then add again")
+                .font(.subheadline)
+                .foregroundStyle(isReady ? AppTheme.ink : AppTheme.faded)
+            Spacer()
+            if isReady {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(AppTheme.jade)
+                    .accessibilityHidden(true)
             }
-        } icon: {
-            Image(systemName: attachment.status == "ready" ? "checkmark.circle.fill" : "questionmark.circle")
-                .foregroundStyle(attachment.status == "ready" ? .green : .blue)
         }
         .accessibilityElement(children: .combine)
     }
@@ -24,15 +29,7 @@ struct AttachedPostRow: View {
         case "instagram": "Instagram"
         case "tiktok": "TikTok"
         case "rednote": "RedNote"
-        default: attachment.platform.capitalized
-        }
-    }
-
-    private var statusText: String {
-        if attachment.status == "ready" {
-            "Added to your place cards"
-        } else {
-            "Type the place name above, then add again"
+        default: attachment.platform
         }
     }
 }

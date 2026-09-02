@@ -942,6 +942,9 @@ practices; CLAUDE.md rules take precedence when they conflict.
 
 - `swiftui-pro`: consult for all SwiftUI work in ios/. Modern API usage,
   deprecation avoidance, view performance.
+- `ios-design-taste`: consult before designing or restyling any screen in
+  ios/. Names the templated "AI look" to avoid, requires a written design
+  plan and a critique pass before code, and holds the copy rules.
 - `supabase-postgres-best-practices`: consult when writing migrations,
   designing indexes, or configuring connection pooling.
 - `redis-core`: consult when designing Redis key schemas for run state

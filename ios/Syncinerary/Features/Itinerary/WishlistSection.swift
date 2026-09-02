@@ -5,17 +5,23 @@ struct WishlistSection: View {
 
     var body: some View {
         if !items.isEmpty {
-            Section("Wishlist, not placed") {
+            Section {
                 ForEach(items) { item in
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(item.name)
-                            .bold()
+                            .font(AppType.subtitle)
+                            .foregroundStyle(AppTheme.ink)
                         Text(item.reasonText)
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.faded)
                     }
+                    .padding(.vertical, AppTheme.spacingXS)
                     .accessibilityElement(children: .combine)
                 }
+            } header: {
+                EyebrowText("Loved, not placed")
             }
+            .journalRow()
         }
     }
 }

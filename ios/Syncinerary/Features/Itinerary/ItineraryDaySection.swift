@@ -4,15 +4,18 @@ struct ItineraryDaySection: View {
     let day: ItineraryDay
 
     var body: some View {
-        Section("Day \(day.day + 1), \(day.date)") {
+        Section {
             if day.stops.isEmpty {
-                Text("No stops scheduled")
-                    .foregroundStyle(.secondary)
+                Text("Nothing scheduled")
+                    .foregroundStyle(AppTheme.faded)
             } else {
                 ForEach(day.stops) { stop in
                     ItineraryStopRow(stop: stop)
                 }
             }
+        } header: {
+            ItineraryDayHeader(day: day)
         }
+        .journalRow()
     }
 }

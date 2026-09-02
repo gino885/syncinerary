@@ -1,30 +1,24 @@
 import SwiftUI
 
+/// The per-traveler hint in the detail sheet, with the reasoning one tap away.
 struct DelegateBadgeView: View {
     let badge: DelegateBadge
 
-    private var icon: String {
-        badge.type == "warning" ? "exclamationmark.triangle.fill" : "sparkles"
-    }
-
-    private var color: Color {
-        badge.type == "warning" ? .orange : .blue
+    private var ink: Color {
+        badge.type == "warning" ? AppTheme.stamp : AppTheme.jade
     }
 
     var body: some View {
         DisclosureGroup {
             Text(badge.reasoning)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
+                .foregroundStyle(AppTheme.faded)
+                .padding(.top, AppTheme.spacingXS)
         } label: {
-            Label(badge.text, systemImage: icon)
-                .font(.subheadline)
-                .bold()
-                .foregroundStyle(color)
+            Text(badge.text)
+                .font(AppType.subtitle)
+                .foregroundStyle(ink)
         }
-        .padding()
-        .background(color.opacity(0.1))
-        .clipShape(.rect(cornerRadius: AppLayout.cardCornerRadius))
+        .tint(AppTheme.faded)
     }
 }

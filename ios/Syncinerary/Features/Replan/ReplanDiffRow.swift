@@ -7,18 +7,20 @@ struct ReplanDiffRow: View {
     let tint: Color
 
     var body: some View {
-        Label {
-            VStack(alignment: .leading) {
-                Text(title)
-                    .bold()
-                Text(detail)
-                    .foregroundStyle(.secondary)
-            }
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(tint)
+        HStack(alignment: .top, spacing: AppTheme.spacingS) {
+            Rectangle()
+                .fill(tint)
+                .frame(width: 2)
                 .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AppType.subtitle)
+                    .foregroundStyle(AppTheme.ink)
+                MetaLabel(detail)
+            }
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, AppTheme.spacingXS)
         .accessibilityElement(children: .combine)
     }
 }
