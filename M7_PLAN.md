@@ -159,3 +159,60 @@ caught it.
    by commit is what the diff requires. `--no-store` runs without it.
 4. Quality metrics are tracked with a tolerance rather than a hard floor, so
    normal noise does not fail a PR while a real drop does.
+
+## 10. Status, 2026-09-02
+
+Built on `m7-eval-harness`, four commits on top of `main`.
+
+| Acceptance criterion (CLAUDE.md 12.3) | Status |
+|---|---|
+| `python -m eval.runner` runs all fixtures and prints scores plus a diff vs the last commit | met. The diff was demonstrated across two commits: the first run said "nothing to diff against", the second compared against it |
+| A deliberately bad change shows a measurable regression | met. `--break fatigue-cap` fails two fixtures on `fatigue_within_budget` and reports transit efficiency dropping 0.87 to 0.84; exit code 1 against 0 for a clean run |
+| CI fails the PR if a feasibility scorer regresses | met. A second CI job runs the suite and the runner exits non-zero on any feasibility or harness failure |
+| Five-minute end-to-end runtime on a laptop | met with room. 24 seconds for all ten |
+
+Ten fixtures, all passing. 484 tests pass, 29 of them new and about the
+harness itself rather than the planner.
+
+### What the harness found on its first run
+
+- **An unbounded CP-SAT search.** The five-day baseline never returned. No
+  solve site in the codebase set a time limit, so a hard day-assignment model
+  searched forever, and `POST /plan` would have hung the same way for a real
+  group. Fixed in `M7-1`. This is the harness paying for itself before it was
+  finished.
+- **A scorer that was wrong, not the agent.** The first version required the
+  replan trace to put a number on a *chosen* alternative. An overslept trip is
+  repaired by moving stops the group already picked, so nothing is chosen and
+  the quantified reasoning sits on the rejections. The check now follows what
+  the agent actually did.
+- **A fixture that proved nothing.** The `must-go` sabotage originally passed
+  every fixture, because the baseline had no capacity pressure and the pin
+  never changed the outcome. A remote, downvoted place was added so the pin
+  has something to hold. It is still not perfect: see the follow-up below.
+
+### Known limits, recorded rather than hidden
+
+- The `must-go` sabotage does not fail `must_go_placed`. Every shortlist
+  still fits its days, so the solver schedules the pinned place with or
+  without the pin, and the breakage surfaces as a meal-coverage regression
+  instead. A fixture with real capacity pressure would make it direct.
+- Two fixtures hit the ten-second solver ceiling, so their plans are the best
+  found in that budget rather than provably optimal. Their scores are stable
+  across runs, so the diff still works, but it is worth knowing why those two
+  models are hard.
+- `budget_daily` sits on the `budget_tight` fixture and nothing reads it: the
+  solver has no budget constraint yet. The fixture is ready for one.
+
+Both of the first two are in `TODO.md`.
+
+### DeepEval
+
+CLAUDE.md section 4 names DeepEval for the quality family. It is an optional
+`eval-llm` extra rather than a dependency, and the default run does not use
+it. Installing it pulls 36 packages including an OpenAI client and a
+telemetry package, which do not belong in the default environment of a
+project whose headline is the Claude boundary, and a model judge is the wrong
+instrument for a suite that runs on every pull request and has five minutes.
+The narrative is scored for groundedness deterministically instead. The
+`--with-llm` path exists for anyone who wants the judged version.
