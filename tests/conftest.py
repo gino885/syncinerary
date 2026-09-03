@@ -120,3 +120,31 @@ def offline_city_resolution(monkeypatch):
 
     monkeypatch.setattr("syncinerary.api.routers.trips.resolve_cities", resolve)
     monkeypatch.setattr("syncinerary.api.routers.trips.resolve_timezone", timezone)
+
+
+@pytest.fixture
+def unreadable_links(monkeypatch):
+    """Link resolution that reaches no network and always lands terminal.
+
+    Attachment resolution reads public metadata, runs NER over it, and
+    geocodes the result. Live, each of those branches on whether a key happens
+    to be configured, so the same assertion held on a laptop with a .env and
+    failed in CI without one. Requesting this fixture pins the outcome to the
+    honest terminal case: the lookup ran and found nothing.
+    """
+    from syncinerary.agents.gather import personal as personal_module
+    from syncinerary.agents.gather.personal import TextPlaceExtraction
+
+    async def no_metadata(_attachment):
+        return {}
+
+    async def no_mentions(_text, *, platform=None):
+        return TextPlaceExtraction(place_mentions=[], short_description=None)
+
+    async def no_place(_name, _trip):
+        return None
+
+    monkeypatch.setattr(personal_module, "_read_public_metadata", no_metadata)
+    monkeypatch.setattr(personal_module, "extract_place_mentions", no_mentions)
+    monkeypatch.setattr(personal_module, "_find_place_for_trip", no_place)
+

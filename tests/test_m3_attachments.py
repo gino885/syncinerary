@@ -74,7 +74,7 @@ async def test_attachment_repository_round_trips_contributor_and_input_type(sess
     assert fetched.status is AttachmentStatus.PENDING
 
 
-async def test_post_reel_link_strips_tracking_and_identifies_contributor(client):
+async def test_post_reel_link_strips_tracking_and_identifies_contributor(client, unreadable_links):
     created = await client.post(
         "/trips",
         json={
@@ -140,7 +140,7 @@ async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
     assert response.json()["status"] == "pending"
 
 
-async def test_post_rednote_short_link_is_preserved_for_enrichment(client):
+async def test_post_rednote_short_link_is_preserved_for_enrichment(client, unreadable_links):
     created = await client.post(
         "/trips",
         json={
@@ -712,7 +712,7 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
     assert list(tmp_path.rglob("*")) == []
 
 
-async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client):
+async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client, unreadable_links):
     """The bug this replaced: five real Instagram links sat at 'pending'
     forever with no error and no prompt, so the traveler waited for a card
     that was never coming."""
@@ -767,7 +767,7 @@ async def test_a_missing_search_key_leaves_the_link_retryable(client, monkeypatc
     assert response.json()["failure_reason"] is None
 
 
-async def test_naming_the_place_rescues_a_failed_link(client):
+async def test_naming_the_place_rescues_a_failed_link(client, unreadable_links):
     """needs_place_name has to be actionable, or it is just a nicer dead end."""
     created = await client.post(
         "/trips",

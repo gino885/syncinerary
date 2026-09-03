@@ -222,7 +222,7 @@ async def test_a_non_member_cannot_read_or_post_to_the_thread(client):
     ).status_code == 403
 
 
-async def test_a_pasted_link_in_chat_becomes_an_attachment(client):
+async def test_a_pasted_link_in_chat_becomes_an_attachment(client, unreadable_links):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
     trip_id = trip["trip"]["id"]
@@ -243,7 +243,7 @@ async def test_a_pasted_link_in_chat_becomes_an_attachment(client):
     assert posted.json()["link_attachment_id"] is not None
 
 
-async def test_plain_talk_creates_no_attachment(client):
+async def test_plain_talk_creates_no_attachment(client, unreadable_links):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
 
@@ -257,7 +257,7 @@ async def test_plain_talk_creates_no_attachment(client):
     assert posted.json()["link_attachment_id"] is None
 
 
-async def test_an_unsupported_url_stays_plain_text(client):
+async def test_an_unsupported_url_stays_plain_text(client, unreadable_links):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
 
@@ -358,7 +358,7 @@ async def test_a_message_survives_a_dead_pubsub(client, monkeypatch):
     assert [m["body"] for m in thread.json()] == ["still stored"]
 
 
-async def test_a_pasted_link_unfurls_instead_of_showing_a_url(client):
+async def test_a_pasted_link_unfurls_instead_of_showing_a_url(client, unreadable_links):
     """Every mainstream chat product turns a URL into a card. This one has
     more to say than most: the post became a place."""
     owner = await _sign_in(client, display_name="Gino", handle="gino")
@@ -391,7 +391,7 @@ async def test_plain_talk_carries_no_link_card(client):
     assert posted.json()["link"] is None
 
 
-async def test_an_unreadable_link_offers_a_repair_in_the_thread(client):
+async def test_an_unreadable_link_offers_a_repair_in_the_thread(client, unreadable_links):
     """M7a-1 produces needs_place_name. This is the only place the person who
     pasted it can answer, so without this the reason is a label with nothing
     behind it."""
@@ -421,7 +421,7 @@ async def test_an_unreadable_link_offers_a_repair_in_the_thread(client):
     assert repaired.json()["link"]["failure_reason"] != "needs_place_name"
 
 
-async def test_only_a_member_can_name_a_place(client):
+async def test_only_a_member_can_name_a_place(client, unreadable_links):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
     trip_id = trip["trip"]["id"]
