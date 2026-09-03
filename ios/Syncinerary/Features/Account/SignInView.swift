@@ -7,6 +7,10 @@ import SwiftUI
 struct SignInView: View {
     @Environment(AccountStore.self) private var accounts
 
+    /// Set when they arrived from an invite: the screen then says what
+    /// they are joining rather than asking for a handle out of nowhere.
+    var invitedTo: String?
+
     @State private var displayName = ""
     @State private var handle = ""
     @FocusState private var focus: Field?
@@ -20,9 +24,14 @@ struct SignInView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingXL) {
-            Text("Syncinerary")
-                .font(AppType.title)
-                .foregroundStyle(AppTheme.ink)
+            VStack(alignment: .leading, spacing: AppTheme.spacingS) {
+                if invitedTo != nil {
+                    EyebrowText("One more thing")
+                }
+                Text(invitedTo == nil ? "Syncinerary" : "Who are you?")
+                    .font(AppType.title)
+                    .foregroundStyle(AppTheme.ink)
+            }
 
             VStack(alignment: .leading, spacing: AppTheme.spacingXL) {
                 ruledField(

@@ -1,7 +1,7 @@
 """M7a: sign in, invite, join with preference tags, and post to the thread."""
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -29,8 +29,16 @@ def no_chat_publish(monkeypatch):
 
 
 async def _sign_in(client, *, display_name: str, handle: str) -> dict:
+    """Sign in as a fresh account every time.
+
+    Accounts outlive a test: the API commits, and a developer poking at the
+    running app creates real ones. A fixed handle would make these tests pass
+    or fail on what else is in the database, so the handle is salted here and
+    identity reuse is covered in test_m7a_group_repositories instead.
+    """
+    salted = f"{handle}-{uuid4().hex[:8]}"
     response = await client.post(
-        "/auth/session", json={"display_name": display_name, "handle": handle}
+        "/auth/session", json={"display_name": display_name, "handle": salted}
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -63,7 +71,7 @@ async def test_signing_in_returns_a_usable_token(client):
     me = await client.get("/auth/me", headers=_auth(payload["token"]))
 
     assert me.status_code == 200
-    assert me.json()["handle"] == "gino"
+    assert me.json()["handle"].startswith("gino-")
 
 
 async def test_an_unknown_token_is_rejected(client):
@@ -348,3 +356,103 @@ async def test_a_message_survives_a_dead_pubsub(client, monkeypatch):
         f"/trips/{trip['trip']['id']}/messages", headers=_auth(owner["token"])
     )
     assert [m["body"] for m in thread.json()] == ["still stored"]
+
+
+async def test_a_pasted_link_unfurls_instead_of_showing_a_url(client):
+    """Every mainstream chat product turns a URL into a card. This one has
+    more to say than most: the post became a place."""
+    owner = await _sign_in(client, display_name="Gino", handle="gino")
+    trip = await _owner_trip(client, owner)
+
+    posted = await client.post(
+        f"/trips/{trip['trip']['id']}/messages",
+        json={"body": "https://www.tiktok.com/@creator/video/7459997680383560968"},
+        headers=_auth(owner["token"]),
+    )
+
+    link = posted.json()["link"]
+    assert link is not None
+    assert link["platform"] == "tiktok"
+    assert link["url"] == (
+        "https://www.tiktok.com/@creator/video/7459997680383560968"
+    )
+
+
+async def test_plain_talk_carries_no_link_card(client):
+    owner = await _sign_in(client, display_name="Gino", handle="gino")
+    trip = await _owner_trip(client, owner)
+
+    posted = await client.post(
+        f"/trips/{trip['trip']['id']}/messages",
+        json={"body": "no links here"},
+        headers=_auth(owner["token"]),
+    )
+
+    assert posted.json()["link"] is None
+
+
+async def test_an_unreadable_link_offers_a_repair_in_the_thread(client):
+    """M7a-1 produces needs_place_name. This is the only place the person who
+    pasted it can answer, so without this the reason is a label with nothing
+    behind it."""
+    owner = await _sign_in(client, display_name="Gino", handle="gino")
+    trip = await _owner_trip(client, owner)
+    trip_id = trip["trip"]["id"]
+
+    posted = await client.post(
+        f"/trips/{trip_id}/messages",
+        json={"body": "https://www.instagram.com/reel/DcbEs5IpTCt/"},
+        headers=_auth(owner["token"]),
+    )
+    message = posted.json()
+    assert message["link"]["status"] == "failed"
+    assert message["link"]["failure_reason"] == "needs_place_name"
+    assert message["link"]["place_name"] is None
+
+    repaired = await client.post(
+        f"/trips/{trip_id}/messages/{message['id']}/name-place",
+        json={"place_name": "Otaru Canal"},
+        headers=_auth(owner["token"]),
+    )
+
+    assert repaired.status_code == 200, repaired.text
+    # Resolution runs against the real Places tool, so the assertion is that
+    # the name was accepted and the reason cleared, not that geocoding hit.
+    assert repaired.json()["link"]["failure_reason"] != "needs_place_name"
+
+
+async def test_only_a_member_can_name_a_place(client):
+    owner = await _sign_in(client, display_name="Gino", handle="gino")
+    trip = await _owner_trip(client, owner)
+    trip_id = trip["trip"]["id"]
+    posted = await client.post(
+        f"/trips/{trip_id}/messages",
+        json={"body": "https://www.instagram.com/reel/DcbEs5IpTCt/"},
+        headers=_auth(owner["token"]),
+    )
+    outsider = await _sign_in(client, display_name="Nobody", handle="nobody")
+
+    blocked = await client.post(
+        f"/trips/{trip_id}/messages/{posted.json()['id']}/name-place",
+        json={"place_name": "Somewhere"},
+        headers=_auth(outsider["token"]),
+    )
+
+    assert blocked.status_code == 403
+
+
+async def test_an_invite_preview_needs_no_account(client):
+    """Partiful's finding: show the trip before asking who they are. An
+    invited person cannot decide to join something they cannot see."""
+    owner = await _sign_in(client, display_name="Gino", handle="gino")
+    trip = await _owner_trip(client, owner)
+    invite = await client.post(
+        f"/trips/{trip['trip']['id']}/invites", json={}, headers=_auth(owner["token"])
+    )
+
+    # No Authorization header at all.
+    preview = await client.get(f"/invites/{invite.json()['code']}")
+
+    assert preview.status_code == 200
+    assert preview.json()["trip"]["destination"] == "Hokkaido"
+    assert preview.json()["member_names"] == ["Gino"]

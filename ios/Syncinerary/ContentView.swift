@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
+    /// A code the person arrived with. Sending them straight to join skips
+    /// re-typing what they already tapped.
+    var openingInvite: String?
+
     @Environment(AccountStore.self) private var accounts
 
     @State private var path: [AppRoute] = []
@@ -13,14 +17,14 @@ struct ContentView: View {
             TripsBoardView(
                 onOpen: open,
                 onCreate: { path.append(.newTrip) },
-                onJoin: { path.append(.joinTrip) }
+                onJoin: { path.append(.joinTrip(nil)) }
             )
                 .navigationDestination(for: AppRoute.self) { route in
                     switch route {
                     case .newTrip:
                         TripCreateView(onCreated: startGathering, onResume: resume)
-                    case .joinTrip:
-                        JoinTripView(onJoined: joined)
+                    case let .joinTrip(code):
+                        JoinTripView(prefilledCode: code, onJoined: joined)
                     case let .invite(trip):
                         InviteView(trip: trip)
                     case let .chat(trip):
@@ -43,6 +47,10 @@ struct ContentView: View {
         .environment(recentTrips)
         .tint(AppTheme.ink)
         .task {
+            if let openingInvite, path.isEmpty {
+                path.append(.joinTrip(openingInvite))
+                return
+            }
             resumeFromLaunchArguments()
         }
         .alert("Couldn't reopen this trip", isPresented: $isShowingResumeError) { } message: {

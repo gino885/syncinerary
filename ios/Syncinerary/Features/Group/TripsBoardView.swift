@@ -74,7 +74,8 @@ struct TripsBoardView: View {
             }
             Spacer(minLength: AppTheme.spacingM)
             VStack(alignment: .trailing, spacing: AppTheme.spacingXS) {
-                Text(trip.startDate)
+                Text(TripDate.parse(trip.startDate)?.formatted(TripDate.short)
+                    ?? trip.startDate)
                     .font(AppType.mono)
                     .monospacedDigit()
                     .foregroundStyle(AppTheme.ink)

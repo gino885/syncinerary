@@ -7,6 +7,10 @@ import SwiftUI
 /// a member with an empty profile scores nothing on interest fit and so gets
 /// no For You cards.
 struct JoinTripView: View {
+    /// Set when they tapped an invite link. The code step disappears, because
+    /// asking someone to retype what they just tapped is the friction this
+    /// pass exists to remove.
+    var prefilledCode: String?
     let onJoined: (JoinTripResponse) -> Void
 
     @State private var code = ""
@@ -24,7 +28,9 @@ struct JoinTripView: View {
                     .font(AppType.title)
                     .foregroundStyle(AppTheme.ink)
 
-                codeField
+                if prefilledCode == nil {
+                    codeField
+                }
 
                 if let preview {
                     previewBlock(preview)
@@ -45,6 +51,11 @@ struct JoinTripView: View {
             .padding(AppTheme.spacingL)
         }
         .background(AppTheme.paper)
+        .task {
+            guard let prefilledCode else { return }
+            code = prefilledCode
+            await lookUp()
+        }
     }
 
     private var codeField: some View {

@@ -81,8 +81,16 @@ struct InviteView: View {
         "\(invite.usesRemaining) of \(invite.maxUses) left"
     }
 
+    /// Shares a tappable link with the code alongside it. The link is what
+    /// gets people in; the code is what survives being read aloud or
+    /// screenshotted.
     private func shareText(_ invite: TripInvite) -> String {
-        "Join my \(trip.destination) trip on Syncinerary with code \(invite.code)"
+        let link = InviteLink.url(for: invite.code)?.absoluteString ?? ""
+        return """
+        Join my \(trip.destination) trip on Syncinerary
+        \(link)
+        or enter code \(invite.code)
+        """
     }
 
     /// A code read by VoiceOver has to be spelled, or it is heard as a word.

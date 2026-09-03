@@ -8,6 +8,7 @@ struct TripMessage: Codable, Sendable, Identifiable, Hashable {
     let body: String
     let kind: String
     let linkAttachmentID: UUID?
+    let link: MessageLink?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -18,6 +19,7 @@ struct TripMessage: Codable, Sendable, Identifiable, Hashable {
         case body
         case kind
         case linkAttachmentID = "link_attachment_id"
+        case link
         case createdAt = "created_at"
     }
 

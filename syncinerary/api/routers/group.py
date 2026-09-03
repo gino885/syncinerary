@@ -17,7 +17,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from redis.exceptions import RedisError
 
-from syncinerary.agents.gather.personal import resolve_link_attachment
+from syncinerary.agents.gather.personal import (
+    resolve_link_attachment,
+    resolve_named_attachment,
+)
 from syncinerary.api.chat_ws import publish_trip_message, stream_trip_messages
 from syncinerary.api.deps import CurrentAccount, Session
 from syncinerary.api.schemas import (
@@ -26,6 +29,8 @@ from syncinerary.api.schemas import (
     InvitePreviewOut,
     JoinTripRequest,
     JoinTripResponse,
+    MessageLinkOut,
+    NamePlaceRequest,
     PostMessageRequest,
     TripMessageOut,
     TripOut,
@@ -41,6 +46,7 @@ from syncinerary.domain.models import (
 from syncinerary.store.db import session_scope
 from syncinerary.store.redis import get_redis
 from syncinerary.store.repositories import (
+    CandidatePlaceRepository,
     SourceAttachmentRepository,
     TravelerRepository,
     TripInviteRepository,
@@ -252,6 +258,30 @@ async def _attach_first_supported_url(
     return None
 
 
+async def _unfurl(
+    message: TripMessage,
+    *,
+    session: Session,
+) -> MessageLinkOut | None:
+    """Resolve a link message into the place it became, or the repair it needs."""
+    if message.link_attachment_id is None:
+        return None
+    attachment = await SourceAttachmentRepository(session).get(
+        message.link_attachment_id
+    )
+    if attachment is None:
+        return None
+    candidate = None
+    raw_id = attachment.metadata.get("candidate_id")
+    if raw_id:
+        try:
+            found = await CandidatePlaceRepository(session).list_by_ids([UUID(raw_id)])
+        except ValueError:
+            found = []
+        candidate = found[0] if found else None
+    return MessageLinkOut.of(attachment, candidate=candidate)
+
+
 @router.get("/trips/{trip_id}/messages")
 async def list_messages(
     trip_id: UUID,
@@ -265,7 +295,11 @@ async def list_messages(
         for member in await TravelerRepository(session).list_for_trip(trip_id)
     }
     return [
-        TripMessageOut.of(message, author_name=members.get(message.traveler_id))
+        TripMessageOut.of(
+            message,
+            author_name=members.get(message.traveler_id),
+            link=await _unfurl(message, session=session),
+        )
         for message in messages
     ]
 
@@ -300,7 +334,11 @@ async def post_message(
             link_attachment_id=attachment_id,
         )
     )
-    out = TripMessageOut.of(message, author_name=traveler.name)
+    out = TripMessageOut.of(
+        message,
+        author_name=traveler.name,
+        link=await _unfurl(message, session=session),
+    )
     try:
         await publish_trip_message(get_redis(), out)
     except RedisError:
@@ -308,6 +346,63 @@ async def post_message(
         # get it on their next fetch rather than losing it.
         pass
     return out
+
+
+@router.post("/trips/{trip_id}/messages/{message_id}/name-place")
+async def name_place_for_message(
+    trip_id: UUID,
+    message_id: UUID,
+    payload: NamePlaceRequest,
+    account: CurrentAccount,
+    session: Session,
+) -> TripMessageOut:
+    """Repair a link that came back needs_place_name.
+
+    Instagram and RedNote permalinks are not readable (M7a-1), so the person
+    who pasted one is the only one who can say what place it is. Without this
+    the failure reason is a label with nothing behind it.
+    """
+    traveler = await _require_membership(
+        session, trip_id=trip_id, account_id=account.id
+    )
+    messages = TripMessageRepository(session)
+    message = await messages.get(message_id)
+    if message is None or message.trip_id != trip_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such message")
+    if message.link_attachment_id is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "That message has no link"
+        )
+    trip = await TripRepository(session).get(trip_id)
+    if trip is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such trip")
+
+    attachments = SourceAttachmentRepository(session)
+    attachment = await attachments.get(message.link_attachment_id)
+    if attachment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That link is gone")
+
+    metadata = dict(attachment.metadata)
+    metadata["submitted_place_name"] = payload.place_name
+    updated = await attachments.record_metadata(attachment.id, metadata=metadata)
+    resolved = await resolve_named_attachment(updated or attachment, trip, session)
+    author = traveler.name if message.traveler_id == traveler.id else None
+    if author is None:
+        members = {
+            member.id: member.name
+            for member in await TravelerRepository(session).list_for_trip(trip_id)
+        }
+        author = members.get(message.traveler_id)
+    candidate = None
+    raw_id = resolved.metadata.get("candidate_id")
+    if raw_id:
+        found = await CandidatePlaceRepository(session).list_by_ids([UUID(raw_id)])
+        candidate = found[0] if found else None
+    return TripMessageOut.of(
+        message,
+        author_name=author,
+        link=MessageLinkOut.of(resolved, candidate=candidate),
+    )
 
 
 @router.websocket("/trips/{trip_id}/chat/ws")

@@ -257,6 +257,47 @@ class JoinTripResponse(BaseModel):
     already_member: bool
 
 
+class MessageLinkOut(BaseModel):
+    """The unfurled card for a pasted post.
+
+    Every mainstream chat product turns a bare URL into a card, and this app
+    has more to say than most: the post became a place, or it needs a name
+    before it can. A raw URL in the thread hides the one thing the product
+    claims to do.
+    """
+
+    attachment_id: UUID
+    platform: SocialPlatform
+    status: AttachmentStatus
+    url: str | None
+    # Present once the link resolved into a candidate.
+    place_name: str | None = None
+    candidate_id: UUID | None = None
+    photo_url: str | None = None
+    # Present when it could not: the client turns this into an inline repair.
+    failure_reason: str | None = None
+
+    @classmethod
+    def of(
+        cls,
+        attachment: SourceAttachment,
+        *,
+        candidate: CandidatePlace | None,
+    ) -> MessageLinkOut:
+        return cls(
+            attachment_id=attachment.id,
+            platform=attachment.platform,
+            status=attachment.status,
+            url=attachment.canonical_url,
+            place_name=candidate.name_canonical if candidate else None,
+            candidate_id=candidate.id if candidate else None,
+            photo_url=(
+                candidate.enrichment.get("platform_preview_url") if candidate else None
+            ),
+            failure_reason=attachment.metadata.get("failure_reason"),
+        )
+
+
 class TripMessageOut(BaseModel):
     id: UUID
     trip_id: UUID
@@ -265,10 +306,17 @@ class TripMessageOut(BaseModel):
     body: str
     kind: TripMessageKind
     link_attachment_id: UUID | None
+    link: MessageLinkOut | None = None
     created_at: datetime
 
     @classmethod
-    def of(cls, message: TripMessage, *, author_name: str | None) -> TripMessageOut:
+    def of(
+        cls,
+        message: TripMessage,
+        *,
+        author_name: str | None,
+        link: MessageLinkOut | None = None,
+    ) -> TripMessageOut:
         return cls(
             id=message.id,
             trip_id=message.trip_id,
@@ -277,8 +325,15 @@ class TripMessageOut(BaseModel):
             body=message.body,
             kind=message.kind,
             link_attachment_id=message.link_attachment_id,
+            link=link,
             created_at=message.created_at,
         )
+
+
+class NamePlaceRequest(BaseModel):
+    place_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)
+    ]
 
 
 class PostMessageRequest(BaseModel):

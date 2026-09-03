@@ -111,6 +111,17 @@ actor APIClient {
         try await get(path: "trips/\(tripID)/messages")
     }
 
+    func namePlace(
+        tripID: UUID,
+        messageID: UUID,
+        placeName: String
+    ) async throws -> TripMessage {
+        try await post(
+            path: "trips/\(tripID)/messages/\(messageID)/name-place",
+            body: NamePlaceRequest(placeName: placeName)
+        )
+    }
+
     func postMessage(tripID: UUID, body: String) async throws -> TripMessage {
         try await post(
             path: "trips/\(tripID)/messages",

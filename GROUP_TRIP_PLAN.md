@@ -299,3 +299,99 @@ ruled lines carry it, with the placeholders as the only explanation.
 - No hint sentences under controls. Placeholders carry it.
 - Empty trips list is one line that invites the next action.
 - Errors say what to do: "That code has expired. Ask for a new one."
+
+---
+
+## 12. UX pass: what other apps do, and what this gets wrong
+
+Researched after M7a-4 shipped. Sources in section 13.
+
+### 12.1 The three findings that apply
+
+**"One invite link, no account required to join."** This comes up in every
+comparison of group planning tools, and the reason given is always the same:
+friction is what makes the organizer give up, because they are the one chasing
+five people to install something. Wanderlog invites by link and lets anyone
+edit. Partiful, which grew 400% year over year on this exact idea, requires no
+account for guests at all and is phone-first.
+
+**Show the thing before asking who you are.** Partiful lets an invitee see the
+event and who else is going *before* committing, and the stated reason is
+social: people hesitate when they cannot tell what they are walking into.
+
+**A pasted link should unfurl.** Slack, Discord, iMessage, WhatsApp and
+Telegram all turn a bare URL into a card with a title, a description and an
+image. A raw URL in a thread is a dead end that every mainstream chat product
+solved years ago.
+
+### 12.2 What this app currently does wrong
+
+| Problem | Evidence |
+|---|---|
+| Three gates before joining: sign-in wall, then an 8 character code typed by hand, then required tags | `RootView` shows `SignInView` whenever signed out, so an invited person cannot even see the trip |
+| The code is typed, not tapped | No universal link, no URL scheme. The research is unanimous that this is the friction that kills group adoption |
+| A pasted post shows as a raw URL | `MessageRow` prints `message.body` and a small stamp. The single most interesting thing this app does, turning a post into a place, is invisible in the thread |
+| A failed link is a dead end in the UI | M7a-1 produces `needs_place_name`, and nothing acts on it |
+
+The third is the worst of these. The product claim is that the group's posts
+become the trip. The thread is where that happens and it currently shows a
+truncated URL.
+
+### 12.3 Changes
+
+**A. Identity last.** Tap an invite link, see the trip and who is already in,
+then join, and only then give a name. The invite preview endpoint already
+needs no auth; the iOS root is what blocks it.
+
+**B. Links unfurl into place cards.** A link message renders the resolved
+place: name, photo, and the platform it came from. Not a URL. When resolution
+failed with `needs_place_name`, the card carries an inline "Name this place"
+field, which is the only place that failure can be repaired by the person who
+knows the answer.
+
+**C. A tappable invite.** `syncinerary://invite/CODE` plus the typed code kept
+as the fallback, because a code read aloud still has to work.
+
+Not doing now, and why: real-time presence and per-member consensus bars are
+what TripVote and MonkeyTravel show, but this app puts consensus behind a
+deterministic aggregator and a confirmation screen on purpose (CLAUDE.md
+section 10). Live vote counts in the thread would leak that decision back into
+chat, which section 15 keeps out.
+
+### 12.4 Design plan for the changed screens
+
+Tokens unchanged. The accent spend stays as section 11.1 set it.
+
+| Screen | Change | Structure |
+|---|---|---|
+| Invite preview | New, reachable signed out | Trip name in the display serif, the member list as plain names, one primary action. No card, no chrome |
+| Join | Name and tags after the decision, not before | Same top-to-bottom, but the code step disappears when arriving by link |
+| Thread | Link messages become place cards | A card only where a card means something: a resolved place. Plain text stays plain |
+
+**Critique against the AI-look list.** The risk in this pass is the link card,
+because "rounded card with an image and two lines of text" is the single most
+templated component there is. It earns its place only by carrying information
+a line of text cannot: the photo of the place, and the state of the link. So:
+no shadow, no tint, no accent rail, square except the 6pt photo radius the
+system already uses for photos, and no card at all on a message that is just
+words. A failed link gets the same shape with the field in place of the photo,
+so the two states read as one component rather than two designs.
+
+### 12.5 Signature, restated
+
+The stamp from section 11.3 moves onto the link card, where it means more: the
+card shows the place the group's post became, and the stamp says it is in the
+deck. That is the loop this product is about, made visible in the one place
+the group is already looking.
+
+## 13. Sources
+
+- Wanderlog help, "Add friends to plan together": invite by email or link, view
+  or edit permission. https://help.wanderlog.com/hc/en-us/articles/4625495771163-Add-friends-to-plan-together
+- DestList, "Best group vacation planning apps, friction calculator":
+  "one invite link, no account required to join" as the low-friction pattern.
+  https://www.destlist.com/blog/best-group-vacation-planning-apps-friction-calculator-2026
+- Digestible UX on Partiful: no guest account, phone-first, guests see who is
+  going before committing. https://www.digestibleux.com/p/apples-invites-mimicked-partiful
+- DEV, "URL unfurling: how Slack, Discord and Twitter generate link previews".
+  https://dev.to/eatyou_eatyou_d79d27e5622/url-unfurling-how-slack-discord-and-twitter-generate-link-previews-5hgb

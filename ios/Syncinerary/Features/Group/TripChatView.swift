@@ -19,8 +19,10 @@ struct TripChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: AppTheme.spacingL) {
                         ForEach(messages) { message in
-                            MessageRow(message: message)
-                                .id(message.id)
+                            MessageRow(message: message) { placeName in
+                                Task { await name(message, as: placeName) }
+                            }
+                            .id(message.id)
                         }
                     }
                     .padding(AppTheme.spacingL)
@@ -80,6 +82,24 @@ struct TripChatView: View {
             errorMessage = nil
         } catch {
             errorMessage = "Could not load the thread."
+        }
+    }
+
+    /// Repair a link the app could not read. M7a-1 marks those
+    /// needs_place_name, and the person who pasted it is the only one who can
+    /// answer.
+    private func name(_ message: TripMessage, as placeName: String) async {
+        do {
+            let updated = try await APIClient.shared.namePlace(
+                tripID: trip.id,
+                messageID: message.id,
+                placeName: placeName
+            )
+            if let index = messages.firstIndex(where: { $0.id == updated.id }) {
+                messages[index] = updated
+            }
+        } catch {
+            errorMessage = "Could not add that place."
         }
     }
 
