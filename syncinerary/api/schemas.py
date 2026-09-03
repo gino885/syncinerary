@@ -25,6 +25,7 @@ from syncinerary.config.solver import (
 )
 from syncinerary.diff.itinerary_diff import ItineraryDiff
 from syncinerary.domain.models import (
+    Account,
     AttachmentInputType,
     AttachmentStatus,
     CandidateBadge,
@@ -39,6 +40,9 @@ from syncinerary.domain.models import (
     SourceAttachment,
     Traveler,
     Trip,
+    TripInvite,
+    TripMessage,
+    TripMessageKind,
     TripStatus,
     Vote,
     WishlistNotPlaced,
@@ -136,6 +140,151 @@ class TripOut(BaseModel):
             days=trip.days,
             status=trip.status,
         )
+
+
+class AccountOut(BaseModel):
+    id: UUID
+    display_name: str
+    handle: str
+
+    @classmethod
+    def of(cls, account: Account) -> AccountOut:
+        return cls(
+            id=account.id,
+            display_name=account.display_name,
+            handle=account.handle,
+        )
+
+
+class SignInRequest(BaseModel):
+    """Stub sign-in: the handle is the whole credential (CLAUDE.md §15)."""
+
+    display_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
+    ]
+    handle: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=3, max_length=30)
+    ]
+
+
+class SignInResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    account: AccountOut
+
+
+class TripSummaryOut(BaseModel):
+    """One row in the trip list, with this account's traveler id on it."""
+
+    id: UUID
+    destination: str
+    start_date: date
+    end_date: date
+    days: int
+    status: TripStatus
+    traveler_id: UUID
+    member_count: int
+
+    @classmethod
+    def of(cls, trip: Trip, *, traveler_id: UUID, member_count: int) -> TripSummaryOut:
+        return cls(
+            id=trip.id,
+            destination=trip.destination,
+            start_date=trip.start_date,
+            end_date=trip.end_date,
+            days=trip.days,
+            status=trip.status,
+            traveler_id=traveler_id,
+            member_count=member_count,
+        )
+
+
+class InviteCreateRequest(BaseModel):
+    max_uses: Annotated[int, Field(ge=1, le=50)] = 20
+
+
+class InviteOut(BaseModel):
+    code: str
+    expires_at: datetime
+    max_uses: int
+    uses: int
+    revoked: bool
+
+    @classmethod
+    def of(cls, invite: TripInvite) -> InviteOut:
+        return cls(
+            code=invite.code,
+            expires_at=invite.expires_at,
+            max_uses=invite.max_uses,
+            uses=invite.uses,
+            revoked=invite.revoked_at is not None,
+        )
+
+
+class InvitePreviewOut(BaseModel):
+    """What a person sees before joining, so they know what they are entering.
+
+    Deliberately not the candidate pool or the thread: an invite code is
+    shareable, so this must not leak trip content to whoever holds it.
+    """
+
+    trip: TripOut
+    member_names: list[str]
+    usable: bool
+    reason: str | None = None
+
+
+class JoinTripRequest(BaseModel):
+    """Preference tags are required, not optional.
+
+    A member with an empty profile contributes nothing to interest_fit and
+    therefore nothing to the For You lane, so an optional field would quietly
+    degrade the feature the group thread exists to feed.
+    """
+
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
+    ] | None = None
+    preference_tags: Annotated[list[str], Field(min_length=1, max_length=20)]
+    home_city: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ] | None = None
+
+
+class JoinTripResponse(BaseModel):
+    trip: TripOut
+    traveler_id: UUID
+    already_member: bool
+
+
+class TripMessageOut(BaseModel):
+    id: UUID
+    trip_id: UUID
+    traveler_id: UUID | None
+    author_name: str | None
+    body: str
+    kind: TripMessageKind
+    link_attachment_id: UUID | None
+    created_at: datetime
+
+    @classmethod
+    def of(cls, message: TripMessage, *, author_name: str | None) -> TripMessageOut:
+        return cls(
+            id=message.id,
+            trip_id=message.trip_id,
+            traveler_id=message.traveler_id,
+            author_name=author_name,
+            body=message.body,
+            kind=message.kind,
+            link_attachment_id=message.link_attachment_id,
+            created_at=message.created_at,
+        )
+
+
+class PostMessageRequest(BaseModel):
+    body: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)
+    ]
 
 
 class TripCreatedResponse(BaseModel):
