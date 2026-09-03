@@ -24,10 +24,6 @@ struct JoinTripView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppTheme.spacingXL) {
-                Text("Join a trip")
-                    .font(AppType.title)
-                    .foregroundStyle(AppTheme.ink)
-
                 if prefilledCode == nil {
                     codeField
                 }
@@ -51,6 +47,11 @@ struct JoinTripView: View {
             .padding(AppTheme.spacingL)
         }
         .background(AppTheme.paper)
+        // An inline bar rather than a title inside the ScrollView: without a
+        // bar the content scrolled under the status bar, and the trip's own
+        // name below made "Join a trip" a second title saying less.
+        .navigationTitle("Join")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             guard let prefilledCode else { return }
             code = prefilledCode

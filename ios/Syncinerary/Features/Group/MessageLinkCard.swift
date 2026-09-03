@@ -13,6 +13,9 @@ struct MessageLinkCard: View {
 
     @State private var draftName = ""
     @FocusState private var naming: Bool
+    /// Grows with Dynamic Type. A fixed thumbnail beside text that has
+    /// doubled in size reads as a mistake at accessibility sizes.
+    @ScaledMetric(relativeTo: .headline) private var thumbnail = 56
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingS) {
@@ -39,7 +42,7 @@ struct MessageLinkCard: View {
                 } placeholder: {
                     Rectangle().fill(AppTheme.rule.opacity(0.4))
                 }
-                .frame(width: 56, height: 56)
+                .frame(width: thumbnail, height: thumbnail)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.cornerRadius))
             }
 
@@ -60,12 +63,12 @@ struct MessageLinkCard: View {
     /// as one component at two points in its life rather than two designs.
     private var repair: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingS) {
-            Text("\(link.platformLabel) won't open to us")
+            Text(link.failureLine)
                 .font(AppType.rowTitle)
                 .foregroundStyle(AppTheme.ink)
 
             HStack(spacing: AppTheme.spacingS) {
-                TextField("What place is it?", text: $draftName)
+                TextField(placeholder, text: $draftName)
                     .font(AppType.body)
                     .foregroundStyle(AppTheme.ink)
                     .focused($naming)
@@ -86,6 +89,14 @@ struct MessageLinkCard: View {
         Text("Reading the \(link.platformLabel) post")
             .font(AppType.mono)
             .foregroundStyle(AppTheme.faded)
+    }
+
+    /// After a rejected name, ask for a different one rather than repeating
+    /// the original question as though nothing happened.
+    private var placeholder: String {
+        link.failureReason == "place_not_found_in_trip_cities"
+            ? "Try another name"
+            : "What place is it?"
     }
 
     private var canSubmit: Bool {
