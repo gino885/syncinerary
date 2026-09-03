@@ -1,6 +1,10 @@
 import Foundation
 
 enum AppRoute: Hashable {
+    case newTrip
+    case joinTrip
+    case invite(TripListRow)
+    case chat(TripListRow)
     case gathering(TripSession)
     case savedPosts(TripSession)
     case swipe(TripSession)

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(AccountStore.self) private var accounts
+
     @State private var path: [AppRoute] = []
     @State private var recentTrips = RecentTripsStore()
     @State private var resumeErrorMessage = ""
@@ -8,9 +10,21 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            TripCreateView(onCreated: startGathering, onResume: resume)
+            TripsBoardView(
+                onOpen: open,
+                onCreate: { path.append(.newTrip) },
+                onJoin: { path.append(.joinTrip) }
+            )
                 .navigationDestination(for: AppRoute.self) { route in
                     switch route {
+                    case .newTrip:
+                        TripCreateView(onCreated: startGathering, onResume: resume)
+                    case .joinTrip:
+                        JoinTripView(onJoined: joined)
+                    case let .invite(trip):
+                        InviteView(trip: trip)
+                    case let .chat(trip):
+                        TripChatView(trip: trip)
                     case let .gathering(session):
                         GatheringView(session: session, onGathered: showSavedPosts)
                     case let .savedPosts(session):
@@ -48,6 +62,22 @@ struct ContentView: View {
             return
         }
         resume(session)
+    }
+
+    /// A trip from the board. The thread is the way in, because that is
+    /// where the group is already talking and dropping links.
+    private func open(_ trip: TripListRow) {
+        path.append(.chat(trip))
+    }
+
+    private func joined(_ response: JoinTripResponse) {
+        Task {
+            await accounts.loadTrips()
+            if let row = accounts.trips.first(where: { $0.id == response.trip.id }) {
+                path.removeAll()
+                path.append(.chat(row))
+            }
+        }
     }
 
     private func startGathering(_ session: TripSession) {

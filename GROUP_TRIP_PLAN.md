@@ -226,3 +226,76 @@ pole and depends on nothing but the API shape.
   so two travelers on one trip see different For You cards.
 - An expired or revoked invite code cannot join.
 - Existing single-player trips still gather and plan with `account_id` null.
+
+---
+
+## 11. iOS design plan (required by `ios-design-taste` before code)
+
+### 11.1 Tokens
+
+No new tokens. The trip journal system in `Design/AppTheme.swift` and
+`AppType.swift` already carries this: indigo ink on stone paper, the display
+serif at 24pt and above only, the system face at reading sizes, monospaced
+figures, and three stamp inks. Adding a palette for five screens would be the
+drift the whole system exists to prevent.
+
+Accent spend, one place per screen:
+
+| Screen | Accent | On |
+|---|---|---|
+| Sign in | none | The screen is a form on paper. Quiet is the point |
+| My trips | jade | Only the trip currently being planned |
+| Invite | none | The code is the whole screen; ink is enough |
+| Join | violet | Selected preference tags, via the existing button |
+| Trip chat | jade | The stamp on a link that became a card |
+
+### 11.2 One job and one structure per screen
+
+Deliberately five different shapes, because the failure mode named in the
+skill is five screens that look the same at a squint.
+
+| Screen | Its single job | Structure |
+|---|---|---|
+| Sign in | Claim a handle | The journal's inside cover: title, two ruled lines, nothing else. No card, no paragraph |
+| My trips | Choose a trip to continue | A departure board. Hairline-separated rows, destination left in serif, dates right in monospace. No cards |
+| Invite | Hand a code to somebody | The code *is* the screen: large tracked monospace, cities above it in condensed caps. The only centred screen, because the code stands alone |
+| Join | Decide, and say what you like | Preview above a rule, tag grid below it. A decision plus an input, so it is the one screen that legitimately reads top to bottom |
+| Trip chat | Talk, and drop links | The only bottom-anchored screen. Thread above, composer pinned below |
+
+### 11.3 Signature element
+
+A link message carries a small jade stamp reading `IN THE DECK` once its
+attachment resolved into a candidate, and a quiet `NAME THIS PLACE` prompt
+when it came back `needs_place_name`. Nothing else in the app shows the group
+what the agent actually took from their conversation, and it is the one thing
+no other trip app would have, because no other trip app reads the thread.
+
+It also closes the loop on M7a-1: the failure reason has somewhere to land.
+
+### 11.4 Critique pass against the AI-look list
+
+| Default | Verdict |
+|---|---|
+| Cream ground, coral accent, serif display | Avoided: stone paper, indigo ink, existing system |
+| Near-black with an acid pop, monospace everywhere | Avoided. The skill warns this cluster is itself a default now |
+| Same tinted hero card with emoji and a centred paragraph | None of the five screens has one |
+| Emoji as section markers or badges | None. Emoji stay in loading lines and bursts, per M3-3 |
+| Pill chips on every row | Trip rows are a serif name and a monospace line. Chips only in the tag grid, where a chip is the control |
+| "From X" captions with sparkles | None |
+| Everything centred | Only the invite code, which is a single object on its own screen |
+| Identical corner radius everywhere | Unchanged: 6pt on photos and the primary button, squares elsewhere |
+| Explanatory footer under every section | Cut. The one survivor is the dietary disclaimer, which section 5 requires as a fact |
+| Same structure on every screen | Five structures, tabled in 11.2 |
+
+Revised while critiquing: the sign-in screen first had a title, a subtitle
+sentence, and a bordered card. The sentence explained the screen to someone
+already reading it, and the card was the hero pattern. Both are gone; two
+ruled lines carry it, with the placeholders as the only explanation.
+
+### 11.5 Copy
+
+- "Trips", not "My trips". "Message the group", not "Enter a message".
+- The join button says "Join trip", and the screen it lands on is the trip.
+- No hint sentences under controls. Placeholders carry it.
+- Empty trips list is one line that invites the next action.
+- Errors say what to do: "That code has expired. Ask for a new one."
