@@ -123,12 +123,92 @@ class Trip(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class Account(BaseModel):
+    """A person across trips. Stub identity per CLAUDE.md section 15.
+
+    Deliberately not an auth record: no password, no email verification, no
+    provider. It exists to answer "who is this, on which trips", which is what
+    invites and chat need and nothing more.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    display_name: str
+    handle: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class AccountSession(BaseModel):
+    """An opaque bearer token. Stub: issued on sign-in, never rotated."""
+
+    token: str
+    account_id: UUID
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+
+
 class Traveler(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     trip_id: UUID
     name: str
     home_city: str | None = None
     profile: dict[str, Any] = Field(default_factory=dict)
+    # Nullable so every pre-M7a traveler stays valid and the single-player
+    # flow keeps working with no account behind it.
+    account_id: UUID | None = None
+
+
+class TripInvite(BaseModel):
+    """A revocable, expiring join code.
+
+    Not the trip UUID: a UUID pasted into a group chat is a permanent
+    credential nobody can turn off.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    code: str
+    created_by_traveler_id: UUID
+    expires_at: datetime
+    max_uses: int = 20
+    uses: int = 0
+    revoked_at: datetime | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+    def is_usable(self, *, now: datetime) -> bool:
+        """Every reason a code can be refused, in one place.
+
+        Callers must not re-derive this: a join path that checked expiry but
+        forgot revocation would be a silent hole.
+        """
+        return (
+            self.revoked_at is None
+            and self.expires_at > now
+            and self.uses < self.max_uses
+        )
+
+
+class TripMessageKind(str, Enum):
+    TEXT = "text"
+    LINK = "link"
+    SYSTEM = "system"
+
+
+class TripMessage(BaseModel):
+    """One message in a trip's thread.
+
+    `body` is untrusted user content (GROUP_TRIP_PLAN.md section 7). Anything
+    that reads it treats it as data, never as instructions.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    traveler_id: UUID | None = None
+    body: str
+    kind: TripMessageKind = TripMessageKind.TEXT
+    # Set when a pasted URL became an attachment, so the thread can show that
+    # the link is in the deck instead of leaving the poster guessing.
+    link_attachment_id: UUID | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class SourceAttachment(BaseModel):

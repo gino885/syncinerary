@@ -36,7 +36,7 @@ from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
 from syncinerary.agents.solver.lodging import rank_lodging_options
-from syncinerary.api.deps import Session
+from syncinerary.api.deps import OptionalAccount, Session
 from syncinerary.api.schemas import (
     AttachmentLinkRequest,
     CandidateCardOut,
@@ -171,8 +171,17 @@ async def city_suggestions(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreatedResponse:
+async def create_trip(
+    payload: TripCreateRequest,
+    session: Session,
+    account: OptionalAccount = None,
+) -> TripCreatedResponse:
     """Create a trip and its creator traveler.
+
+    The account is optional so the single-player flow keeps working unchanged,
+    but when someone is signed in the creator traveler is linked to them. That
+    link is what makes them a member of their own trip, and therefore able to
+    invite others and post in the thread.
 
     `days` is derived here and stored (§7 calls it derived but persisted):
     every downstream default is expressed as a multiple of it, so recomputing
@@ -230,6 +239,7 @@ async def create_trip(payload: TripCreateRequest, session: Session) -> TripCreat
             trip_id=trip.id,
             name=payload.creator_name,
             home_city=payload.creator_home_city,
+            account_id=account.id if account is not None else None,
             profile=(
                 {"interests": payload.creator_interests}
                 if payload.creator_interests

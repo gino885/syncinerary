@@ -65,6 +65,27 @@ class TravelerRepository(BaseRepository[tables.Traveler, Traveler]):
         """votes_total in the §10.1 aggregator is the traveler count."""
         return len(await self.list_for_trip(trip_id))
 
+    async def list_for_account(self, account_id: UUID) -> list[Traveler]:
+        """Every trip this person is on, as their per-trip traveler rows."""
+        return await self.list_where(
+            tables.Traveler.account_id == account_id,
+            order_by=tables.Traveler.name,
+        )
+
+    async def find_for_account_on_trip(
+        self,
+        *,
+        trip_id: UUID,
+        account_id: UUID,
+    ) -> Traveler | None:
+        """Whether this account already joined, so a re-opened invite link is
+        idempotent instead of hitting the unique constraint."""
+        found = await self.list_where(
+            tables.Traveler.trip_id == trip_id,
+            tables.Traveler.account_id == account_id,
+        )
+        return found[0] if found else None
+
 
 class ConstraintRepository(BaseRepository[tables.TripConstraint, Constraint]):
     """Backed by `trip_constraint`: CONSTRAINT is a Postgres reserved word."""

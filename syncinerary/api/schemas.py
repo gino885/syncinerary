@@ -25,6 +25,7 @@ from syncinerary.config.solver import (
 )
 from syncinerary.diff.itinerary_diff import ItineraryDiff
 from syncinerary.domain.models import (
+    Account,
     AttachmentInputType,
     AttachmentStatus,
     CandidateBadge,
@@ -39,6 +40,9 @@ from syncinerary.domain.models import (
     SourceAttachment,
     Traveler,
     Trip,
+    TripInvite,
+    TripMessage,
+    TripMessageKind,
     TripStatus,
     Vote,
     WishlistNotPlaced,
@@ -138,6 +142,206 @@ class TripOut(BaseModel):
         )
 
 
+class AccountOut(BaseModel):
+    id: UUID
+    display_name: str
+    handle: str
+
+    @classmethod
+    def of(cls, account: Account) -> AccountOut:
+        return cls(
+            id=account.id,
+            display_name=account.display_name,
+            handle=account.handle,
+        )
+
+
+class SignInRequest(BaseModel):
+    """Stub sign-in: the handle is the whole credential (CLAUDE.md §15)."""
+
+    display_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
+    ]
+    handle: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=3, max_length=30)
+    ]
+
+
+class SignInResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    account: AccountOut
+
+
+class TripSummaryOut(BaseModel):
+    """One row in the trip list, with this account's traveler id on it."""
+
+    id: UUID
+    destination: str
+    start_date: date
+    end_date: date
+    days: int
+    status: TripStatus
+    traveler_id: UUID
+    member_count: int
+
+    @classmethod
+    def of(cls, trip: Trip, *, traveler_id: UUID, member_count: int) -> TripSummaryOut:
+        return cls(
+            id=trip.id,
+            destination=trip.destination,
+            start_date=trip.start_date,
+            end_date=trip.end_date,
+            days=trip.days,
+            status=trip.status,
+            traveler_id=traveler_id,
+            member_count=member_count,
+        )
+
+
+class InviteCreateRequest(BaseModel):
+    max_uses: Annotated[int, Field(ge=1, le=50)] = 20
+
+
+class InviteOut(BaseModel):
+    code: str
+    expires_at: datetime
+    max_uses: int
+    uses: int
+    revoked: bool
+
+    @classmethod
+    def of(cls, invite: TripInvite) -> InviteOut:
+        return cls(
+            code=invite.code,
+            expires_at=invite.expires_at,
+            max_uses=invite.max_uses,
+            uses=invite.uses,
+            revoked=invite.revoked_at is not None,
+        )
+
+
+class InvitePreviewOut(BaseModel):
+    """What a person sees before joining, so they know what they are entering.
+
+    Deliberately not the candidate pool or the thread: an invite code is
+    shareable, so this must not leak trip content to whoever holds it.
+    """
+
+    trip: TripOut
+    member_names: list[str]
+    usable: bool
+    reason: str | None = None
+
+
+class JoinTripRequest(BaseModel):
+    """Preference tags are required, not optional.
+
+    A member with an empty profile contributes nothing to interest_fit and
+    therefore nothing to the For You lane, so an optional field would quietly
+    degrade the feature the group thread exists to feed.
+    """
+
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
+    ] | None = None
+    preference_tags: Annotated[list[str], Field(min_length=1, max_length=20)]
+    home_city: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ] | None = None
+
+
+class JoinTripResponse(BaseModel):
+    trip: TripOut
+    traveler_id: UUID
+    already_member: bool
+
+
+class MessageLinkOut(BaseModel):
+    """The unfurled card for a pasted post.
+
+    Every mainstream chat product turns a bare URL into a card, and this app
+    has more to say than most: the post became a place, or it needs a name
+    before it can. A raw URL in the thread hides the one thing the product
+    claims to do.
+    """
+
+    attachment_id: UUID
+    platform: SocialPlatform
+    status: AttachmentStatus
+    url: str | None
+    # Present once the link resolved into a candidate.
+    place_name: str | None = None
+    candidate_id: UUID | None = None
+    photo_url: str | None = None
+    # Present when it could not: the client turns this into an inline repair.
+    failure_reason: str | None = None
+
+    @classmethod
+    def of(
+        cls,
+        attachment: SourceAttachment,
+        *,
+        candidate: CandidatePlace | None,
+    ) -> MessageLinkOut:
+        return cls(
+            attachment_id=attachment.id,
+            platform=attachment.platform,
+            status=attachment.status,
+            url=attachment.canonical_url,
+            place_name=candidate.name_canonical if candidate else None,
+            candidate_id=candidate.id if candidate else None,
+            photo_url=(
+                candidate.enrichment.get("platform_preview_url") if candidate else None
+            ),
+            failure_reason=attachment.metadata.get("failure_reason"),
+        )
+
+
+class TripMessageOut(BaseModel):
+    id: UUID
+    trip_id: UUID
+    traveler_id: UUID | None
+    author_name: str | None
+    body: str
+    kind: TripMessageKind
+    link_attachment_id: UUID | None
+    link: MessageLinkOut | None = None
+    created_at: datetime
+
+    @classmethod
+    def of(
+        cls,
+        message: TripMessage,
+        *,
+        author_name: str | None,
+        link: MessageLinkOut | None = None,
+    ) -> TripMessageOut:
+        return cls(
+            id=message.id,
+            trip_id=message.trip_id,
+            traveler_id=message.traveler_id,
+            author_name=author_name,
+            body=message.body,
+            kind=message.kind,
+            link_attachment_id=message.link_attachment_id,
+            link=link,
+            created_at=message.created_at,
+        )
+
+
+class NamePlaceRequest(BaseModel):
+    place_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)
+    ]
+
+
+class PostMessageRequest(BaseModel):
+    body: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)
+    ]
+
+
 class TripCreatedResponse(BaseModel):
     """The traveler_id is the client's identity for every later call.
 
@@ -173,6 +377,9 @@ class SourceAttachmentOut(BaseModel):
     has_screenshot: bool
     submitted_place_name: str | None
     candidate_id: UUID | None
+    # Why a failed attachment failed. The client uses this to ask for a place
+    # name instead of showing a dead card with no way forward.
+    failure_reason: str | None
     contributor: AttachmentContributorOut
 
     @classmethod
@@ -191,6 +398,7 @@ class SourceAttachmentOut(BaseModel):
             has_screenshot=attachment.screenshot_storage_key is not None,
             submitted_place_name=attachment.metadata.get("submitted_place_name"),
             candidate_id=attachment.metadata.get("candidate_id"),
+            failure_reason=attachment.metadata.get("failure_reason"),
             contributor=AttachmentContributorOut(id=traveler.id, name=traveler.name),
         )
 

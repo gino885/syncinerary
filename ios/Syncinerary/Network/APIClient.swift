@@ -31,12 +31,17 @@ actor APIClient {
         return URLSession(configuration: configuration)
     }()
 
+    /// The bearer token, restored from the Keychain on first use so a
+    /// relaunch does not sign the person out.
+    private var token: String?
+
     init(
         baseURL: URL = APIClient.localBaseURL,
         session: URLSession = APIClient.longRunningSession
     ) {
         self.baseURL = baseURL
         self.session = session
+        self.token = KeychainTokenStore.load()
 
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
@@ -44,6 +49,84 @@ actor APIClient {
 
     func health() async throws -> HealthResponse {
         try await get(path: "health")
+    }
+
+    // MARK: Identity
+
+    func signIn(displayName: String, handle: String) async throws -> SignInResponse {
+        let response: SignInResponse = try await post(
+            path: "auth/session",
+            body: SignInRequest(displayName: displayName, handle: handle)
+        )
+        token = response.token
+        KeychainTokenStore.save(response.token)
+        return response
+    }
+
+    func signOut() {
+        token = nil
+        KeychainTokenStore.delete()
+    }
+
+    var isSignedIn: Bool { token != nil }
+
+    func currentAccount() async throws -> Account {
+        try await get(path: "auth/me")
+    }
+
+    func myTrips() async throws -> [TripListRow] {
+        try await get(path: "accounts/me/trips")
+    }
+
+    // MARK: Invites
+
+    func createInvite(tripID: UUID, maxUses: Int = 20) async throws -> TripInvite {
+        try await post(
+            path: "trips/\(tripID)/invites",
+            body: InviteCreateRequest(maxUses: maxUses)
+        )
+    }
+
+    func invites(tripID: UUID) async throws -> [TripInvite] {
+        try await get(path: "trips/\(tripID)/invites")
+    }
+
+    func revokeInvite(tripID: UUID, code: String) async throws -> TripInvite {
+        try await delete(path: "trips/\(tripID)/invites/\(code)")
+    }
+
+    /// Readable without a session, so somebody can see what they are joining
+    /// before they sign in.
+    func invitePreview(code: String) async throws -> InvitePreview {
+        try await get(path: "invites/\(code)")
+    }
+
+    func joinTrip(code: String, request: JoinTripRequest) async throws -> JoinTripResponse {
+        try await post(path: "invites/\(code)/join", body: request)
+    }
+
+    // MARK: The thread
+
+    func messages(tripID: UUID) async throws -> [TripMessage] {
+        try await get(path: "trips/\(tripID)/messages")
+    }
+
+    func namePlace(
+        tripID: UUID,
+        messageID: UUID,
+        placeName: String
+    ) async throws -> TripMessage {
+        try await post(
+            path: "trips/\(tripID)/messages/\(messageID)/name-place",
+            body: NamePlaceRequest(placeName: placeName)
+        )
+    }
+
+    func postMessage(tripID: UUID, body: String) async throws -> TripMessage {
+        try await post(
+            path: "trips/\(tripID)/messages",
+            body: PostMessageRequest(body: body)
+        )
     }
 
     func createTrip(_ request: TripCreateRequest) async throws -> TripCreatedResponse {
@@ -272,9 +355,23 @@ actor APIClient {
         return try await send(request)
     }
 
+    private func delete<Response: Decodable & Sendable>(
+        path: String
+    ) async throws -> Response {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = "DELETE"
+        return try await send(request)
+    }
+
     private func send<Response: Decodable & Sendable>(
         _ request: URLRequest
     ) async throws -> Response {
+        var request = request
+        // Attached here rather than at each call site so no new endpoint can
+        // forget it.
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
