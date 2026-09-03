@@ -32,6 +32,7 @@ from syncinerary.agents.gather.cities import (
     resolve_timezone,
     suggest_cities,
 )
+from syncinerary.agents.gather.deck import order_deck
 from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
@@ -292,6 +293,9 @@ async def list_candidates(
     candidates = await CandidatePlaceRepository(session).list_swipeable(trip_id)
     constraints = await ConstraintRepository(session).list_for_trip(trip_id)
     candidates = filter_dietary_conflicts(candidates, constraints)
+    # Ordered here rather than in SQL: the order depends on JSONB provenance
+    # and on how the groups interleave, which is product logic, not a query.
+    candidates = order_deck(candidates)
     travelers = await TravelerRepository(session).list_for_trip(trip_id)
     contributor_names = {traveler.id: traveler.name for traveler in travelers}
     delegate_badges = (
