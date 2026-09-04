@@ -357,9 +357,12 @@ Only official APIs or platform-permitted public metadata may be used.
 
 **Method:**
 
-1. Run one bounded high-intent search per platform and city. Instagram and
-   TikTok searches target must-visit and must-eat posts. RedNote searches use
-   Mandarin terms including `必去景点`, `必吃美食`, `旅游攻略`, and `探店`.
+1. Run three bounded searches per platform and city, from angles that differ
+   in kind: one broad must-visit and must-eat, one about eating, one about the
+   quieter places a listicle skips. Asking the same question three ways returns
+   the same posts. RedNote searches use Mandarin terms including `必去景点`,
+   `必吃美食`, `旅游攻略`, and `探店`. All three run inside one search tool call,
+   so this costs provider requests and no harness steps.
 2. Run LLM NER over the public title and description snippets.
 3. Geocode with Google Places and reject addresses outside the selected city.
 4. One independent post may introduce a candidate. A place does not need to
@@ -399,8 +402,12 @@ Rules:
 - A place is eligible for the For You lane at fit 2, a clear match.
 - Unused slots in either lane backfill from the other, so a group that listed
   no interests gets a full trending deck rather than a short one.
-- The trending lane breaks ties in favour of the LOWER interest fit, leaving
-  interest matches for the lane that exists to carry them.
+- **For You draws first, and lanes are sized against the places mining
+  actually produced rather than against the verification budget.** Both matter
+  and were learned the hard way: the budget assumes about 32 places while
+  mining a city yields nine to fifteen, so trending's quota alone exceeded the
+  whole supply. Drawing trending first then took every place and For You chose
+  from an empty list, even when a third of them had cleared the interest bar.
 - Budgets derive from the pool the trip needs, not from a per-city cap: the
   pool is the same size whether the trip visits one city or four. Mining stays
   per city because a post about one city is not evidence about another.

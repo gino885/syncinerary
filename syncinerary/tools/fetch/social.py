@@ -217,10 +217,18 @@ def build_discovery_queries(
     destination_localized: str | None = None,
     interests: list[str] | None = None,
 ) -> list[str]:
-    """Build one stable platform-native query for one selected city.
+    """Build the platform-native queries for one selected city.
 
-    One query per platform makes the provider budget explicit. At most two
-    traveler interests refine that query without creating more API calls.
+    Three angles rather than one. A single "must visit, must eat" query
+    returned about nine usable names for a whole city, which is well under the
+    verification budget and left the For You lane nothing to draw from. The
+    angles are deliberately different in kind, because asking the same question
+    three ways returns the same posts: one broad, one about eating, one about
+    the quieter places a listicle skips.
+
+    All of them run inside one search tool call, so this costs provider
+    requests and no harness steps. At most two traveler interests refine the
+    broad query.
     """
     destination = destination.strip()
     if not destination:
@@ -242,10 +250,16 @@ def build_discovery_queries(
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("RedNote discovery requires a localized destination")
         local = destination_localized.strip()
-        return [f"{local} 必去景点 必吃美食 旅游攻略 探店{suffix}"]
+        return [
+            f"{local} 必去景点 必吃美食 旅游攻略 探店{suffix}",
+            f"{local} 美食推荐 餐厅 咖啡店",
+            f"{local} 小众 宝藏 打卡 地方",
+        ]
 
     return [
-        f"{destination} must visit places must eat food travel guide{suffix}"
+        f"{destination} must visit places must eat food travel guide{suffix}",
+        f"{destination} best restaurants cafes where to eat local food",
+        f"{destination} hidden gems underrated spots locals recommend",
     ]
 
 
@@ -309,20 +323,22 @@ async def _search_brave(
     if not api_key:
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
 
-    cache_payload = value.model_dump_json()
-    cache_digest = hashlib.sha256(cache_payload.encode()).hexdigest()
-    cache_key = f"social:brave:v2:{cache_digest}"
-    if cache is not None:
-        cached = await cache.get(cache_key)
-        if cached is not None:
-            return BraveSocialSearchOutput.model_validate_json(cached)
-
     queries = build_discovery_queries(
         value.platform,
         destination=value.destination,
         destination_localized=value.destination_localized,
         interests=value.interests,
     )
+    # The queries are part of the key, not just the input that produced them.
+    # Keyed on the input alone, editing build_discovery_queries served the old
+    # results for a day and the change looked like it had done nothing.
+    cache_payload = value.model_dump_json() + "\n".join(queries)
+    cache_digest = hashlib.sha256(cache_payload.encode()).hexdigest()
+    cache_key = f"social:brave:v2:{cache_digest}"
+    if cache is not None:
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return BraveSocialSearchOutput.model_validate_json(cached)
     seen: set[str] = set()
     results: list[DiscoveredSocialURL] = []
 

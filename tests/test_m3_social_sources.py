@@ -93,7 +93,9 @@ def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
     )
 
     assert first == second
-    assert first == ["北海道 必去景点 必吃美食 旅游攻略 探店"]
+    assert first[0] == "北海道 必去景点 必吃美食 旅游攻略 探店"
+    assert len(first) == 3
+    assert all("北海道" in query for query in first)
     assert all("Hokkaido" not in query for query in first)
 
 
@@ -104,12 +106,22 @@ def test_interests_refine_one_query_without_adding_provider_calls():
         interests=["ramen", "onsen", "coffee"],
     )
 
-    assert queries == [
+    assert queries[0] == (
         "Sapporo must visit places must eat food travel guide ramen onsen"
-    ]
+    )
+    # Interests refine the broad angle only, so provider cost does not scale
+    # with how many interests a group listed.
+    assert len(queries) == 3
 
 
-def test_one_trip_uses_at_most_three_automatic_brave_searches():
+def test_one_city_uses_at_most_nine_automatic_brave_searches():
+    """A deliberate ceiling, not a description.
+
+    Three platforms times three angles. One angle per platform yielded about
+    nine usable names for a whole city, which left the For You lane nothing to
+    draw from, so the angles were widened on purpose. If a fourth is ever
+    added this should fail and the cost be argued for again.
+    """
     request_count = sum(
         len(
             build_discovery_queries(
@@ -121,7 +133,7 @@ def test_one_trip_uses_at_most_three_automatic_brave_searches():
         for platform in SocialPlatform
     )
 
-    assert request_count == 3
+    assert request_count == 9
 
 
 def test_rednote_discovery_requires_a_mandarin_destination_name():
@@ -180,9 +192,11 @@ async def test_brave_search_keeps_only_valid_platform_posts_and_deduplicates():
             ),
         )
 
-    assert seen_queries == [
-        "site:instagram.com/reel Hokkaido must visit places must eat food travel guide",
-    ]
+    assert seen_queries[0] == (
+        "site:instagram.com/reel Hokkaido must visit places must eat food travel guide"
+    )
+    assert len(seen_queries) == 3
+    assert all(q.startswith("site:instagram.com/reel ") for q in seen_queries)
     assert len(result.results) == 1
     assert result.results[0].reference.canonical_url == (
         "https://www.instagram.com/reel/DcbEs5IpTCt/"
@@ -208,9 +222,13 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
             ),
         )
 
-    assert seen_queries == [
-        "site:xiaohongshu.com 北海道 必去景点 必吃美食 旅游攻略 探店",
-    ]
+    assert seen_queries[0] == (
+        "site:xiaohongshu.com 北海道 必去景点 必吃美食 旅游攻略 探店"
+    )
+    assert len(seen_queries) == 3
+    # Mandarin only: an English angle here would return the wrong internet.
+    assert all("site:xiaohongshu.com" in q for q in seen_queries)
+    assert not any("must visit" in q for q in seen_queries)
 
 
 def test_public_engagement_requires_explicit_like_and_comment_labels():
@@ -282,9 +300,13 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
             destination="Sapporo",
         )
         await run_tool(tool, value)
+        after_first = calls
         await run_tool(tool, value)
 
-    assert calls == 1
+    # The property is that the second run adds nothing, not the absolute
+    # count: the first run makes one request per search angle.
+    assert after_first == 3
+    assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
     assert cache.last_key.startswith("social:brave:v2:")
