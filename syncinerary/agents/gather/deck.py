@@ -48,15 +48,24 @@ def _evidence_rank(candidate: CandidatePlace) -> tuple[float, str]:
 def order_deck(candidates: list[CandidatePlace]) -> list[CandidatePlace]:
     """Interleave the groups so none of them clumps.
 
-    Each group is spread evenly across the deck by giving its i-th card the
-    position (i + 0.5) / n. Sorting on that mixes the groups in proportion to
-    their sizes, which matters because For You cards are chosen for interest
-    rather than popularity: ordered by evidence alone they would all land at
-    the end, behind the fatigue, and the lane would buy nothing.
+    A traveler's own attachments go first. Everything else is spread evenly by
+    giving each group's i-th card the position (i + 0.5) / n, so the groups mix
+    in proportion to their sizes. That matters because For You cards are chosen
+    for interest rather than popularity: ordered by evidence alone they would
+    all land at the end, behind the fatigue, and the lane would buy nothing.
+
+    Foundation cards carry no evidence to rank on, so within their own group
+    they fall back to name order. That is arbitrary, and saying so is better
+    than inventing a score they do not have.
     """
     groups: dict[str, list[CandidatePlace]] = {}
     for candidate in candidates:
         groups.setdefault(deck_lane(candidate), []).append(candidate)
+
+    # Your own attachments lead outright rather than being spread. Spreading
+    # places a one-card lane at its own midpoint, which buried the single card
+    # a traveler had contributed at position 30 of 40.
+    leading = sorted(groups.pop("personal", []), key=_evidence_rank)
 
     placed: list[tuple[float, int, str, CandidatePlace]] = []
     for lane, members in groups.items():
@@ -67,7 +76,7 @@ def order_deck(candidates: list[CandidatePlace]) -> list[CandidatePlace]:
             placed.append(((index + 0.5) / size, priority, lane, candidate))
 
     placed.sort(key=lambda row: (row[0], row[1], row[3].name_canonical.casefold()))
-    return [row[3] for row in placed]
+    return [*leading, *(row[3] for row in placed)]
 
 
 __all__ = ["deck_lane", "order_deck"]

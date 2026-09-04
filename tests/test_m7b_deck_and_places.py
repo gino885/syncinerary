@@ -75,13 +75,27 @@ def test_for_you_cards_are_spread_rather_than_left_at_the_end():
 
 def test_a_travelers_own_attachment_leads():
     """Being asked to vote on the thing you added is the least surprising
-    place to start."""
-    cards = [
-        _card("Big Buzz", buzz=9.0, lane="trending"),
-        _card("Mine", personal=True),
-    ]
+    place to start.
+
+    Sized like a real deck on purpose. The first version of this test had one
+    card in each lane, so the even-spread put both at position 0.5 and the
+    priority tiebreak carried it. With 40 foundation cards the same code put
+    the single attachment at position 30, which is the bug.
+    """
+    cards = [_card(f"Found {i:02}") for i in range(40)]
+    cards += [_card(f"Buzzy {i}", buzz=2.0, lane="trending") for i in range(8)]
+    cards.append(_card("Mine", personal=True))
 
     assert order_deck(cards)[0].name_canonical == "Mine"
+
+
+def test_every_attachment_leads_not_just_one():
+    cards = [_card(f"Found {i:02}") for i in range(30)]
+    cards += [_card("Mine A", personal=True), _card("Mine B", personal=True)]
+
+    lead = [c.name_canonical for c in order_deck(cards)[:2]]
+
+    assert sorted(lead) == ["Mine A", "Mine B"]
 
 
 def test_the_lane_is_read_from_provenance_not_guessed():
@@ -283,3 +297,49 @@ def test_the_attachment_prompt_forbids_cities_like_the_social_one_does():
     for prompt in (TEXT_EXTRACTION_PROMPT, NER_PROMPT):
         assert "whole cities" in prompt
         assert "Sapporo" in prompt, "the rule needs a concrete example to bite"
+
+
+# ----- a pasted link must not suppress the gather -----
+
+
+def test_a_pasted_card_alone_does_not_count_as_a_gathered_pool():
+    """The worst bug the end-to-end run found.
+
+    gather_node reused the pool whenever any candidate row existed. Since M7a
+    a pasted chat link creates one immediately, so a group that shared a post
+    before planning got a permanent one-card deck and a gather that reported
+    success in two steps.
+    """
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    pasted = _card("Ramen Alley", personal=True)
+    assert not _pool_already_discovered([pasted])
+    assert not _pool_already_discovered([])
+
+
+def test_a_discovered_pool_is_still_reused():
+    """The guard exists so a resumed run does not gather twice. That has to
+    keep working."""
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    assert _pool_already_discovered([_card("Odori Park")])
+    assert _pool_already_discovered([_card("Buzzy", buzz=1.0, lane="trending")])
+    assert _pool_already_discovered(
+        [_card("Mine", personal=True), _card("Found by search")]
+    )
+
+
+def test_a_row_with_no_sources_counts_as_a_pool():
+    """It cannot have come from a paste, so the safe reading is that a gather
+    already ran and a resumed run should reuse rather than search again."""
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    sourceless = CandidatePlace(
+        trip_id=TRIP,
+        type=CandidateType.ATTRACTION,
+        name_canonical="Already saved",
+        lat=43.0,
+        lng=141.0,
+    )
+
+    assert _pool_already_discovered([sourceless])

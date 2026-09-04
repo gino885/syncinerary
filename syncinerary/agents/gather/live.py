@@ -483,6 +483,30 @@ async def discover_candidates(
     return selected + lodging[:3]
 
 
+def _pool_already_discovered(candidates: list[CandidatePlace]) -> bool:
+    """Whether discovery has already built this trip's pool.
+
+    Personal attachments do not count. They are additive (CLAUDE.md section
+    16) and are created the moment someone pastes a link, which since M7a
+    happens in the trip chat long before anyone runs a gather. Treating any
+    row as "already gathered" meant one pasted link permanently suppressed
+    discovery and left the group with a one-card deck.
+    """
+    return any(not _is_personal_only(candidate) for candidate in candidates)
+
+
+def _is_personal_only(candidate: CandidatePlace) -> bool:
+    """A card that exists only because someone attached it.
+
+    A row carrying no sources at all is not one of these: it cannot have come
+    from a paste, and the safe reading is that a pool is already there, so a
+    resumed run reuses rather than gathering twice.
+    """
+    return bool(candidate.sources) and all(
+        source.type == "personal" for source in candidate.sources
+    )
+
+
 async def gather_node(state: TripState) -> dict[str, Any]:
     """LangGraph node that persists a live pool and safely reuses it on resume."""
     trip = state.trip
@@ -495,11 +519,12 @@ async def gather_node(state: TripState) -> dict[str, Any]:
         async with session_scope() as session:
             repo = CandidatePlaceRepository(session)
             existing = await repo.list_for_trip(trip.id)
-            if existing:
+            if _pool_already_discovered(existing):
                 existing = filter_dietary_conflicts(existing, state.constraints)
                 span.set_attribute("gather.reused_existing", True)
                 span.set_attribute("gather.candidate_count", len(existing))
                 return {"candidates": existing}
+            attached = list(existing)
 
         candidates = filter_dietary_conflicts(
             await discover_candidates(trip, state.travelers),
@@ -509,11 +534,25 @@ async def gather_node(state: TripState) -> dict[str, Any]:
         async with session_scope() as session:
             repo = CandidatePlaceRepository(session)
             existing = await repo.list_for_trip(trip.id)
-            if existing:
+            if _pool_already_discovered(existing):
+                # Another gather finished while this one was running.
                 saved = filter_dietary_conflicts(existing, state.constraints)
                 reused = True
             else:
-                saved = await repo.add_many(candidates)
+                # Keep the pasted cards and add what discovery found, skipping
+                # a place someone had already attached so the group does not
+                # see it twice.
+                attached_place_ids = {
+                    candidate.enrichment.get("google_place_id")
+                    for candidate in attached
+                }
+                fresh = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.enrichment.get("google_place_id")
+                    not in attached_place_ids
+                ]
+                saved = [*attached, *await repo.add_many(fresh)]
                 reused = False
 
         span.set_attribute("gather.reused_existing", reused)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -520,7 +521,24 @@ async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
         return {}
 
     if attachment.platform is SocialPlatform.TIKTOK:
-        preview = await run_tool(make_tiktok_oembed_tool(), TikTokOEmbedInput(url=url))
+        try:
+            preview = await run_tool(
+                make_tiktok_oembed_tool(), TikTokOEmbedInput(url=url)
+            )
+        except httpx.HTTPStatusError as exc:
+            # A live paste of a deleted or private video 400s here, and an
+            # uncaught raise took the whole POST /messages down with it, so the
+            # message itself was never stored. A link the group cannot read is
+            # a card that needs a name, not a server error.
+            if exc.response.status_code < 500:
+                return {}
+            raise PublicMetadataUnavailable(
+                f"TikTok oEmbed is unavailable ({exc.response.status_code})"
+            ) from exc
+        except httpx.HTTPError as exc:
+            # Transport failure rather than a verdict about the post: keep the
+            # attachment retryable.
+            raise PublicMetadataUnavailable("TikTok oEmbed could not be reached") from exc
         return {
             "caption": preview.caption,
             "platform_author_name": preview.author_name,
