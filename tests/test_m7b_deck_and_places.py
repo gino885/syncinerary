@@ -75,13 +75,27 @@ def test_for_you_cards_are_spread_rather_than_left_at_the_end():
 
 def test_a_travelers_own_attachment_leads():
     """Being asked to vote on the thing you added is the least surprising
-    place to start."""
-    cards = [
-        _card("Big Buzz", buzz=9.0, lane="trending"),
-        _card("Mine", personal=True),
-    ]
+    place to start.
+
+    Sized like a real deck on purpose. The first version of this test had one
+    card in each lane, so the even-spread put both at position 0.5 and the
+    priority tiebreak carried it. With 40 foundation cards the same code put
+    the single attachment at position 30, which is the bug.
+    """
+    cards = [_card(f"Found {i:02}") for i in range(40)]
+    cards += [_card(f"Buzzy {i}", buzz=2.0, lane="trending") for i in range(8)]
+    cards.append(_card("Mine", personal=True))
 
     assert order_deck(cards)[0].name_canonical == "Mine"
+
+
+def test_every_attachment_leads_not_just_one():
+    cards = [_card(f"Found {i:02}") for i in range(30)]
+    cards += [_card("Mine A", personal=True), _card("Mine B", personal=True)]
+
+    lead = [c.name_canonical for c in order_deck(cards)[:2]]
+
+    assert sorted(lead) == ["Mine A", "Mine B"]
 
 
 def test_the_lane_is_read_from_provenance_not_guessed():
@@ -129,3 +143,203 @@ def test_an_untyped_place_is_allowed_through():
     """Places sometimes returns nothing useful. Verification already happened
     upstream, so silence is not evidence of a city."""
     assert is_visitable_place(None, [])
+
+
+# ----- an attachment resolves to the place, not the city it is in -----
+
+
+async def test_a_caption_naming_a_city_and_a_place_resolves_to_the_place(
+    client, monkeypatch
+):
+    """The walkthrough bug: a TikTok about miso ramen produced a card called
+    "Sapporo".
+
+    Two defects met here. The attachment prompt had no rule against cities
+    while the social one did, and the resolver took place_mentions[0] and
+    nothing else, so a caption yielding ['Sapporo', 'Ramen Alley'] gave the
+    card the city. After M7b-2's guard it was worse: the city was rejected and
+    the attachment died rather than falling through to the real place.
+    """
+    from syncinerary.agents.gather import personal as personal_module
+    from syncinerary.agents.gather.attachments import ExtractedPlaceMention
+    from syncinerary.agents.gather.personal import TextPlaceExtraction
+    from syncinerary.tools.places import PlaceMatch
+
+    async def caption(_attachment):
+        return {"caption": "Best miso ramen in Sapporo, at Ramen Alley"}
+
+    async def both_names(_text, *, platform=None):
+        return TextPlaceExtraction(
+            place_mentions=[
+                ExtractedPlaceMention(name="Sapporo", evidence="in Sapporo"),
+                ExtractedPlaceMention(name="Ramen Alley", evidence="at Ramen Alley"),
+            ],
+            short_description=None,
+        )
+
+    async def lookup(name, _trip):
+        if name == "Sapporo":
+            return (
+                PlaceMatch(
+                    place_id="city-sapporo",
+                    display_name="Sapporo",
+                    lat=43.06,
+                    lng=141.35,
+                    primary_type="locality",
+                    types=["locality", "political"],
+                ),
+                "Sapporo",
+            )
+        return (
+            PlaceMatch(
+                place_id="ChIJ-ramen-alley",
+                display_name="Ganso Ramen Yokocho",
+                lat=43.055,
+                lng=141.353,
+                primary_type="ramen_restaurant",
+                types=["ramen_restaurant", "restaurant"],
+            ),
+            "Sapporo",
+        )
+
+    monkeypatch.setattr(personal_module, "_read_public_metadata", caption)
+    monkeypatch.setattr(personal_module, "extract_place_mentions", both_names)
+    monkeypatch.setattr(personal_module, "_find_place_for_trip", lookup)
+
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Sapporo"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.tiktok.com/@creator/video/7459997680383560968",
+        },
+    )
+
+    assert response.json()["status"] == "ready"
+    cards = await client.get(f"/trips/{created.json()['trip']['id']}/candidates")
+    names = [c["name_canonical"] for c in cards.json()]
+    assert "Ganso Ramen Yokocho" in names
+    assert "Sapporo" not in names, "the city must never become a card"
+
+
+async def test_an_attachment_naming_only_a_city_fails_rather_than_carding_it(
+    client, monkeypatch
+):
+    from syncinerary.agents.gather import personal as personal_module
+    from syncinerary.agents.gather.attachments import ExtractedPlaceMention
+    from syncinerary.agents.gather.personal import TextPlaceExtraction
+    from syncinerary.tools.places import PlaceMatch
+
+    async def caption(_attachment):
+        return {"caption": "Sapporo is beautiful"}
+
+    async def city_only(_text, *, platform=None):
+        return TextPlaceExtraction(
+            place_mentions=[ExtractedPlaceMention(name="Sapporo", evidence="Sapporo")],
+            short_description=None,
+        )
+
+    async def lookup(_name, _trip):
+        return (
+            PlaceMatch(
+                place_id="city-sapporo",
+                display_name="Sapporo",
+                lat=43.06,
+                lng=141.35,
+                primary_type="locality",
+                types=["locality", "political"],
+            ),
+            "Sapporo",
+        )
+
+    monkeypatch.setattr(personal_module, "_read_public_metadata", caption)
+    monkeypatch.setattr(personal_module, "extract_place_mentions", city_only)
+    monkeypatch.setattr(personal_module, "_find_place_for_trip", lookup)
+
+    created = await client.post(
+        "/trips",
+        json={
+            "cities": ["Sapporo"],
+            "country": "Japan",
+            "start_date": "2026-05-21",
+            "end_date": "2026-05-25",
+            "creator_name": "Gino",
+        },
+    )
+    response = await client.post(
+        f"/trips/{created.json()['trip']['id']}/attachments/links",
+        json={
+            "traveler_id": created.json()["traveler_id"],
+            "url": "https://www.tiktok.com/@creator/video/7459997680383560968",
+        },
+    )
+
+    assert response.json()["status"] == "failed"
+    cards = await client.get(f"/trips/{created.json()['trip']['id']}/candidates")
+    assert cards.json() == []
+
+
+def test_the_attachment_prompt_forbids_cities_like_the_social_one_does():
+    """These two prompts drifted: the social NER banned cities and the
+    attachment one did not, which is the whole bug."""
+    from syncinerary.agents.gather.personal import TEXT_EXTRACTION_PROMPT
+    from syncinerary.agents.gather.social import NER_PROMPT
+
+    for prompt in (TEXT_EXTRACTION_PROMPT, NER_PROMPT):
+        assert "whole cities" in prompt
+        assert "Sapporo" in prompt, "the rule needs a concrete example to bite"
+
+
+# ----- a pasted link must not suppress the gather -----
+
+
+def test_a_pasted_card_alone_does_not_count_as_a_gathered_pool():
+    """The worst bug the end-to-end run found.
+
+    gather_node reused the pool whenever any candidate row existed. Since M7a
+    a pasted chat link creates one immediately, so a group that shared a post
+    before planning got a permanent one-card deck and a gather that reported
+    success in two steps.
+    """
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    pasted = _card("Ramen Alley", personal=True)
+    assert not _pool_already_discovered([pasted])
+    assert not _pool_already_discovered([])
+
+
+def test_a_discovered_pool_is_still_reused():
+    """The guard exists so a resumed run does not gather twice. That has to
+    keep working."""
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    assert _pool_already_discovered([_card("Odori Park")])
+    assert _pool_already_discovered([_card("Buzzy", buzz=1.0, lane="trending")])
+    assert _pool_already_discovered(
+        [_card("Mine", personal=True), _card("Found by search")]
+    )
+
+
+def test_a_row_with_no_sources_counts_as_a_pool():
+    """It cannot have come from a paste, so the safe reading is that a gather
+    already ran and a resumed run should reuse rather than search again."""
+    from syncinerary.agents.gather.live import _pool_already_discovered
+
+    sourceless = CandidatePlace(
+        trip_id=TRIP,
+        type=CandidateType.ATTRACTION,
+        name_canonical="Already saved",
+        lat=43.0,
+        lng=141.0,
+    )
+
+    assert _pool_already_discovered([sourceless])

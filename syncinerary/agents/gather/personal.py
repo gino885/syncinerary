@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +58,12 @@ TEXT_EXTRACTION_PROMPT = """Extract place or restaurant names from a social capt
 
 Rules:
 - Return only names supported by the supplied text.
+- Skip countries, prefectures, districts, and whole cities. Only name places a
+  traveler can actually go: a restaurant, a park, a museum, a shop, a landmark.
+  A city name on its own, such as "Sapporo", is never a place. A caption
+  reading "Best miso ramen in Sapporo, at Ramen Alley" names Ramen Alley.
+- Order the list with the most specific place first. The first name that
+  resolves is the one the traveler sees.
 - Preserve the original language of each name.
 - Do not infer a destination from the creator, visual style, or general knowledge.
 - An empty place_mentions list is correct when the caption identifies no place.
@@ -392,6 +399,38 @@ async def resolve_named_attachment(
     )
 
 
+async def _resolve_first_resolvable(
+    place_names: list[str],
+    *,
+    attachment: SourceAttachment,
+    trip: Trip,
+    session: AsyncSession,
+) -> SourceAttachment:
+    """Take the first name that is a real, visitable place in this trip.
+
+    A caption reading "Best miso ramen in Sapporo, at Ramen Alley" yields both
+    names, and taking only the first gave the card the city. Skipping past a
+    name that does not resolve is also what keeps a rejected city from burning
+    the whole attachment, which is what the visitable-place guard did to it
+    before this.
+    """
+    for place_name in place_names:
+        found = await _find_place_for_trip(place_name, trip)
+        if found is None or not is_visitable_place(
+            found[0].primary_type, list(found[0].types)
+        ):
+            continue
+        return await _create_candidate_for(
+            found, place_name=place_name, attachment=attachment, trip=trip, session=session
+        )
+    return await _fail(
+        attachment,
+        session,
+        reason=FAILURE_PLACE_NOT_IN_TRIP,
+        metadata={**attachment.metadata, "unresolved_place_names": place_names},
+    )
+
+
 async def _resolve_place_name(
     place_name: str,
     *,
@@ -399,23 +438,20 @@ async def _resolve_place_name(
     trip: Trip,
     session: AsyncSession,
 ) -> SourceAttachment:
-    found = await _find_place_for_trip(place_name, trip)
-    if found is not None and not is_visitable_place(
-        found[0].primary_type, list(found[0].types)
-    ):
-        # Naming a city resolves, so without this "Sapporo" would become a
-        # card here too.
-        found = None
-    if found is None:
-        # Section 8.3: a name that does not resolve inside the trip's cities
-        # never enters the pool. Say so rather than leaving it pending.
-        return await _fail(
-            attachment,
-            session,
-            reason=FAILURE_PLACE_NOT_IN_TRIP,
-            metadata={**attachment.metadata, "unresolved_place_name": place_name},
-        )
+    """One confirmed name. Shares the iterating path so both behave alike."""
+    return await _resolve_first_resolvable(
+        [place_name], attachment=attachment, trip=trip, session=session
+    )
 
+
+async def _create_candidate_for(
+    found: tuple[PlaceMatch, str],
+    *,
+    place_name: str,
+    attachment: SourceAttachment,
+    trip: Trip,
+    session: AsyncSession,
+) -> SourceAttachment:
     match, city_name = found
     place_types = [*match.types]
     if match.primary_type:
@@ -485,7 +521,24 @@ async def _read_public_metadata(attachment: SourceAttachment) -> dict[str, Any]:
         return {}
 
     if attachment.platform is SocialPlatform.TIKTOK:
-        preview = await run_tool(make_tiktok_oembed_tool(), TikTokOEmbedInput(url=url))
+        try:
+            preview = await run_tool(
+                make_tiktok_oembed_tool(), TikTokOEmbedInput(url=url)
+            )
+        except httpx.HTTPStatusError as exc:
+            # A live paste of a deleted or private video 400s here, and an
+            # uncaught raise took the whole POST /messages down with it, so the
+            # message itself was never stored. A link the group cannot read is
+            # a card that needs a name, not a server error.
+            if exc.response.status_code < 500:
+                return {}
+            raise PublicMetadataUnavailable(
+                f"TikTok oEmbed is unavailable ({exc.response.status_code})"
+            ) from exc
+        except httpx.HTTPError as exc:
+            # Transport failure rather than a verdict about the post: keep the
+            # attachment retryable.
+            raise PublicMetadataUnavailable("TikTok oEmbed could not be reached") from exc
         return {
             "caption": preview.caption,
             "platform_author_name": preview.author_name,
@@ -604,8 +657,8 @@ async def resolve_link_attachment(
             reason=FAILURE_NO_PLACE_IN_TEXT,
             metadata=metadata,
         )
-    return await _resolve_place_name(
-        extraction.place_mentions[0].name,
+    return await _resolve_first_resolvable(
+        [mention.name for mention in extraction.place_mentions],
         attachment=attachment,
         trip=trip,
         session=session,
