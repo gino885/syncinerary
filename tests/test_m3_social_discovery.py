@@ -7,6 +7,7 @@ the reality check, and provider failure behavior.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
@@ -119,10 +120,14 @@ def test_interests_refine_the_base_query_without_adding_requests():
         interests=["ramen", "onsen"],
     )
 
-    assert len(base) == 1
-    assert personalised == [
+    assert len(base) == 3
+    assert len(personalised) == 3
+    # Interests refine the broad angle only, so the other two stay stable and
+    # the provider cost does not scale with how much a group listed.
+    assert personalised[0] == (
         "Hokkaido must visit places must eat food travel guide ramen onsen"
-    ]
+    )
+    assert personalised[1:] == base[1:]
 
 
 def test_rednote_interests_refine_the_single_localized_query():
@@ -133,7 +138,8 @@ def test_rednote_interests_refine_the_single_localized_query():
         interests=["拉麵"],
     )
 
-    assert queries == ["北海道 必去景点 必吃美食 旅游攻略 探店 拉麵"]
+    assert queries[0] == "北海道 必去景点 必吃美食 旅游攻略 探店 拉麵"
+    assert len(queries) == 3
 
 
 # ----- content-first eligibility -----
@@ -725,3 +731,77 @@ def test_the_selection_lane_reaches_the_card():
     assert candidate.trending_signals["selection_lane"] == "for_you"
     assert candidate.trending_signals["interest_score"] == 3
     assert candidate.trending_signals["independent_source_count"] == 1
+
+
+# ----- the supply-limited regime, which is the normal one -----
+
+
+def test_for_you_still_fills_when_supply_is_below_the_trending_quota():
+    """The bug that made the lane dead in production.
+
+    Mining a city yields about nine eligible names while the budget is
+    thirty-two, so trending's quota alone exceeded the entire supply. Drawing
+    trending first took every place and For You chose from an empty list, even
+    though places had cleared the interest bar. Every earlier test had more
+    places than slots, which is the regime that never happens.
+    """
+    places = [_mined(f"Popular {i}", [f"u{i}"]) for i in range(6)]
+    places += [_mined(f"Suits us {i}", [f"g{i}"], fit=3) for i in range(3)]
+
+    selected = select_social_candidates(places, budget=32)
+
+    lanes = Counter(choice.lane for choice in selected)
+    assert lanes["for_you"] > 0, "nine places, twenty-three trending slots"
+    assert len(selected) == 9, "every mined place is still verified"
+
+
+def test_lanes_are_sized_against_supply_not_against_the_budget():
+    """Slot counts taken from the budget describe places that do not exist."""
+    places = [_mined(f"P{i}", [f"u{i}"], fit=3 if i < 4 else 0) for i in range(10)]
+
+    selected = select_social_candidates(places, budget=32)
+    lanes = Counter(choice.lane for choice in selected)
+
+    # 10 available -> 7 trending, 3 for you, rather than 23 and 9.
+    assert lanes["trending"] == 7
+    assert lanes["for_you"] == 3
+
+
+def test_for_you_draws_before_trending():
+    """Order decides whether the lane gets anything at all when supply is
+    short, so it is the behaviour worth pinning, not an implementation
+    detail."""
+    strong = _mined("Everyone posts this", ["a", "b", "c"], authors=["a", "b", "c"])
+    quiet = _mined("Quiet Kissaten", ["d"], fit=3)
+    # Sized like a real city. Below four places the 70/30 split rounds the
+    # For You lane away entirely, which is a rounding question rather than
+    # the ordering question this test is about.
+    filler = [_mined(f"Filler {i}", [f"f{i}"]) for i in range(8)]
+
+    selected = select_social_candidates([strong, quiet, *filler], budget=32)
+
+    lane_of = {choice.place.name: choice.lane for choice in selected}
+    assert lane_of["Quiet Kissaten"] == "for_you"
+    assert lane_of["Everyone posts this"] == "trending"
+
+
+def test_no_interest_matches_still_spends_the_run():
+    places = [_mined(f"P{i}", [f"u{i}"]) for i in range(8)]
+
+    selected = select_social_candidates(places, budget=32)
+
+    assert len(selected) == 8
+    assert {choice.lane for choice in selected} == {"trending"}
+
+
+def test_the_search_asks_three_different_questions():
+    """One query returned about nine names for a whole city. The angles have
+    to differ in kind, because asking the same thing three ways returns the
+    same posts."""
+    queries = build_discovery_queries(
+        SocialPlatform.TIKTOK, destination="Sapporo", interests=["coffee"]
+    )
+
+    assert len(queries) == 3
+    assert len(set(queries)) == 3
+    assert all("Sapporo" in query for query in queries)

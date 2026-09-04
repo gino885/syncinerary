@@ -79,7 +79,7 @@ DISCOVERY_PLATFORMS = (
 
 # Posts read per platform, and eligible places geocoded per city. Both are
 # capped so a noisy destination cannot turn one gather into hundreds of calls.
-MAX_POSTS_PER_PLATFORM = 20
+MAX_POSTS_PER_PLATFORM = 30
 
 NER_PROMPT = """Extract place names from numbered social posts about one trip destination.
 
@@ -573,7 +573,7 @@ def score_places(mined: dict[str, MinedPlace]) -> list[MinedPlace]:
     return kept[:MINED_NAMES_MAX]
 
 
-def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, int, str]:
+def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, str]:
     """Strongest social evidence first.
 
     Independent sources sit above raw buzz_score because a place named by two
@@ -581,18 +581,16 @@ def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, int, str]:
     even though log(mentions) cannot tell them apart. The name is a final
     deterministic fallback only, never a meaningful signal.
 
-    interest_score sorts ASCENDING here, which looks backwards and is not. It
-    only ever breaks a tie between places with equal evidence, and in that tie
-    the one that also matches the group's interests is better served by the
-    For You lane. Ranking it down here leaves it there instead of consuming a
-    trending slot and starving the lane it was meant to fill.
+    Interest fit is deliberately absent. It used to sort ascending here to stop
+    trending swallowing the interest matches, which was a workaround for
+    drawing trending first. For You now draws first, so the workaround is gone
+    and this ranks on evidence alone, which is what the lane means.
     """
     return (
         -place.buzz_score,
         -place.independent_source_count,
         -place.independent_author_count,
         -len(place.platforms),
-        place.interest_score,
         place.name.casefold(),
     )
 
@@ -619,39 +617,50 @@ def select_social_candidates(
     *,
     budget: int,
 ) -> list[SelectedPlace]:
-    """Fill a verification budget from two lanes.
+    """Fill the smaller of the budget and the supply, from two lanes.
 
     Trending answers "what has the strongest social evidence". For You answers
     "what looks written for this group", which a popularity sort cannot reach
     because a place matching a stated interest is usually mentioned once.
 
+    Two things here look like details and are not.
+
+    The lanes are sized against what mining actually produced, not against the
+    budget. The budget is derived from the pool the trip wants, roughly 32 for
+    a five day trip, while mining a city yields about nine eligible names. Slot
+    counts taken from the budget therefore describe places that do not exist.
+
+    And For You draws first. Drawing second is what made the lane dead in
+    practice: trending took ranked[:trending_slots], which with nine places and
+    twenty-three slots was all of them, so For You chose from an empty list
+    even when three places had cleared the interest bar.
+
     Unused slots in either lane are backfilled from the other, so a group that
-    listed no interests degrades to a trending-only deck of the same size
-    rather than a short one.
+    listed no interests still gets a full trending deck.
     """
-    if budget <= 0:
+    if budget <= 0 or not places:
         return []
-    trending_slots, for_you_slots = lane_slots(budget)
+    available = min(len(places), budget)
+    trending_slots, for_you_slots = lane_slots(available)
 
-    ranked = sorted(places, key=_trending_rank)
-    trending = ranked[:trending_slots]
-    chosen = {id(place) for place in trending}
-
-    remaining = [place for place in ranked if id(place) not in chosen]
     for_you = sorted(
-        (place for place in remaining if place.interest_score >= MIN_INTEREST_FIT),
+        (place for place in places if place.interest_score >= MIN_INTEREST_FIT),
         key=_for_you_rank,
     )[:for_you_slots]
-    chosen.update(id(place) for place in for_you)
+    chosen = {id(place) for place in for_you}
+
+    ranked = sorted(places, key=_trending_rank)
+    trending = [place for place in ranked if id(place) not in chosen][:trending_slots]
+    chosen.update(id(place) for place in trending)
 
     selected = [SelectedPlace(place=place, lane="trending") for place in trending]
     selected += [SelectedPlace(place=place, lane="for_you") for place in for_you]
 
-    # Backfill: too few places cleared MIN_INTEREST_FIT, or the trending lane
-    # ran out first. Either way the budget is spent rather than left short.
-    if len(selected) < budget:
+    # Backfill: too few places cleared MIN_INTEREST_FIT, or one lane ran out.
+    # Either way the run is spent on real places rather than left short.
+    if len(selected) < available:
         for place in ranked:
-            if len(selected) >= budget:
+            if len(selected) >= available:
                 break
             if id(place) in chosen:
                 continue
