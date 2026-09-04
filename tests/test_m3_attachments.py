@@ -610,6 +610,7 @@ async def test_upload_screenshot_extracts_evidence_and_preserves_contributor(
     session,
     monkeypatch,
     tmp_path,
+    unreadable_links,
 ):
     created = await client.post(
         "/trips",
@@ -676,6 +677,7 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
     client,
     monkeypatch,
     tmp_path,
+    unreadable_links,
 ):
     created = await client.post(
         "/trips",
