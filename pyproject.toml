@@ -75,3 +75,6 @@ exclude = ["syncinerary/store/migrations/versions"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "allow_vendor_calls: test may reach a vendor over the network; see the no_vendor_calls fixture",
+]

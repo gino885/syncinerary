@@ -148,3 +148,44 @@ def unreadable_links(monkeypatch):
     monkeypatch.setattr(personal_module, "extract_place_mentions", no_mentions)
     monkeypatch.setattr(personal_module, "_find_place_for_trip", no_place)
 
+
+# Postgres and Redis are real services in CI and are meant to be reached.
+# Anything else is a vendor, and a test that reaches one asserts the
+# environment it happens to run in.
+_ALLOWED_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0"})
+
+
+@pytest.fixture(autouse=True)
+def no_vendor_calls(monkeypatch, request):
+    """Fail a test that tries to reach Anthropic, Google, Brave, or TikTok.
+
+    This is the guard for the class of bug that turned main red: attachment
+    resolution branches on whether a key is configured, so tests that reached
+    a vendor passed against a developer .env and failed in CI without one.
+    Nothing caught it, because a live call looks exactly like a stubbed one
+    until the key is missing.
+
+    Blocking at the socket rather than at each SDK keeps the guard honest as
+    new tools are added: a future vendor is caught without anyone remembering
+    to stub it. Mark a test `allow_vendor_calls` to opt out.
+    """
+    if request.node.get_closest_marker("allow_vendor_calls"):
+        return
+
+    import socket
+
+    real_connect = socket.socket.connect
+
+    def guarded(self, address, *args, **kwargs):
+        host = address[0] if isinstance(address, tuple) else address
+        if isinstance(host, str) and host not in _ALLOWED_HOSTS:
+            raise RuntimeError(
+                f"{request.node.name} tried to reach {host}. Tests must not "
+                "call vendors: the result then depends on whether a key is "
+                "configured, which is how CI went red while the suite passed "
+                "locally. Stub the tool, or mark the test allow_vendor_calls."
+            )
+        return real_connect(self, address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded)
+
