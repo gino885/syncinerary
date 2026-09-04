@@ -10,7 +10,7 @@ from syncinerary.agents.gather.attachments import ExtractedPlaceMention
 from syncinerary.agents.gather.cities import search_bias, trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.agents.gather.social_read import read_cover_text_for_url
-from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
+from syncinerary.agents.gather.traits import fatigue_cost, is_visitable_place, is_weather_dependent
 from syncinerary.config import settings
 from syncinerary.config.gather import (
     PROFILE_DRIVEN_CAP_PER_TRAVELER,
@@ -400,6 +400,12 @@ async def _resolve_place_name(
     session: AsyncSession,
 ) -> SourceAttachment:
     found = await _find_place_for_trip(place_name, trip)
+    if found is not None and not is_visitable_place(
+        found[0].primary_type, list(found[0].types)
+    ):
+        # Naming a city resolves, so without this "Sapporo" would become a
+        # card here too.
+        found = None
     if found is None:
         # Section 8.3: a name that does not resolve inside the trip's cities
         # never enters the pool. Say so rather than leaving it pending.

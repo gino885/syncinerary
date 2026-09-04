@@ -26,7 +26,11 @@ from pydantic import BaseModel, Field, ValidationError
 from syncinerary.agents.gather.cities import resolve_trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.agents.gather.social_read import read_tiktok_posts
-from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
+from syncinerary.agents.gather.traits import (
+    fatigue_cost,
+    is_visitable_place,
+    is_weather_dependent,
+)
 from syncinerary.config import settings
 from syncinerary.config.gather import (
     BUZZ_MIN_SOURCE_COUNT,
@@ -752,10 +756,15 @@ async def discover_social_candidates(
             if not result.matches:
                 unresolved += 1
                 continue
+            match = result.matches[0]
+            # A city resolves cleanly and passes the boundary check, so
+            # "Sapporo" became an attraction card. Section 8.2 says only
+            # places a traveler can visit.
+            if not is_visitable_place(match.primary_type, list(match.types)):
+                unresolved += 1
+                continue
             candidates.append(
-                to_candidate(
-                    result.matches[0], place, trip, city=city, lane=choice.lane
-                )
+                to_candidate(match, place, trip, city=city, lane=choice.lane)
             )
 
     span.set_attribute("gather.social.unresolved_names", unresolved)
