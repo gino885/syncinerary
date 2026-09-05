@@ -20,9 +20,9 @@ Yes, but only through a search index.
 
 | Step | What happens | Where |
 |---|---|---|
-| Search | One Brave Web Search query per platform per city: `site:instagram.com/reel`, `site:tiktok.com`, `site:xiaohongshu.com` (Mandarin query) | `tools/fetch/social.py::_SEARCH_SCOPE`, `build_discovery_queries` |
+| Search | One Brave Web Search query per planned search, chosen adaptively from three intents (PLACES, FOOD, HIDDEN_GEMS) and capped at 8 per city: `site:instagram.com/reel`, `site:tiktok.com`, `site:xiaohongshu.com/discovery/item` (Mandarin query) | `agents/gather/social_search.py::plan_next_search`, `tools/fetch/social.py::_SEARCH_SCOPE`, `build_discovery_query` |
 | Read | Only the search index `title` and `description` snippet of each result (roughly 150 to 250 characters). Nothing opens the post, the video, the audio, the frames, or the on-screen text | `DiscoveredSocialURL.indexed_text` |
-| Extract | One cheap-model NER call per platform over the numbered snippets | `social.py::extract_post_places` |
+| Extract | One cheap-model NER call per search over the numbered snippets | `social.py::extract_post_places` |
 | Threshold | A name needs 3 distinct post URLs before it is geocoded | `is_eligible`, `BUZZ_MIN_SOURCE_COUNT` |
 | Verify | Google Places text search inside the city | `discover_social_candidates` |
 | Store | `enrichment.social_platforms`, `enrichment.social_post_urls`, `trending_signals`, one `buzz` source row | `to_candidate` |

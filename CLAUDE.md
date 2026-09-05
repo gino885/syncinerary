@@ -357,12 +357,40 @@ Only official APIs or platform-permitted public metadata may be used.
 
 **Method:**
 
-1. Run three bounded searches per platform and city, from angles that differ
-   in kind: one broad must-visit and must-eat, one about eating, one about the
-   quieter places a listicle skips. Asking the same question three ways returns
-   the same posts. RedNote searches use Mandarin terms including `必去景点`,
-   `必吃美食`, `旅游攻略`, and `探店`. All three run inside one search tool call,
-   so this costs provider requests and no harness steps.
+1. Search adaptively, one query at a time, under a hard ceiling of eight
+   searches per city. There are exactly three search intents, and they exist
+   because the two recommendation lanes need different sources:
+
+   | Intent | Looks for | Feeds |
+   |---|---|---|
+   | PLACES | attractions, sightseeing, neighborhoods, scenic spots, activities, cultural sites, shopping areas, parks | Trending |
+   | FOOD | restaurants, cafes, local food, desserts, bars, must-eat places | Trending |
+   | HIDDEN_GEMS | local favorites, underrated and less touristy places, neighborhood and secret spots | For You |
+
+   The first three searches ask PLACES, then FOOD, then HIDDEN_GEMS, on three
+   different platforms, so the first adaptive decision is made with evidence
+   about both lanes rather than about one. The remaining five go to whichever
+   lane is furthest from its target, and within it to the intent that has
+   produced least. Statistics are kept per intent and per (platform, intent)
+   pair, because a platform can be strong for food and useless for hidden
+   gems and an average hides that.
+
+   Traveler interests do not appear here. They rank the For You lane rather
+   than steering search, so provider cost is the same whether a group listed
+   two interests or twenty.
+
+   A search that returns nothing is retried once with fewer words before the
+   question moves to another platform, because an empty result is usually an
+   over-specified query rather than an empty city. The run stops when both
+   lanes reach their targets, when new searches stop adding places, when no
+   useful unused search remains, or at the ceiling.
+
+   RedNote is searched on the note path (`site:xiaohongshu.com/discovery/item`)
+   with the Mandarin destination name and terse Mandarin terms. Both were
+   measured, not assumed: the host-wide scope returns mostly `/mobile/question`
+   and `/mobile/tags` pages and cost RedNote every one of its searches, and
+   long Mandarin queries return nothing at all.
+
 2. Run LLM NER over the public title and description snippets.
 3. Geocode with Google Places and reject addresses outside the selected city.
 4. One independent post may introduce a candidate. A place does not need to
@@ -381,15 +409,32 @@ Only official APIs or platform-permitted public metadata may be used.
 **Two-lane selection.** A pure popularity sort cannot surface a place that
 suits this group but few people posted about, because such a place is
 mentioned once by definition and ties with every other single-mention name.
-Selection therefore fills a verification budget from two lanes:
+The lanes therefore have different **sources**, not different sorts of one
+pool:
 
-| Lane | Ranked by | Answers |
-|---|---|---|
-| Trending | buzz score, then independent source count, then distinct creators | what has the strongest social evidence |
-| For You | interest fit, then buzz as a tiebreak | what looks written for this group |
+```
+PLACES search ─┐
+               ├──→ TRENDING
+FOOD search ───┘
+
+HIDDEN_GEMS search ──→ hidden-gem pool ──→ preference fit ──→ FOR YOU
+```
+
+| Lane | Fed by | Ranked by | Answers |
+|---|---|---|---|
+| Trending | PLACES and FOOD searches | buzz score, then independent source count, then distinct creators | what is broadly popular or strongly validated by social content |
+| For You | HIDDEN_GEMS searches | preference fit, then buzz and independent sources | which less obvious places suit this traveler |
 
 Rules:
 
+- Ranking one pool two ways is not enough, and was the earlier mistake. A
+  place named once by one creator cannot out-rank a popular one on any
+  popularity-derived weighting, so the quiet place has to be **asked for**.
+  HIDDEN_GEMS is a search intent, not a ranking signal.
+- A place is not a hidden gem for having few mentions. It is one because a
+  hidden-gem search found it, which is a claim about the posts rather than
+  about us. Least popular is not the goal: less obvious, credible, and
+  personally relevant is.
 - Discovery keeps every place a post names, including all ten from a listicle.
   Recall belongs to discovery; discrimination belongs to selection.
 - A listicle cannot capture the deck because its ten places share one URL and
@@ -399,15 +444,23 @@ Rules:
   the post, judged only from that post's own words. It is not a similarity
   float and needs no calibrated threshold. The model scores; deterministic
   code selects.
-- A place is eligible for the For You lane at fit 2, a clear match.
-- Unused slots in either lane backfill from the other, so a group that listed
-  no interests gets a full trending deck rather than a short one.
+- Preference fit **ranks** the For You lane and never gates it, so a group
+  that listed no interests still gets one: hidden gems ordered by how well
+  evidenced they are. Interests never create a search of their own, which is
+  what keeps provider cost flat as a group lists more of them.
+- A place both kinds of search found keeps both provenances in
+  `trending_signals.discovery_intents`. For You claims it, because a
+  hidden-gem search naming it is the rarer evidence.
+- A lane whose source produced fewer places than its slots hands the surplus
+  over **before** either lane draws. Handing it over afterwards meant the
+  spare cards were ordered by the donor lane's key, so an all-gems deck came
+  out ranked on popularity.
 - **For You draws first, and lanes are sized against the places mining
   actually produced rather than against the verification budget.** Both matter
   and were learned the hard way: the budget assumes about 32 places while
   mining a city yields nine to fifteen, so trending's quota alone exceeded the
   whole supply. Drawing trending first then took every place and For You chose
-  from an empty list, even when a third of them had cleared the interest bar.
+  from an empty list.
 - Budgets derive from the pool the trip needs, not from a per-city cap: the
   pool is the same size whether the trip visits one city or four. Mining stays
   per city because a post about one city is not evidence about another.
@@ -420,8 +473,24 @@ video, so "reading a post" means the text a platform publishes about it.
 | Platform | Automatic discovery reads | A pasted link reads | Why not more |
 |---|---|---|---|
 | TikTok | The search snippet, plus the caption, creator, and cover frame from the official embed API (`tiktok.com/oembed`, no key). A cheap vision call transcribes the text on the cover frame | The same, with the cover frame read only when the caption names no place | Downloading the video or audio is not permitted |
-| Instagram | The search snippet and explicitly labelled post engagement when present | The search snippet for that URL | Meta's public API does not provide arbitrary Reel discovery or metrics |
+| Instagram | The indexed title, and explicitly labelled post engagement when present | The indexed title for that URL | Meta's public API does not provide arbitrary Reel discovery or metrics |
 | RedNote | The search snippet and explicitly labelled post engagement when present | The search snippet for that URL | No general public note or comment API |
+
+Search-index text is HTML: entities are escaped and the terms that matched
+the query are wrapped in `<strong>`, which is very often the venue name.
+Both are cleaned at ingestion, before anything reads the text.
+
+**Instagram publishes far less than the other two, and this is structural
+rather than a bug to fix.** Measured on one Sapporo food search: 20 Instagram
+posts carried 1,137 readable characters against 5,976 for 18 TikTok posts.
+17 of the 20 Instagram titles were truncated at about 57 characters, so the
+venue names in a listicle caption are cut off, and every Instagram description
+was the same `@reel` profile chrome rather than post text, so it is dropped.
+TikTok additionally has the embed API for caption and cover frame, which
+Instagram does not permit. Expect Instagram to yield a fraction of TikTok's
+mentions per search. The response is the planner's, not the extractor's: a
+low-yield (platform, intent) pair is written off and the budget spent
+elsewhere.
 
 The read is bounded (`config/gather.py`): one batched read step and one
 vision step per city, at most `SOCIAL_COVER_OCR_MAX_IMAGES` cover frames, post
@@ -963,10 +1032,15 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 | Automatic source mix | Up to 60% social buzz / Google foundation fills the remainder; personal attachments are additive | `config/gather.py` |
 | Candidate pool size | `days * 8` (acceptable range: `days * 5` to `days * 8`) | `config/gather.py` |
 | First-round mined names | 100 per trip | `config/gather.py` |
+| Social searches per city | 8 maximum, a ceiling and not a target | `config/gather.py` |
+| Search intents | PLACES, FOOD, HIDDEN_GEMS | `tools/fetch/social.py` |
+| Opening sequence | PLACES, then FOOD, then HIDDEN_GEMS | `tools/fetch/social.py` |
+| Consecutive low-yield searches before stopping | 3 | `config/gather.py` |
+| Consecutive duplicate-heavy searches before stopping | 2 | `config/gather.py` |
+| Attempts per semantic search intent | 2 | `config/gather.py` |
 | Verification budget ceiling | 40 Places checks per trip | `config/gather.py` |
 | Expected verification yield | 0.75 | `config/gather.py` |
 | Trending lane share | 70% of the verification budget | `config/gather.py` |
-| For You minimum interest fit | 2 of 3 | `config/gather.py` |
 | Social min source count | 1 | `config/gather.py` |
 | C2 profile-driven cap | 2 candidates per traveler | `config/gather.py` |
 | Social platforms | Instagram / TikTok / RedNote only | `agents/gather/social.py` |
@@ -997,6 +1071,10 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 - **Buzz:** candidates named by Instagram, TikTok, or RedNote posts. Explicit
   post engagement and repeated mentions strengthen ranking but are not an
   eligibility requirement.
+- **Search intent:** what one social search is asking for, and therefore which
+  lane it stocks. PLACES and FOOD stock Trending; HIDDEN_GEMS stocks For You.
+- **Hidden gem:** a candidate a HIDDEN_GEMS search found. Provenance, not a
+  popularity threshold.
 - **Personal:** candidates from user paste (C1) or driven by the traveler's profile (C2).
 - **Delegate:** a per-traveler LLM context that produces badges and parses notes for THAT traveler only. Does not negotiate. Does not vote. Does not decide.
 - **Shortlist:** the group-confirmed subset of candidates that proceeds to scheduling.

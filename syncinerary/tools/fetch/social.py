@@ -4,13 +4,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import html
 import re
 from enum import StrEnum
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from syncinerary.config import settings
 from syncinerary.config.gather import (
@@ -53,16 +54,20 @@ class SocialReference(BaseModel):
 
 
 class BraveSocialSearchInput(BaseModel):
+    """One search, already worded by build_discovery_query.
+
+    The tool used to take a destination and compose three queries of its own,
+    which meant the caller could not choose what to search next. Query wording
+    is now the planner's decision (see agents/gather/social_search.py) and this
+    layer does one external request, so the cache key is the request.
+    """
+
     platform: SocialPlatform
-    destination: str = Field(min_length=1)
-    destination_localized: str | None = None
-    # Traveler interests, so discovery reflects what this group actually likes
-    # rather than the same generic destination feed for everyone.
-    interests: list[str] = Field(default_factory=list, max_length=8)
+    query: str = Field(min_length=1, max_length=400)
     # The provider's maximum. Cross-source counting only means something with
     # enough posts for a genuinely popular place to recur, and a larger page
     # costs the same one request as a small one.
-    max_results_per_query: int = Field(default=20, ge=1, le=20)
+    max_results: int = Field(default=20, ge=1, le=20)
 
 
 class DiscoveredSocialURL(BaseModel):
@@ -210,57 +215,243 @@ def normalize_social_url(url: str) -> SocialReference:
     raise _unsupported()
 
 
-def build_discovery_queries(
-    platform: SocialPlatform,
+class SearchIntentType(StrEnum):
+    """What a search is looking for, and therefore which lane it feeds.
+
+    Three intents rather than a category taxonomy. PLACES and FOOD ask what a
+    destination is broadly known for and stock the Trending pool; HIDDEN_GEMS
+    asks a different question of the corpus and stocks the For You pool. That
+    the lanes have different discovery sources, rather than one pool sorted
+    two ways, is the point: a hidden gem is mentioned once by definition, so
+    no reranking of a popularity-driven pool can surface it.
+
+    Traveler interests deliberately do not appear here. They rank the For You
+    pool rather than steering search, so provider cost stays flat whether a
+    group listed two interests or twenty.
+    """
+
+    PLACES = "places"
+    FOOD = "food"
+    HIDDEN_GEMS = "hidden_gems"
+
+
+#: Which lane each intent stocks. Provenance travels with the candidate, so a
+#: place found by both a broad and a hidden-gem search is known to be both.
+TRENDING_INTENTS = (SearchIntentType.PLACES, SearchIntentType.FOOD)
+FOR_YOU_INTENTS = (SearchIntentType.HIDDEN_GEMS,)
+
+#: The opening sequence. All three sources are established before the planner
+#: starts reacting to what it found, so the first adaptive decision is made
+#: with evidence about every lane rather than about one.
+OPENING_SEQUENCE = (
+    SearchIntentType.PLACES,
+    SearchIntentType.FOOD,
+    SearchIntentType.HIDDEN_GEMS,
+)
+
+
+class QuerySpecificity(StrEnum):
+    """How narrowly one intent is worded.
+
+    A search that returns nothing is usually over-specified rather than
+    evidence that the place does not exist, so the fallback ladder removes
+    words instead of adding them.
+    """
+
+    SPECIFIC = "specific"
+    NORMAL = "normal"
+    BROAD = "broad"
+
+
+_BROADER_THAN: dict[QuerySpecificity, QuerySpecificity | None] = {
+    QuerySpecificity.SPECIFIC: QuerySpecificity.NORMAL,
+    QuerySpecificity.NORMAL: QuerySpecificity.BROAD,
+    QuerySpecificity.BROAD: None,
+}
+
+# What each traveler interest looks like in a post's own words. Used to read
+# preference fit off text that the extractor did not tag, never to build a
+# query: interests do not steer search, they rank the For You pool.
+SEARCH_TERM_MAP = {
+    "hidden_gems": "hidden gems local spots",
+    "local_food": "local food must eat",
+    "street_food": "street food",
+    "night_life": "nightlife bars",
+    "nightlife": "nightlife bars",
+    "coffee": "coffee cafes",
+    "cafes": "coffee cafes",
+    "onsen": "onsen hot springs",
+    "hiking": "hiking trails",
+    "nature": "nature scenery",
+    "outdoors": "outdoor spots",
+    "art": "art galleries",
+    "history": "historic sites",
+    "photography": "photo spots",
+    "shopping": "shopping streets",
+}
+
+
+def interest_slug(interest: str) -> str:
+    """Normalize a traveler interest to its lookup and dedup identity."""
+    return re.sub(r"[\s\-]+", "_", interest.strip().casefold())
+
+
+def interest_search_term(interest: str) -> str:
+    """The words that indicate this interest in a post's text."""
+    slug = interest_slug(interest)
+    mapped = SEARCH_TERM_MAP.get(slug)
+    if mapped is not None:
+        return mapped
+    return " ".join(interest.replace("_", " ").replace("-", " ").split())
+
+
+class SearchIntent(BaseModel):
+    """What to search for, separate from how the query is worded.
+
+    The planner produces intents; build_discovery_query turns one into a
+    provider query. Keeping the two apart is what makes the loop testable and
+    stops query wording from becoming a decision surface.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    platform: SocialPlatform
+    intent_type: SearchIntentType
+    specificity: QuerySpecificity = QuerySpecificity.SPECIFIC
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """Semantic identity. Wording is deliberately absent, so two
+        differently worded attempts at one question count as one question."""
+        return (self.platform.value, self.intent_type.value)
+
+    @property
+    def lane(self) -> str:
+        return "for_you" if self.intent_type in FOR_YOU_INTENTS else "trending"
+
+    def broadened(self) -> SearchIntent | None:
+        """The same question asked with fewer words, or None at the floor."""
+        wider = _BROADER_THAN[self.specificity]
+        if wider is None:
+            return None
+        return self.model_copy(update={"specificity": wider})
+
+
+_ENGLISH_QUERIES: dict[tuple[SearchIntentType, QuerySpecificity], str] = {
+    (SearchIntentType.PLACES, QuerySpecificity.SPECIFIC): (
+        "{destination} must visit places things to do attractions sightseeing"
+    ),
+    (SearchIntentType.PLACES, QuerySpecificity.NORMAL): (
+        "{destination} must visit places things to do"
+    ),
+    (SearchIntentType.PLACES, QuerySpecificity.BROAD): "{destination} things to do",
+    (SearchIntentType.FOOD, QuerySpecificity.SPECIFIC): (
+        "{destination} best local food restaurants cafes must eat"
+    ),
+    (SearchIntentType.FOOD, QuerySpecificity.NORMAL): (
+        "{destination} best local food restaurants"
+    ),
+    (SearchIntentType.FOOD, QuerySpecificity.BROAD): "{destination} food",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.SPECIFIC): (
+        "{destination} hidden gems local spots underrated places"
+    ),
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.NORMAL): (
+        "{destination} local favorites less touristy places"
+    ),
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.BROAD): "{destination} local spots",
+}
+
+# Measured against Brave for Sapporo under the note-path scope: these wordings
+# returned 9, 20 and 20 notes, while longer piles of qualifiers returned zero.
+# Chinese travel notes are tagged tersely, so an English-shaped query with five
+# modifiers matches nothing at all.
+_MANDARIN_QUERIES: dict[tuple[SearchIntentType, QuerySpecificity], str] = {
+    (SearchIntentType.PLACES, QuerySpecificity.SPECIFIC): (
+        "{destination} 必去景点 旅游攻略"
+    ),
+    (SearchIntentType.PLACES, QuerySpecificity.NORMAL): "{destination} 必去景点",
+    (SearchIntentType.PLACES, QuerySpecificity.BROAD): "{destination} 景点",
+    (SearchIntentType.FOOD, QuerySpecificity.SPECIFIC): (
+        "{destination} 美食推荐 餐厅 咖啡店 探店"
+    ),
+    (SearchIntentType.FOOD, QuerySpecificity.NORMAL): "{destination} 美食推荐 餐厅",
+    (SearchIntentType.FOOD, QuerySpecificity.BROAD): "{destination} 美食",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.SPECIFIC): (
+        "{destination} 小众 宝藏"
+    ),
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.NORMAL): "{destination} 小众 打卡",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.BROAD): "{destination} 小众",
+}
+
+
+def build_discovery_query(
+    intent: SearchIntent,
     *,
     destination: str,
     destination_localized: str | None = None,
-    interests: list[str] | None = None,
-) -> list[str]:
-    """Build the platform-native queries for one selected city.
+) -> str:
+    """Word one search intent as a provider query for its platform.
 
-    Three angles rather than one. A single "must visit, must eat" query
-    returned about nine usable names for a whole city, which is well under the
-    verification budget and left the For You lane nothing to draw from. The
-    angles are deliberately different in kind, because asking the same question
-    three ways returns the same posts: one broad, one about eating, one about
-    the quieter places a listicle skips.
-
-    All of them run inside one search tool call, so this costs provider
-    requests and no harness steps. At most two traveler interests refine the
-    broad query.
+    Deterministic on purpose: the planner decides what is missing, this decides
+    how to ask for it, and no model writes a query. RedNote is searched in the
+    destination's Mandarin name, which is a hard requirement rather than a
+    preference: the English name returns a different corpus entirely.
     """
     destination = destination.strip()
     if not destination:
         raise ValueError("destination cannot be empty")
 
-    cleaned_interests: list[str] = []
-    seen_interests: set[str] = set()
-    for interest in interests or []:
-        cleaned = interest.strip()
-        if not cleaned or cleaned.casefold() in seen_interests:
-            continue
-        seen_interests.add(cleaned.casefold())
-        cleaned_interests.append(cleaned)
-        if len(cleaned_interests) == 2:
-            break
-
-    suffix = "" if not cleaned_interests else f" {' '.join(cleaned_interests)}"
-    if platform is SocialPlatform.REDNOTE:
+    if intent.platform is SocialPlatform.REDNOTE:
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("RedNote discovery requires a localized destination")
-        local = destination_localized.strip()
-        return [
-            f"{local} 必去景点 必吃美食 旅游攻略 探店{suffix}",
-            f"{local} 美食推荐 餐厅 咖啡店",
-            f"{local} 小众 宝藏 打卡 地方",
-        ]
+        name = destination_localized.strip()
+        template = _MANDARIN_QUERIES[(intent.intent_type, intent.specificity)]
+    else:
+        name = destination
+        template = _ENGLISH_QUERIES[(intent.intent_type, intent.specificity)]
 
-    return [
-        f"{destination} must visit places must eat food travel guide{suffix}",
-        f"{destination} best restaurants cafes where to eat local food",
-        f"{destination} hidden gems underrated spots locals recommend",
-    ]
+    return " ".join(template.format(destination=name).split())
+
+
+_HTML_TAG = re.compile(r"<[^>]+>")
+# Instagram serves one og:description for every reel URL, so it is the same
+# string on every result and says nothing about any of them. It ends with an
+# empty quoted caption, which is the general shape worth matching: a snippet
+# whose caption is empty carries no post text whatever the locale.
+_EMPTY_CAPTION = re.compile(r':\s*""\s*$')
+
+
+def clean_snippet(value: object) -> str | None:
+    """Turn one Brave field into the text a reader would actually see.
+
+    Brave returns HTML: entities are escaped, and the terms that matched the
+    query are wrapped in <strong>. Those matched terms are very often the
+    venue name, so left alone the extractor is asked to find places in
+    "<strong>Hill of the Buddha</strong>" and the quote characters in a
+    caption arrive as &quot;. Tags are stripped before entities are decoded,
+    so a literal &lt;strong&gt; inside a caption survives as text.
+    """
+    if not isinstance(value, str):
+        return None
+    text = " ".join(html.unescape(_HTML_TAG.sub("", value)).split())
+    return text or None
+
+
+def post_snippet(value: object) -> str | None:
+    """The description, or None when it is not about this post.
+
+    Instagram's description for a reel is the @reel account's profile chrome,
+    a follower count followed by an empty caption, and it is byte identical on
+    every result. Measured over one gather that was one distinct string across
+    thirty-four Instagram rows, against twelve distinct across fifteen TikTok
+    rows. Passing it on spent about half the extraction payload and gave the
+    model twenty copies of a follower count to read past, so a snippet whose
+    caption is empty is dropped and the post keeps its title.
+    """
+    text = clean_snippet(value)
+    if text is None or _EMPTY_CAPTION.search(text):
+        return None
+    return text
 
 
 _ENGLISH_ENGAGEMENT_PATTERNS = {
@@ -303,13 +494,22 @@ def parse_public_engagement(text: str) -> tuple[int | None, int | None]:
     return values["like"], values["comment"]
 
 
-# Scoped to the host, not to a path prefix: "site:tiktok.com/@" matched nothing
-# at all, so TikTok contributed zero posts. The host scope returns both videos
-# and /discover/ pages, and normalize_social_url drops the latter.
+# Whether to scope by host or by path is per platform, and measured rather
+# than assumed. "site:tiktok.com/@" matched nothing at all, so TikTok uses the
+# host and normalize_social_url drops the /discover/ pages it also returns.
+#
+# RedNote is the opposite, and the host scope was silently costing the platform
+# every one of its searches. Measured against Brave for Sapporo, the host scope
+# returns 20 rows of which 12 to 15 are /mobile/question/ Q&A pages plus
+# /mobile/tags/, /user/profile/ and the bare /explore/ feed, and 0 to 5 are
+# actual notes; the note-path scope returns 6 to 20 rows that are all notes.
+# Discovery therefore searches the note path. normalize_social_url still
+# accepts /explore/<id> as well, so a traveler pasting either shape is
+# unaffected: this narrows what discovery searches, not what the app accepts.
 _SEARCH_SCOPE = {
     SocialPlatform.INSTAGRAM: "site:instagram.com/reel",
     SocialPlatform.TIKTOK: "site:tiktok.com",
-    SocialPlatform.REDNOTE: "site:xiaohongshu.com",
+    SocialPlatform.REDNOTE: "site:xiaohongshu.com/discovery/item",
 }
 
 
@@ -323,18 +523,14 @@ async def _search_brave(
     if not api_key:
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
 
-    queries = build_discovery_queries(
-        value.platform,
-        destination=value.destination,
-        destination_localized=value.destination_localized,
-        interests=value.interests,
-    )
-    # The queries are part of the key, not just the input that produced them.
-    # Keyed on the input alone, editing build_discovery_queries served the old
-    # results for a day and the change looked like it had done nothing.
-    cache_payload = value.model_dump_json() + "\n".join(queries)
-    cache_digest = hashlib.sha256(cache_payload.encode()).hexdigest()
-    cache_key = f"social:brave:v2:{cache_digest}"
+    scoped_query = f"{_SEARCH_SCOPE[value.platform]} {value.query.strip()}"
+    # Cache identity is the external request, nothing about the loop that
+    # produced it. A given query costs the provider once however many
+    # iterations ago the planner decided to ask it.
+    cache_digest = hashlib.sha256(
+        f"{scoped_query}\n{value.max_results}".encode()
+    ).hexdigest()
+    cache_key = f"social:brave:v3:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -342,47 +538,45 @@ async def _search_brave(
     seen: set[str] = set()
     results: list[DiscoveredSocialURL] = []
 
-    for query in queries:
-        scoped_query = f"{_SEARCH_SCOPE[value.platform]} {query}"
-        response = await client.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            headers={
-                "Accept": "application/json",
-                "X-Subscription-Token": api_key,
-            },
-            params={"q": scoped_query, "count": value.max_results_per_query},
+    response = await client.get(
+        "https://api.search.brave.com/res/v1/web/search",
+        headers={
+            "Accept": "application/json",
+            "X-Subscription-Token": api_key,
+        },
+        params={"q": scoped_query, "count": value.max_results},
+    )
+    response.raise_for_status()
+    rows = response.json().get("web", {}).get("results", [])
+    for rank, row in enumerate(rows, start=1):
+        try:
+            reference = normalize_social_url(row.get("url", ""))
+        except (TypeError, ValueError):
+            continue
+        if (
+            reference.platform is not value.platform
+            or reference.kind is not SocialReferenceKind.POST
+            or reference.canonical_url in seen
+        ):
+            continue
+        seen.add(reference.canonical_url)
+        title = clean_snippet(row.get("title"))
+        description = post_snippet(row.get("description"))
+        engagement_text = "\n".join(
+            part for part in (title, description) if isinstance(part, str)
         )
-        response.raise_for_status()
-        rows = response.json().get("web", {}).get("results", [])
-        for rank, row in enumerate(rows, start=1):
-            try:
-                reference = normalize_social_url(row.get("url", ""))
-            except (TypeError, ValueError):
-                continue
-            if (
-                reference.platform is not value.platform
-                or reference.kind is not SocialReferenceKind.POST
-                or reference.canonical_url in seen
-            ):
-                continue
-            seen.add(reference.canonical_url)
-            title = row.get("title")
-            description = row.get("description")
-            engagement_text = "\n".join(
-                value for value in (title, description) if isinstance(value, str)
+        like_count, comment_count = parse_public_engagement(engagement_text)
+        results.append(
+            DiscoveredSocialURL(
+                reference=reference,
+                query=scoped_query,
+                rank=rank,
+                title=title,
+                description=description,
+                like_count=like_count,
+                comment_count=comment_count,
             )
-            like_count, comment_count = parse_public_engagement(engagement_text)
-            results.append(
-                DiscoveredSocialURL(
-                    reference=reference,
-                    query=scoped_query,
-                    rank=rank,
-                    title=title,
-                    description=description,
-                    like_count=like_count,
-                    comment_count=comment_count,
-                )
-            )
+        )
 
     # Explicit post engagement is stronger evidence than search position.
     # When the index exposes no metric, preserve its deterministic rank.
@@ -489,8 +683,8 @@ async def _lookup_link_metadata(
             platform=reference.platform,
             canonical_url=reference.canonical_url,
             platform_id=reference.platform_id,
-            title=row.get("title"),
-            description=row.get("description"),
+            title=clean_snippet(row.get("title")),
+            description=post_snippet(row.get("description")),
         )
 
     return SocialLinkMetadata(
@@ -822,10 +1016,17 @@ def make_tiktok_post_read_tool(
 
 __all__ = [
     "BRAVE_SEARCH_CACHE_TTL_SECONDS",
+    "FOR_YOU_INTENTS",
+    "OPENING_SEQUENCE",
+    "SEARCH_TERM_MAP",
+    "TRENDING_INTENTS",
     "BraveSocialSearchInput",
     "BraveSocialSearchOutput",
     "CoverImage",
     "DiscoveredSocialURL",
+    "QuerySpecificity",
+    "SearchIntent",
+    "SearchIntentType",
     "SocialLinkMetadata",
     "SocialLinkMetadataInput",
     "SocialPlatform",
@@ -836,10 +1037,14 @@ __all__ = [
     "TikTokPostRead",
     "TikTokPostReadBatchInput",
     "TikTokPostReadBatchOutput",
-    "build_discovery_queries",
+    "build_discovery_query",
+    "clean_snippet",
+    "interest_search_term",
+    "interest_slug",
     "make_brave_social_search_tool",
     "make_social_link_metadata_tool",
     "make_tiktok_oembed_tool",
     "make_tiktok_post_read_tool",
     "normalize_social_url",
+    "post_snippet",
 ]

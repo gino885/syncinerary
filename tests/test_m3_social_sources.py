@@ -4,18 +4,29 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from syncinerary.config.gather import MAX_SEARCHES_PER_CITY
 from syncinerary.harness import run_tool
 from syncinerary.tools.fetch.social import (
+    OPENING_SEQUENCE,
     BraveSocialSearchInput,
+    QuerySpecificity,
+    SearchIntent,
+    SearchIntentType,
     SocialPlatform,
     SocialReferenceKind,
     TikTokOEmbedInput,
-    build_discovery_queries,
+    build_discovery_query,
+    clean_snippet,
     make_brave_social_search_tool,
     make_tiktok_oembed_tool,
     normalize_social_url,
     parse_public_engagement,
+    post_snippet,
 )
+
+
+def _intent(platform, intent_type=SearchIntentType.PLACES, **kwargs) -> SearchIntent:
+    return SearchIntent(platform=platform, intent_type=intent_type, **kwargs)
 
 
 class FakeCache:
@@ -81,64 +92,114 @@ def test_tiktok_video_url_is_attachable_and_canonical():
 
 
 def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
-    first = build_discovery_queries(
-        SocialPlatform.REDNOTE,
-        destination="Hokkaido",
-        destination_localized="北海道",
+    intent = _intent(SocialPlatform.REDNOTE)
+    first = build_discovery_query(
+        intent, destination="Hokkaido", destination_localized="北海道"
     )
-    second = build_discovery_queries(
-        SocialPlatform.REDNOTE,
-        destination="Hokkaido",
-        destination_localized="北海道",
+    second = build_discovery_query(
+        intent, destination="Hokkaido", destination_localized="北海道"
     )
 
     assert first == second
-    assert first[0] == "北海道 必去景点 必吃美食 旅游攻略 探店"
-    assert len(first) == 3
-    assert all("北海道" in query for query in first)
-    assert all("Hokkaido" not in query for query in first)
+    assert first == "北海道 必去景点 旅游攻略"
 
 
-def test_interests_refine_one_query_without_adding_provider_calls():
-    queries = build_discovery_queries(
-        SocialPlatform.INSTAGRAM,
-        destination="Sapporo",
-        interests=["ramen", "onsen", "coffee"],
-    )
+def test_every_rednote_intent_and_wording_stays_in_mandarin():
+    """The language guarantee is per query, not per intent.
 
-    assert queries[0] == (
-        "Sapporo must visit places must eat food travel guide ramen onsen"
-    )
-    # Interests refine the broad angle only, so provider cost does not scale
-    # with how many interests a group listed.
-    assert len(queries) == 3
-
-
-def test_one_city_uses_at_most_nine_automatic_brave_searches():
-    """A deliberate ceiling, not a description.
-
-    Three platforms times three angles. One angle per platform yielded about
-    nine usable names for a whole city, which left the For You lane nothing to
-    draw from, so the angles were widened on purpose. If a fourth is ever
-    added this should fail and the cost be argued for again.
+    Adaptive search can reach any intent at any specificity, so the check has
+    to cover the whole grid rather than the three queries the old plan built.
     """
-    request_count = sum(
-        len(
-            build_discovery_queries(
-                platform,
-                destination="Sapporo",
-                destination_localized="札幌" if platform is SocialPlatform.REDNOTE else None,
-            )
+    queries = [
+        build_discovery_query(
+            _intent(SocialPlatform.REDNOTE, intent_type, specificity=specificity),
+            destination="Hokkaido",
+            destination_localized="北海道",
         )
-        for platform in SocialPlatform
-    )
+        for intent_type in SearchIntentType
+        for specificity in QuerySpecificity
+    ]
 
-    assert request_count == 9
+    assert all(query.startswith("北海道 ") for query in queries)
+    assert not any("Hokkaido" in query for query in queries)
+    assert not any(query.isascii() for query in queries)
+
+
+def test_the_three_search_intents_ask_genuinely_different_questions():
+    """PLACES and FOOD stock Trending; HIDDEN_GEMS stocks For You.
+
+    If two of them returned the same query the lanes would share a source,
+    which is the thing this design exists to avoid.
+    """
+    queries = {
+        intent_type: build_discovery_query(
+            _intent(SocialPlatform.TIKTOK, intent_type), destination="Sapporo"
+        )
+        for intent_type in SearchIntentType
+    }
+
+    assert len(set(queries.values())) == 3
+    assert "attractions" in queries[SearchIntentType.PLACES]
+    assert "restaurants" in queries[SearchIntentType.FOOD]
+    assert "hidden gems" in queries[SearchIntentType.HIDDEN_GEMS]
+    assert all("Sapporo" in query for query in queries.values())
+
+
+def test_hidden_gems_is_a_search_of_its_own_not_a_ranking_tweak():
+    """It has to be asked for explicitly, because a place few people posted
+    about cannot be reached by reranking a popularity-driven pool."""
+    gems = _intent(SocialPlatform.INSTAGRAM, SearchIntentType.HIDDEN_GEMS)
+    places = _intent(SocialPlatform.INSTAGRAM, SearchIntentType.PLACES)
+
+    assert gems.lane == "for_you"
+    assert places.lane == "trending"
+    assert gems.key != places.key
+    assert SearchIntentType.HIDDEN_GEMS in OPENING_SEQUENCE
+
+
+def test_the_fallback_ladder_removes_words_rather_than_adding_them():
+    """Over-specification is the common search failure, so broadening a failed
+    intent has to make the query shorter."""
+    intent = _intent(SocialPlatform.INSTAGRAM)
+    ladder = []
+    while intent is not None:
+        ladder.append(build_discovery_query(intent, destination="Sapporo"))
+        intent = intent.broadened()
+
+    assert len(ladder) == 3
+    lengths = [len(query.split()) for query in ladder]
+    assert lengths == sorted(lengths, reverse=True)
+    assert ladder[-1] == "Sapporo things to do"
+
+
+def test_a_semantic_intent_ignores_wording_and_specificity():
+    """Two wordings of one question must not count as two questions."""
+    specific = _intent(SocialPlatform.TIKTOK, SearchIntentType.HIDDEN_GEMS)
+    broader = specific.broadened()
+
+    assert specific.key == broader.key
+    assert specific.key == ("tiktok", "hidden_gems")
+    assert build_discovery_query(
+        specific, destination="Sapporo"
+    ) != build_discovery_query(broader, destination="Sapporo")
+
+
+def test_one_city_never_exceeds_the_brave_search_ceiling():
+    """A cost bound, not a plan.
+
+    Eight is the absolute per-city Brave budget, below the nine the old fixed
+    plan spent every time. Discovery is adaptive and should normally stop well
+    before reaching it; this protects provider cost and does not prescribe how
+    many searches must run. The loop that has to respect it is covered in
+    test_m7f_adaptive_social_search.py.
+    """
+    assert MAX_SEARCHES_PER_CITY == 8
+    assert len(OPENING_SEQUENCE) < MAX_SEARCHES_PER_CITY
 
 
 def test_rednote_discovery_requires_a_mandarin_destination_name():
     with pytest.raises(ValueError, match="localized destination"):
-        build_discovery_queries(SocialPlatform.REDNOTE, destination="Hokkaido")
+        build_discovery_query(_intent(SocialPlatform.REDNOTE), destination="Hokkaido")
 
 
 @pytest.mark.parametrize(
@@ -187,16 +248,16 @@ async def test_brave_search_keeps_only_valid_platform_posts_and_deduplicates():
             make_brave_social_search_tool(client=client, api_key="test-key"),
             BraveSocialSearchInput(
                 platform=SocialPlatform.INSTAGRAM,
-                destination="Hokkaido",
-                max_results_per_query=5,
+                query="Hokkaido must visit places must eat food travel guide",
+                max_results=5,
             ),
         )
 
-    assert seen_queries[0] == (
+    # One planned search is one provider request: the tool no longer composes
+    # queries of its own, so the caller decides what and how often to ask.
+    assert seen_queries == [
         "site:instagram.com/reel Hokkaido must visit places must eat food travel guide"
-    )
-    assert len(seen_queries) == 3
-    assert all(q.startswith("site:instagram.com/reel ") for q in seen_queries)
+    ]
     assert len(result.results) == 1
     assert result.results[0].reference.canonical_url == (
         "https://www.instagram.com/reel/DcbEs5IpTCt/"
@@ -217,18 +278,94 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
             make_brave_social_search_tool(client=client, api_key="test-key"),
             BraveSocialSearchInput(
                 platform=SocialPlatform.REDNOTE,
-                destination="Hokkaido",
-                destination_localized="北海道",
+                query=build_discovery_query(
+                    _intent(SocialPlatform.REDNOTE),
+                    destination="Hokkaido",
+                    destination_localized="北海道",
+                ),
             ),
         )
 
-    assert seen_queries[0] == (
-        "site:xiaohongshu.com 北海道 必去景点 必吃美食 旅游攻略 探店"
-    )
-    assert len(seen_queries) == 3
+    # Scoped to the note path, not the host: the host scope returns mostly
+    # /mobile/question/ and /mobile/tags/ pages, which are not posts, so
+    # RedNote contributed nothing at all through it.
+    assert seen_queries == [
+        "site:xiaohongshu.com/discovery/item 北海道 必去景点 旅游攻略"
+    ]
     # Mandarin only: an English angle here would return the wrong internet.
-    assert all("site:xiaohongshu.com" in q for q in seen_queries)
     assert not any("must visit" in q for q in seen_queries)
+
+
+def test_brave_highlight_markup_is_stripped_before_extraction():
+    """Brave wraps the terms that matched the query in <strong>, and those are
+    very often the venue name, so the tags have to go before the extractor
+    reads the text."""
+    assert clean_snippet(
+        "Jangan sampe skip ke <strong>Hill of the Buddha</strong>!"
+    ) == "Jangan sampe skip ke Hill of the Buddha!"
+
+
+def test_html_entities_are_decoded_into_the_characters_they_stand_for():
+    assert clean_snippet("Caf&eacute; &amp; bar &#39;Kissa&#39;") == "Café & bar 'Kissa'"
+    assert clean_snippet(None) is None
+    assert clean_snippet("   ") is None
+
+
+def test_an_instagram_reels_profile_chrome_is_not_treated_as_post_text():
+    """Instagram serves the same @reel profile description for every reel.
+
+    Measured over one gather it was a single distinct string across every
+    Instagram row, so it carries no information about any of them and cost
+    about half the extraction payload. The post keeps its title.
+    """
+    chrome = "9M seguidores, 30 siguiendo, 5 publicaciones - @reel en Instagram: &quot;&quot;"
+
+    assert post_snippet(chrome) is None
+
+
+def test_a_real_caption_survives_the_snippet_cleanup():
+    """The empty-caption rule must not swallow a snippet that has one."""
+    caption = "3413 Likes, 36 Comments. TikTok video from Syafiq: &quot;best ramen&quot;"
+
+    assert post_snippet(caption) == (
+        '3413 Likes, 36 Comments. TikTok video from Syafiq: "best ramen"'
+    )
+
+
+async def test_search_results_reach_the_extractor_without_markup_or_chrome():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "url": "https://www.instagram.com/reel/DcbEs5IpTCt/",
+                            "title": "Cinderella Tan | Must Visit Caf&eacute;s in "
+                            "<strong>Sapporo</strong>",
+                            "description": "9M seguidores, 30 siguiendo, 5 "
+                            "publicaciones - @reel en Instagram: &quot;&quot;",
+                        }
+                    ]
+                }
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(
+            make_brave_social_search_tool(client=client, api_key="test-key"),
+            BraveSocialSearchInput(
+                platform=SocialPlatform.INSTAGRAM, query="Sapporo cafes"
+            ),
+        )
+
+    post = result.results[0]
+    assert post.title == "Cinderella Tan | Must Visit Cafés in Sapporo"
+    assert post.description is None
+    assert post.evidence_text == (
+        "Title: Cinderella Tan | Must Visit Cafés in Sapporo"
+    )
 
 
 def test_public_engagement_requires_explicit_like_and_comment_labels():
@@ -268,7 +405,7 @@ async def test_brave_results_with_visible_post_engagement_rank_first():
             make_brave_social_search_tool(client=client, api_key="test-key"),
             BraveSocialSearchInput(
                 platform=SocialPlatform.TIKTOK,
-                destination="Sapporo",
+                query="Sapporo must eat food",
             ),
         )
 
@@ -297,19 +434,19 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
         )
         value = BraveSocialSearchInput(
             platform=SocialPlatform.TIKTOK,
-            destination="Sapporo",
+            query="Sapporo must visit places",
         )
         await run_tool(tool, value)
         after_first = calls
         await run_tool(tool, value)
 
-    # The property is that the second run adds nothing, not the absolute
-    # count: the first run makes one request per search angle.
-    assert after_first == 3
+    # Cache identity is the external request, so an adaptive loop reaching the
+    # same query on a later iteration still pays for it once.
+    assert after_first == 1
     assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v2:")
+    assert cache.last_key.startswith("social:brave:v3:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():
@@ -320,7 +457,7 @@ async def test_brave_search_stops_clearly_when_the_key_is_missing():
             tool,
             BraveSocialSearchInput(
                 platform=SocialPlatform.TIKTOK,
-                destination="Hokkaido",
+                query="Hokkaido travel",
             ),
         )
 

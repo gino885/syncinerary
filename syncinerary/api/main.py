@@ -17,12 +17,14 @@ Replan and the websocket land in M6.
 Uses the `lifespan` async context manager, not `@app.on_event`, which is
 deprecated in FastAPI 0.100+ (CLAUDE.md §14).
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from syncinerary.agents.graph import dispose_graph, init_graph
 from syncinerary.api.routers import accounts, group, replans, trips
+from syncinerary.config import settings
 from syncinerary.obs.tracing import init_tracing
 from syncinerary.store.db import dispose_engine, init_engine
 from syncinerary.store.redis import dispose_redis, init_redis
@@ -30,6 +32,12 @@ from syncinerary.store.redis import dispose_redis, init_redis
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn configures only its own loggers, so without this the
+    # application's own records never reach the terminal.
+    logging.basicConfig(
+        level=settings.sync_log_level.upper(),
+        format="%(levelname)-7s %(name)s  %(message)s",
+    )
     init_tracing()
     init_engine()
     init_redis()

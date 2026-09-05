@@ -813,6 +813,10 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
                 max_steps=gather_max_steps(
                     default_max_steps=settings.sync_max_steps,
                     days=trip.days,
+                    # Each city runs its own adaptive search loop, so the
+                    # search reservation scales with the city count while
+                    # verification stays sized to the trip.
+                    cities=max(1, len(trip.cities)),
                 ),
             ):
                 await graph.ainvoke(

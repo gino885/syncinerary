@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Observability
     phoenix_endpoint: str = "http://localhost:4317"
     phoenix_project_name: str = "syncinerary"
+    # Console log level. Phoenix keeps the full trace, but a gather is easier
+    # to follow live in the terminal that is serving the app.
+    sync_log_level: str = "INFO"
 
     # Harness (used from M2+; safe to set now)
     sync_max_steps: int = 50

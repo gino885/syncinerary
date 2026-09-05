@@ -31,20 +31,25 @@ tracked, and the app targets iOS 17 or later.
 
 ## Search scope
 
-The prototype plans up to four cities in one country. A gather uses one
-automatic Brave search per city for Instagram, TikTok, and RedNote. The result
-for the same city, platform, and interests is cached for 24 hours. TikTok
-posts are then read through the official embed API (caption, creator, cover
-frame) in one batched call per city, and the text on the cover frames is
-transcribed in one vision call; both are capped in `config/gather.py` and
-cached. Instagram and RedNote stay at the search snippet. Automated tests use
-local stubs and do not spend provider requests.
+The prototype plans up to four cities in one country. Gather searches each
+city adaptively: one Brave query at a time, at most eight per city, from three
+intents. PLACES and FOOD ask what the city is broadly known for and stock the
+Trending lane; HIDDEN_GEMS asks for the quieter, less touristy places and
+stocks the For You lane. The first three searches ask all three, on three
+different platforms; the rest go to whichever lane is short. Traveler
+interests rank the For You lane rather than adding searches, so a group that
+lists twenty interests costs no more than one that lists two. Each query and
+platform is cached for 24 hours. TikTok posts are then read through the
+official embed API (caption, creator, cover frame) in one batched call per
+search, and the text on the cover frames is transcribed in one vision call;
+both are capped in `config/gather.py` and cached. Instagram and RedNote stay
+at the search snippet. Automated tests use local stubs and do not spend
+provider requests.
 
-One useful post can introduce a place. Instagram and TikTok searches target
-must-visit and must-eat content; RedNote searches use Mandarin `必去`, `必吃`,
-`攻略`, and `探店` terms. Explicit post likes and comments rank a result higher
-when the public snippet includes them. Results without visible metrics are
-labelled "Found on" rather than presented as popular.
+One useful post can introduce a place. RedNote is searched on its note path
+with the Mandarin destination name. Explicit post likes and comments rank a
+result higher when the public snippet includes them. Results without visible
+metrics are labelled "Found on" rather than presented as popular.
 
 Source badges on swipe cards and itinerary stops link out to the post that
 named the place (or to the place's Google Maps page), the platform's own app

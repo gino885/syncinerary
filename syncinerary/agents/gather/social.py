@@ -13,19 +13,41 @@ post's own words match the travellers' stated interests. It decides nothing.
 Which places survive and how they rank is deterministic, from public post
 engagement, search position, independent source count, and that rating: see
 select_social_candidates and SOCIAL_TWO_LANE_PLAN.md.
+
+Searching is adaptive. One query runs at a time and what it found decides the
+next one, under a hard per-city ceiling; the rules live in social_search.py.
+Google Places verification stays after the loop, where the two-lane selection
+can choose which mined names are worth a reality check.
 """
 from __future__ import annotations
 
+import logging
 import math
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from collections.abc import Collection
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import httpx
 from opentelemetry import trace
 from pydantic import BaseModel, Field, ValidationError
 
 from syncinerary.agents.gather.cities import resolve_trip_cities
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
 from syncinerary.agents.gather.social_read import read_tiktok_posts
+from syncinerary.agents.gather.social_search import (
+    DISCOVERY_PLATFORMS,
+    SearchIntent,
+    SearchIntentType,
+    SearchOutcome,
+    SocialSearchState,
+    StopReason,
+    initialize_social_search_state,
+    interests_in_text,
+    normalize_matched_interests,
+    plan_next_search,
+    update_search_state,
+)
 from syncinerary.agents.gather.traits import (
     fatigue_cost,
     is_visitable_place,
@@ -34,7 +56,7 @@ from syncinerary.agents.gather.traits import (
 from syncinerary.config import settings
 from syncinerary.config.gather import (
     BUZZ_MIN_SOURCE_COUNT,
-    MIN_INTEREST_FIT,
+    MAX_SEARCHES_PER_CITY,
     MINED_NAMES_MAX,
     lane_slots,
     social_verify_budget,
@@ -61,6 +83,7 @@ from syncinerary.harness.wrapper import (
 from syncinerary.tools.fetch.social import (
     BraveSocialSearchInput,
     DiscoveredSocialURL,
+    build_discovery_query,
     make_brave_social_search_tool,
 )
 from syncinerary.tools.places import (
@@ -71,15 +94,11 @@ from syncinerary.tools.places import (
     make_place_search_tool,
 )
 
-DISCOVERY_PLATFORMS = (
-    SocialPlatform.INSTAGRAM,
-    SocialPlatform.TIKTOK,
-    SocialPlatform.REDNOTE,
-)
+logger = logging.getLogger(__name__)
 
-# Posts read per platform, and eligible places geocoded per city. Both are
-# capped so a noisy destination cannot turn one gather into hundreds of calls.
-MAX_POSTS_PER_PLATFORM = 30
+# Posts read per search. Capped so a noisy destination cannot turn one gather
+# into hundreds of calls.
+MAX_POSTS_PER_SEARCH = 30
 
 NER_PROMPT = """Extract place names from numbered social posts about one trip destination.
 
@@ -115,6 +134,10 @@ Rules:
   Judge only from the post text. A place you happen to know suits the
   interests scores 0 when the post does not say so. Score 0 when no interests
   were supplied.
+- matched_interests lists which of the supplied traveler interests this post
+  connects the place to, copied exactly as they were supplied. Empty when the
+  post connects it to none of them. Never invent an interest that was not
+  supplied.
 """
 
 MANDARIN_DESTINATION_PROMPT = """Translate one travel destination name into Simplified Chinese.
@@ -159,6 +182,10 @@ class SocialPlaceMention(BaseModel):
     # 0..3, see NER_PROMPT. Ordinal rather than a similarity float: small
     # integer scales stay stable across calls and need no calibration.
     interest_fit: int = Field(default=0, ge=0, le=3)
+    # Which supplied interests this post connects the place to. interest_fit
+    # says how strong the match is; this says what it matched, which is what
+    # the search planner needs to see a gap. Same call, so no extra cost.
+    matched_interests: list[str] = Field(default_factory=list)
 
 
 class SocialPlaceMentions(BaseModel):
@@ -183,6 +210,11 @@ class MinedPost(BaseModel):
     like_count: int | None = Field(default=None, ge=0)
     comment_count: int | None = Field(default=None, ge=0)
     interest_fit: int = Field(default=0, ge=0, le=3)
+    matched_interests: list[str] = Field(default_factory=list)
+    # Which search intent surfaced this post. The candidate's lane follows
+    # from this rather than from its score, so provenance has to survive the
+    # merge: a place both a broad and a hidden-gem search named carries both.
+    intent_type: str = SearchIntentType.PLACES.value
 
 
 class MinedPlace(BaseModel):
@@ -247,6 +279,33 @@ class MinedPlace(BaseModel):
         return max((post.interest_fit for post in self.posts), default=0)
 
     @property
+    def intent_types(self) -> list[str]:
+        """Every search intent that surfaced this place, in the order found."""
+        seen: OrderedDict[str, None] = OrderedDict()
+        for post in self.posts:
+            seen.setdefault(post.intent_type, None)
+        return list(seen)
+
+    @property
+    def is_hidden_gem(self) -> bool:
+        """Found by a search that asked for the less obvious places.
+
+        Provenance, not a popularity threshold. A place is not a hidden gem
+        for having few mentions; it is one because a hidden-gem search is what
+        turned it up, which is a claim about the posts rather than about us.
+        """
+        return SearchIntentType.HIDDEN_GEMS.value in self.intent_types
+
+    @property
+    def matched_interests(self) -> list[str]:
+        """Every listed interest any post connected this place to, in order."""
+        seen: OrderedDict[str, None] = OrderedDict()
+        for post in self.posts:
+            for interest in post.matched_interests:
+                seen.setdefault(interest, None)
+        return list(seen)
+
+    @property
     def has_explicit_engagement(self) -> bool:
         return any(
             post.like_count is not None or post.comment_count is not None
@@ -289,32 +348,31 @@ def traveler_interests(travelers: list[Traveler]) -> list[str]:
 async def _search_platform(
     platform: SocialPlatform,
     *,
+    query: str,
     destination: str,
-    interests: list[str],
 ) -> list[DiscoveredSocialURL]:
-    destination_localized = None
-    if platform is SocialPlatform.REDNOTE:
-        destination_localized = await translate_destination_to_mandarin(destination)
+    """Run one already-worded query and read what the platform permits.
+
+    The harness state carries the query rather than only the platform, so the
+    loop detector still sees a genuine repeat as a repeat: three searches of
+    one platform are progress, three identical queries are not.
+    """
     result = await run_tool(
         make_brave_social_search_tool(),
-        BraveSocialSearchInput(
-            platform=platform,
-            destination=destination,
-            destination_localized=destination_localized,
-            interests=interests,
-        ),
+        BraveSocialSearchInput(platform=platform, query=query),
         state={
             "node": "gather_social",
             "platform": platform.value,
             "destination": destination,
+            "query": query,
         },
     )
-    posts = list(result.results)[:MAX_POSTS_PER_PLATFORM]
+    posts = list(result.results)[:MAX_POSTS_PER_SEARCH]
     if platform is SocialPlatform.TIKTOK and posts:
         # The one platform whose official embed API publishes the caption and
-        # the cover frame. At most two more harness steps per city, bounded in
-        # config/gather.py; the other platforms stay at the index snippet.
-        posts = await read_tiktok_posts(posts, destination=destination)
+        # the cover frame. At most two more harness steps per search, bounded
+        # in config/gather.py; the others stay at the index snippet.
+        posts = await read_tiktok_posts(posts, destination=destination, query=query)
     return posts
 
 
@@ -358,6 +416,7 @@ async def extract_post_places(
     platform: SocialPlatform,
     destination: str,
     interests: list[str] | None = None,
+    query: str | None = None,
     client: MessagesClient | None = None,
 ) -> SocialPlaceMentions:
     """One batched NER call over a platform's post snippets.
@@ -403,7 +462,13 @@ async def extract_post_places(
             ],
         ),
         client=client or make_messages_client(),
-        state={"node": "gather_social_ner", "platform": platform.value},
+        state={
+            "node": "gather_social_ner",
+            "platform": platform.value,
+            # Without the query, extracting three searches of one platform
+            # looks to the loop detector like the same state three times.
+            "query": query or "",
+        },
     )
     if getattr(response, "stop_reason", None) == "refusal":
         return SocialPlaceMentions()
@@ -420,25 +485,58 @@ async def extract_post_places(
         raise ValueError("Social place extraction returned invalid data") from exc
 
 
+@dataclass
+class MentionMerge:
+    """What one search's mentions did to the pool.
+
+    Kept apart from the pool itself because "seven names extracted, none of
+    them usable" and "seven names, all already known" are different failures
+    and the search planner answers them differently.
+    """
+
+    resolved: int = 0
+    rejected: int = 0
+    new_place_keys: list[str] = field(default_factory=list)
+
+    @property
+    def new_places(self) -> int:
+        return len(self.new_place_keys)
+
+
 def merge_mentions(
     mined: dict[str, MinedPlace],
     mentions: SocialPlaceMentions,
     posts: list[DiscoveredSocialURL],
     platform: SocialPlatform,
-) -> dict[str, MinedPlace]:
-    """Fold one platform's mentions into the running cross-source tally."""
+    *,
+    intent_type: SearchIntentType = SearchIntentType.PLACES,
+    reject_names: Collection[str] = (),
+) -> MentionMerge:
+    """Fold one search's mentions into the running cross-source tally.
+
+    reject_names drops the destination and city names before they cost a
+    Places call. The prompt already asks for visitable places only, and
+    is_visitable_place catches the rest after geocoding, but a city name is
+    cheap to refuse here and its rejection is a real signal about the search.
+    """
+    merge = MentionMerge()
+    rejected = {name.strip().casefold() for name in reject_names if name.strip()}
     for mention in mentions.mentions:
         if mention.post_index > len(posts):
+            merge.rejected += 1
             continue
         post = posts[mention.post_index - 1]
         search_name = (mention.canonical_name or mention.name).strip()
         key = search_name.casefold()
-        if not key:
+        if not key or key in rejected:
+            merge.rejected += 1
             continue
         place = mined.get(key)
         if place is None:
             place = MinedPlace(name=search_name)
             mined[key] = place
+            merge.new_place_keys.append(key)
+        merge.resolved += 1
         if post.reference.canonical_url in place.post_urls:
             continue
         place.post_urls.append(post.reference.canonical_url)
@@ -453,11 +551,13 @@ def merge_mentions(
                 like_count=post.like_count,
                 comment_count=post.comment_count,
                 interest_fit=mention.interest_fit,
+                matched_interests=list(mention.matched_interests),
+                intent_type=intent_type.value,
             )
         )
         if platform.value not in place.platforms:
             place.platforms.append(platform.value)
-    return mined
+    return merge
 
 
 def _clean_highlight(value: str | None) -> str | None:
@@ -548,6 +648,9 @@ def to_candidate(
             # Why this card is in the deck. The UI reads the lane rather than
             # recomputing it, so the badge cannot disagree with the selection.
             "selection_lane": lane,
+            # Which searches found it, so the UI and the eval can tell a card
+            # a hidden-gem search surfaced from one a popularity search did.
+            "discovery_intents": mined.intent_types,
             "interest_score": mined.interest_score,
             "independent_source_count": mined.independent_source_count,
             "independent_author_count": mined.independent_author_count,
@@ -596,7 +699,13 @@ def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, str]:
 
 
 def _for_you_rank(place: MinedPlace) -> tuple[int, float, int, str]:
-    """Best interest match first, buzz only as a tiebreak."""
+    """Preference fit first, then whether the evidence holds up.
+
+    Fit ranks rather than gates, so a group that listed no interests still
+    gets a For You lane: hidden gems ordered by how well evidenced they are.
+    buzz_score and independent sources sit behind fit because a hidden gem
+    still has to be worth recommending. Least popular is not the goal.
+    """
     return (
         -place.interest_score,
         -place.buzz_score,
@@ -619,53 +728,62 @@ def select_social_candidates(
 ) -> list[SelectedPlace]:
     """Fill the smaller of the budget and the supply, from two lanes.
 
-    Trending answers "what has the strongest social evidence". For You answers
-    "what looks written for this group", which a popularity sort cannot reach
-    because a place matching a stated interest is usually mentioned once.
+    The lanes have different sources, not different sorts of one pool. For You
+    is drawn from what the hidden-gem searches turned up and ranked by how well
+    it fits the group; Trending is drawn from what the places and food searches
+    turned up and ranked on social evidence. One pool ranked two ways would
+    make the distinction cosmetic, because a place named once by one creator
+    cannot out-rank a popular one on any popularity-derived weighting.
 
     Two things here look like details and are not.
 
     The lanes are sized against what mining actually produced, not against the
     budget. The budget is derived from the pool the trip wants, roughly 32 for
-    a five day trip, while mining a city yields about nine eligible names. Slot
+    a five day trip, while mining a city yields far fewer eligible names. Slot
     counts taken from the budget therefore describe places that do not exist.
 
     And For You draws first. Drawing second is what made the lane dead in
     practice: trending took ranked[:trending_slots], which with nine places and
-    twenty-three slots was all of them, so For You chose from an empty list
-    even when three places had cleared the interest bar.
+    twenty-three slots was all of them, so For You chose from an empty list.
 
-    Unused slots in either lane are backfilled from the other, so a group that
-    listed no interests still gets a full trending deck.
+    A place both kinds of search found is eligible for either. For You claims
+    it, because a hidden-gem search naming it is the rarer evidence and the
+    trending lane has a deeper pool to draw from.
     """
     if budget <= 0 or not places:
         return []
     available = min(len(places), budget)
+
+    # Disjoint by construction: a place either a hidden-gem search named, or
+    # not. No place is ranked by both keys, which is what stops the lanes
+    # collapsing into one pool sorted twice.
+    for_you_pool = sorted(
+        (place for place in places if place.is_hidden_gem), key=_for_you_rank
+    )
+    trending_pool = sorted(
+        (place for place in places if not place.is_hidden_gem), key=_trending_rank
+    )
     trending_slots, for_you_slots = lane_slots(available)
 
-    for_you = sorted(
-        (place for place in places if place.interest_score >= MIN_INTEREST_FIT),
-        key=_for_you_rank,
-    )[:for_you_slots]
-    chosen = {id(place) for place in for_you}
+    # A lane that cannot fill its slots hands them over before either draws,
+    # rather than after. Backfilling afterwards meant the surplus was ordered
+    # by the donor lane's key, so a deck of nothing but hidden gems came out
+    # ranked on popularity and preference fit was ignored entirely.
+    if len(for_you_pool) < for_you_slots:
+        trending_slots += for_you_slots - len(for_you_pool)
+        for_you_slots = len(for_you_pool)
+    if len(trending_pool) < trending_slots:
+        for_you_slots += trending_slots - len(trending_pool)
+        trending_slots = len(trending_pool)
 
-    ranked = sorted(places, key=_trending_rank)
-    trending = [place for place in ranked if id(place) not in chosen][:trending_slots]
-    chosen.update(id(place) for place in trending)
-
-    selected = [SelectedPlace(place=place, lane="trending") for place in trending]
-    selected += [SelectedPlace(place=place, lane="for_you") for place in for_you]
-
-    # Backfill: too few places cleared MIN_INTEREST_FIT, or one lane ran out.
-    # Either way the run is spent on real places rather than left short.
-    if len(selected) < available:
-        for place in ranked:
-            if len(selected) >= available:
-                break
-            if id(place) in chosen:
-                continue
-            chosen.add(id(place))
-            selected.append(SelectedPlace(place=place, lane="trending"))
+    selected = [
+        SelectedPlace(place=place, lane="trending")
+        for place in trending_pool[:trending_slots]
+    ]
+    selected += [
+        SelectedPlace(place=place, lane="for_you")
+        for place in for_you_pool[:for_you_slots]
+    ]
     return selected
 
 
@@ -691,6 +809,225 @@ def allocate_city_budget(day_counts: list[int], budget: int) -> list[int]:
     for index in order[:leftover]:
         floors[index] += 1
     return floors
+
+
+def _coverage_hits(
+    state: SocialSearchState,
+    new_place_keys: list[str],
+) -> dict[str, int]:
+    """How many newly found places each stated interest gained.
+
+    Two sources, unioned: the interests the extractor said the post connected
+    the place to, and a deterministic read of the post's own words. The second
+    keeps the coverage signal alive when a batch comes back without the first.
+    """
+    hits: Counter[str] = Counter()
+    for key in new_place_keys:
+        place = state.discovered_places[key]
+        text = " ".join(
+            [place.name, *(post.highlight or "" for post in place.posts)]
+        )
+        matched = normalize_matched_interests(
+            [*place.matched_interests, *interests_in_text(text, state.interests)],
+            state.interests,
+        )
+        for interest in matched:
+            hits[interest] += 1
+    return dict(hits)
+
+
+async def _run_one_search(
+    state: SocialSearchState,
+    intent: SearchIntent,
+    query: str,
+) -> tuple[SearchOutcome, dict[str, int]]:
+    """Execute one planned search and read what happened at each stage.
+
+    The stage counts are the point. A query the index had nothing for, posts
+    that named no venue, names that resolved to nothing usable, and a page of
+    places already in the pool all end at zero new places and all call for a
+    different next move.
+    """
+    try:
+        posts = await _search_platform(
+            intent.platform,
+            query=query,
+            destination=state.destination,
+        )
+    except httpx.HTTPError as exc:
+        # Section 38: a timeout or a 5xx is a failed request, not an empty
+        # search space, so it never advances the exhaustion counters. A
+        # missing key stays a RuntimeError and still stops the run.
+        return SearchOutcome(provider_error=type(exc).__name__), {}
+
+    readable = [post for post in posts if post.evidence_text.strip()]
+    if not readable:
+        return (
+            SearchOutcome(
+                raw_results_count=len(posts),
+                readable_posts_count=0,
+            ),
+            {},
+        )
+
+    mentions = await extract_post_places(
+        posts,
+        platform=intent.platform,
+        destination=state.destination,
+        interests=state.interests,
+        query=query,
+    )
+    merge = merge_mentions(
+        state.discovered_places,
+        mentions,
+        posts,
+        intent.platform,
+        intent_type=intent.intent_type,
+        reject_names=(state.destination,),
+    )
+    return (
+        SearchOutcome(
+            raw_results_count=len(posts),
+            readable_posts_count=len(readable),
+            extracted_mentions_count=len(mentions.mentions),
+            resolved_places_count=merge.resolved,
+            new_unique_places_count=merge.new_places,
+        ),
+        _coverage_hits(state, merge.new_place_keys),
+    )
+
+
+async def mine_city(
+    *,
+    destination: str,
+    destination_local_name: str | None,
+    interests: list[str],
+    target_candidates: int,
+    max_searches: int = MAX_SEARCHES_PER_CITY,
+    **thresholds: int,
+) -> SocialSearchState:
+    """Search one city adaptively until it is covered, dry, or out of budget.
+
+    One query runs at a time and its result decides the next one. The ceiling
+    is a cost bound rather than a plan: an easy city stops after two or three
+    searches, and a saturated one stops on its own evidence rather than
+    spending the remainder.
+    """
+    span = trace.get_current_span()
+    state = initialize_social_search_state(
+        destination=destination,
+        destination_local_name=destination_local_name,
+        interests=interests,
+        target_candidates=target_candidates,
+        max_searches=max_searches,
+        **thresholds,
+    )
+
+    while True:
+        intent = plan_next_search(state)
+        if intent is None:
+            break
+        iteration = state.searches_used + 1
+        trending_supply, for_you_supply = state.lane_supply
+        query = build_discovery_query(
+            intent,
+            destination=destination,
+            destination_localized=destination_local_name,
+        )
+        span.add_event(
+            "social_search_iteration",
+            {
+                "destination": destination,
+                "iteration": iteration,
+                "platform": intent.platform.value,
+                "intent": intent.intent_type.value,
+                "lane": intent.lane,
+                "specificity": intent.specificity.value,
+                "query": query,
+                "existing_places": state.discovered_count,
+                "trending_supply": trending_supply,
+                "for_you_supply": for_you_supply,
+            },
+        )
+        # The same record twice, to two sinks: Phoenix keeps the trace, and
+        # the terminal serving the app is where a gather is actually watched.
+        logger.info(
+            "social.search city=%s iteration=%s platform=%s intent=%s lane=%s "
+            "specificity=%s trending=%s/%s for_you=%s/%s query=%r",
+            destination,
+            iteration,
+            intent.platform.value,
+            intent.intent_type.value,
+            intent.lane,
+            intent.specificity.value,
+            trending_supply,
+            state.lane_targets[0],
+            for_you_supply,
+            state.lane_targets[1],
+            query,
+        )
+        outcome, hits = await _run_one_search(state, intent, query)
+        update_search_state(
+            state,
+            intent=intent,
+            query=query,
+            outcome=outcome,
+            interest_hits=hits,
+        )
+        span.add_event(
+            "social_search_result",
+            {
+                "destination": destination,
+                "iteration": iteration,
+                "yield": outcome.yield_type.value,
+                "raw_results": outcome.raw_results_count,
+                "readable_posts": outcome.readable_posts_count,
+                "mentions": outcome.extracted_mentions_count,
+                "resolved_places": outcome.resolved_places_count,
+                "new_unique_places": outcome.new_unique_places_count,
+                "total_unique_places": state.discovered_count,
+                "provider_error": outcome.provider_error or "",
+            },
+        )
+        logger.info(
+            "social.result city=%s iteration=%s yield=%s raw=%s mentions=%s "
+            "resolved=%s new=%s total=%s%s",
+            destination,
+            iteration,
+            outcome.yield_type.value,
+            outcome.raw_results_count,
+            outcome.extracted_mentions_count,
+            outcome.resolved_places_count,
+            outcome.new_unique_places_count,
+            state.discovered_count,
+            f" error={outcome.provider_error}" if outcome.provider_error else "",
+        )
+
+    span.add_event(
+        "social_search_complete",
+        {
+            "destination": destination,
+            "reason": (state.stop_reason or StopReason.NO_SEARCH_ACTIONS_LEFT).value,
+            "searches_used": state.searches_used,
+            "unique_places": state.discovered_count,
+            "target": target_candidates,
+            "trending_supply": state.lane_supply[0],
+            "for_you_supply": state.lane_supply[1],
+        },
+    )
+    logger.info(
+        "social.stop city=%s reason=%s searches=%s places=%s trending=%s for_you=%s "
+        "target=%s coverage=%s",
+        destination,
+        (state.stop_reason or StopReason.NO_SEARCH_ACTIONS_LEFT).value,
+        state.searches_used,
+        state.discovered_count,
+        state.lane_supply[0],
+        state.lane_supply[1],
+        target_candidates,
+        state.interest_coverage,
+    )
+    return state
 
 
 async def discover_social_candidates(
@@ -722,27 +1059,40 @@ async def discover_social_candidates(
     candidates: list[CandidatePlace] = []
     unresolved = 0
     for city, city_budget in zip(resolved, city_budgets, strict=True):
-        mined: dict[str, MinedPlace] = {}
-        for platform in DISCOVERY_PLATFORMS:
-            posts = await _search_platform(
-                platform,
-                destination=city.name,
-                interests=interests,
-            )
-            span.set_attribute(
-                f"gather.social.{city.name}.{platform.value}.posts", len(posts)
-            )
-            if not posts:
-                continue
-            mentions = await extract_post_places(
-                posts,
-                platform=platform,
-                destination=city.name,
-                interests=interests,
-            )
-            merge_mentions(mined, mentions, posts, platform)
+        # Once per city, before the loop: the planner needs to know whether
+        # RedNote can be searched at all, and RedNote without the Mandarin
+        # name is not a search worth making.
+        local_name = await translate_destination_to_mandarin(city.name)
+        # The target is the city's verification allocation. Mining past it
+        # buys names the run cannot afford to reality-check, so more searching
+        # would add nothing the deck can use.
+        state = await mine_city(
+            destination=city.name,
+            destination_local_name=local_name,
+            interests=interests,
+            target_candidates=city_budget,
+        )
+        mined = state.discovered_places
 
-        span.set_attribute(f"gather.social.{city.name}.mined_names", len(mined))
+        prefix = f"gather.social.{city.name}"
+        span.set_attribute(f"{prefix}.searches_used", state.searches_used)
+        span.set_attribute(
+            f"{prefix}.stop_reason",
+            (state.stop_reason or StopReason.NO_SEARCH_ACTIONS_LEFT).value,
+        )
+        span.set_attribute(f"{prefix}.mined_names", len(mined))
+        span.set_attribute(f"{prefix}.trending_supply", state.lane_supply[0])
+        span.set_attribute(f"{prefix}.for_you_supply", state.lane_supply[1])
+        for platform, stats in state.platform_stats.items():
+            span.set_attribute(f"{prefix}.{platform.value}.searches", stats.searches)
+            span.set_attribute(
+                f"{prefix}.{platform.value}.new_places", stats.new_unique_places
+            )
+        for intent_type, stats in state.intent_stats.items():
+            span.set_attribute(f"{prefix}.{intent_type.value}.searches", stats.searches)
+            span.set_attribute(
+                f"{prefix}.{intent_type.value}.new_places", stats.new_unique_places
+            )
         selected = select_social_candidates(score_places(mined), budget=city_budget)
         span.set_attribute(
             f"gather.social.{city.name}.for_you",
@@ -822,7 +1172,8 @@ def merge_into_pool(
 __all__ = [
     "DISCOVERY_PLATFORMS",
     "MAX_HIGHLIGHT_CHARS",
-    "MAX_POSTS_PER_PLATFORM",
+    "MAX_POSTS_PER_SEARCH",
+    "MentionMerge",
     "MinedPlace",
     "MinedPost",
     "SelectedPlace",
@@ -834,6 +1185,7 @@ __all__ = [
     "is_eligible",
     "merge_into_pool",
     "merge_mentions",
+    "mine_city",
     "score_places",
     "select_social_candidates",
     "to_candidate",

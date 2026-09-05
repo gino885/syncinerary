@@ -42,8 +42,10 @@ from syncinerary.domain.models import (
 from syncinerary.harness import run_tool
 from syncinerary.tools.fetch.social import (
     DiscoveredSocialURL,
+    SearchIntent,
+    SearchIntentType,
     SocialLinkMetadataInput,
-    build_discovery_queries,
+    build_discovery_query,
     make_social_link_metadata_tool,
     normalize_social_url,
 )
@@ -87,6 +89,17 @@ def _tiktok(index: int, **kwargs) -> DiscoveredSocialURL:
     return _post(f"https://www.tiktok.com/@creator/video/{7000000000 + index}", **kwargs)
 
 
+def _stub_translation(monkeypatch, value: str | None = "北海道") -> None:
+    """Skip the one Mandarin-name call the city loop makes before planning."""
+
+    async def fake_translate(destination, *, client=None):
+        return value
+
+    monkeypatch.setattr(
+        social_module, "translate_destination_to_mandarin", fake_translate
+    )
+
+
 class StubMessages:
     def __init__(self, text: str) -> None:
         self.text = text
@@ -112,34 +125,26 @@ def test_traveler_interests_are_collected_in_order_without_duplicates():
     assert traveler_interests(travelers) == ["ramen", "onsen", "pottery"]
 
 
-def test_interests_refine_the_base_query_without_adding_requests():
-    base = build_discovery_queries(SocialPlatform.INSTAGRAM, destination="Hokkaido")
-    personalised = build_discovery_queries(
-        SocialPlatform.INSTAGRAM,
-        destination="Hokkaido",
-        interests=["ramen", "onsen"],
-    )
+def test_interests_rank_the_for_you_lane_rather_than_steering_search():
+    """Interests used to be stapled onto the query, and later drove searches of
+    their own. Both made provider cost scale with how much a group listed.
 
-    assert len(base) == 3
-    assert len(personalised) == 3
-    # Interests refine the broad angle only, so the other two stay stable and
-    # the provider cost does not scale with how much a group listed.
-    assert personalised[0] == (
-        "Hokkaido must visit places must eat food travel guide ramen onsen"
-    )
-    assert personalised[1:] == base[1:]
+    They now rank the hidden-gem pool instead, so the query set is fixed at
+    three intents whatever the group said it likes.
+    """
+    queries = {
+        build_discovery_query(
+            SearchIntent(
+                platform=SocialPlatform.INSTAGRAM, intent_type=intent_type
+            ),
+            destination="Hokkaido",
+        )
+        for intent_type in SearchIntentType
+    }
 
-
-def test_rednote_interests_refine_the_single_localized_query():
-    queries = build_discovery_queries(
-        SocialPlatform.REDNOTE,
-        destination="Hokkaido",
-        destination_localized="北海道",
-        interests=["拉麵"],
-    )
-
-    assert queries[0] == "北海道 必去景点 必吃美食 旅游攻略 探店 拉麵"
     assert len(queries) == 3
+    assert not any("coffee" in query for query in queries)
+    assert not any("ramen" in query for query in queries)
 
 
 # ----- content-first eligibility -----
@@ -290,10 +295,12 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     trip = _trip()
     posts = [_tiktok(index) for index in range(3)]
 
-    async def fake_search(_platform, *, destination, interests):
+    async def fake_search(_platform, *, query, destination):
         return posts
 
-    async def fake_extract(_posts, *, platform, destination, interests=None, client=None):
+    async def fake_extract(
+        _posts, *, platform, destination, interests=None, query=None, client=None
+    ):
         if platform is not SocialPlatform.TIKTOK:
             return SocialPlaceMentions()
         return SocialPlaceMentions(
@@ -326,6 +333,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     monkeypatch.setattr(social_module, "_search_platform", fake_search)
     monkeypatch.setattr(social_module, "extract_post_places", fake_extract)
     monkeypatch.setattr(social_module, "run_tool", fake_run_tool)
+    _stub_translation(monkeypatch)
 
     candidates = await discover_social_candidates(trip, [])
 
@@ -368,10 +376,12 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
         SocialPlatform.REDNOTE: "函館朝市",
     }
 
-    async def fake_search(platform, *, destination, interests):
+    async def fake_search(platform, *, query, destination):
         return posts_by_platform[platform]
 
-    async def fake_extract(_posts, *, platform, destination, interests=None, client=None):
+    async def fake_extract(
+        _posts, *, platform, destination, interests=None, query=None, client=None
+    ):
         return SocialPlaceMentions(
             mentions=[
                 SocialPlaceMention(
@@ -402,6 +412,7 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
     monkeypatch.setattr(social_module, "_search_platform", fake_search)
     monkeypatch.setattr(social_module, "extract_post_places", fake_extract)
     monkeypatch.setattr(social_module, "run_tool", fake_run_tool)
+    _stub_translation(monkeypatch)
 
     candidates = await discover_social_candidates(trip, [])
 
@@ -422,43 +433,55 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
 async def test_a_platform_failure_is_not_hidden_as_an_empty_result(monkeypatch):
     trip = _trip()
 
-    async def exploding_search(platform, *, destination, interests):
+    async def exploding_search(platform, *, query, destination):
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
 
     monkeypatch.setattr(social_module, "_search_platform", exploding_search)
+    _stub_translation(monkeypatch)
 
     with pytest.raises(RuntimeError, match="BRAVE_SEARCH_API_KEY"):
         await discover_social_candidates(trip, [])
 
 
-async def test_rednote_automatic_search_translates_the_destination_to_mandarin(
-    monkeypatch,
-):
-    captured = None
+async def test_rednote_searches_use_the_mandarin_destination_name(monkeypatch):
+    """The translation now happens once per city, before the loop plans.
 
-    async def fake_translate(destination, *, client=None):
-        assert destination == "Hokkaido"
-        return "北海道"
+    The planner has to know whether RedNote can be searched at all, and
+    RedNote without the Mandarin name searches a different corpus.
+    """
+    queries: list[tuple[SocialPlatform, str]] = []
 
-    async def fake_run_tool(_tool, arguments, **_kwargs):
-        nonlocal captured
-        captured = arguments
-        return SimpleNamespace(results=[])
+    async def fake_search(platform, *, query, destination):
+        queries.append((platform, query))
+        return []
 
-    monkeypatch.setattr(
-        social_module,
-        "translate_destination_to_mandarin",
-        fake_translate,
-    )
-    monkeypatch.setattr(social_module, "run_tool", fake_run_tool)
+    monkeypatch.setattr(social_module, "_search_platform", fake_search)
+    _stub_translation(monkeypatch)
 
-    await social_module._search_platform(
-        SocialPlatform.REDNOTE,
-        destination=_trip().destination,
-        interests=[],
-    )
+    await discover_social_candidates(_trip(), [])
 
-    assert captured.destination_localized == "北海道"
+    rednote = [query for platform, query in queries if platform is SocialPlatform.REDNOTE]
+    assert rednote, "RedNote must still take part in automatic discovery"
+    assert all(query.startswith("北海道 ") for query in rednote)
+    assert not any("Hokkaido" in query for query in rednote)
+
+
+async def test_rednote_is_skipped_when_no_mandarin_name_is_available(monkeypatch):
+    """Silently searching xiaohongshu.com in English would be worse than not
+    searching it at all."""
+    queries: list[SocialPlatform] = []
+
+    async def fake_search(platform, *, query, destination):
+        queries.append(platform)
+        return []
+
+    monkeypatch.setattr(social_module, "_search_platform", fake_search)
+    _stub_translation(monkeypatch, value=None)
+
+    await discover_social_candidates(_trip(), [])
+
+    assert queries, "the other platforms still run"
+    assert SocialPlatform.REDNOTE not in queries
 
 
 # ----- one card, both provenances -----
@@ -606,7 +629,19 @@ def test_more_independent_posts_rank_ahead_without_cross_platform_requirement():
 # ----- two-lane selection (SOCIAL_TWO_LANE_PLAN.md) -----
 
 
-def _mined(name: str, urls: list[str], *, fit: int = 0, authors: list[str] | None = None) -> MinedPlace:
+def _mined(
+    name: str,
+    urls: list[str],
+    *,
+    fit: int = 0,
+    authors: list[str] | None = None,
+    intent: SearchIntentType = SearchIntentType.PLACES,
+) -> MinedPlace:
+    """A mined place, with the search intent that found it.
+
+    The intent is what decides the lane now, so it belongs in the fixture
+    rather than being inferred from the score.
+    """
     posts = [
         MinedPost(
             platform="tiktok",
@@ -614,10 +649,15 @@ def _mined(name: str, urls: list[str], *, fit: int = 0, authors: list[str] | Non
             rank=index + 1,
             interest_fit=fit,
             author_name=authors[index] if authors else None,
+            intent_type=intent.value,
         )
         for index, url in enumerate(urls)
     ]
     return MinedPlace(name=name, platforms=["tiktok"], post_urls=list(urls), posts=posts)
+
+
+def _gem(name: str, urls: list[str], **kwargs) -> MinedPlace:
+    return _mined(name, urls, intent=SearchIntentType.HIDDEN_GEMS, **kwargs)
 
 
 def _listicle(count: int) -> list[MinedPlace]:
@@ -660,10 +700,28 @@ def test_independent_sources_outrank_repeated_mentions_from_one_post():
     assert ranked[0].place.name == "From two creators"
 
 
-def test_a_single_mention_matching_interests_reaches_the_deck():
+def test_the_lanes_are_fed_by_different_searches_not_by_different_sorts():
+    """The property the whole design rests on.
+
+    Trending comes from the places and food searches, For You from the
+    hidden-gem search. One pool sorted two ways would make the lanes cosmetic,
+    because a place named once by one creator cannot out-rank a popular one on
+    any popularity-derived weighting.
+    """
+    popular = [_mined(f"Popular {i}", [f"u{i}", f"v{i}"]) for i in range(6)]
+    gems = [_gem(f"Quiet {i}", [f"g{i}"]) for i in range(3)]
+
+    selected = select_social_candidates([*popular, *gems], budget=9)
+
+    lanes = {choice.place.name: choice.lane for choice in selected}
+    assert all(lanes[f"Quiet {i}"] == "for_you" for i in range(3))
+    assert all(lanes[f"Popular {i}"] == "trending" for i in range(6))
+
+
+def test_a_single_mention_from_the_hidden_gem_search_reaches_the_deck():
     """A hidden gem is mentioned once by definition, so a popularity sort can
-    never surface it. That is the whole point of the second lane."""
-    gem = _mined("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
+    never surface it. Asking for it explicitly is what makes it reachable."""
+    gem = _gem("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
     places = [*_listicle(10), gem]
 
     selected = select_social_candidates(places, budget=5)
@@ -672,7 +730,58 @@ def test_a_single_mention_matching_interests_reaches_the_deck():
     assert chosen["Quiet Kissaten"] == "for_you"
 
 
-def test_a_group_with_no_interests_gets_a_full_trending_deck():
+def test_preference_fit_ranks_the_for_you_lane_but_does_not_gate_it():
+    """Fit orders the hidden gems; it does not decide which are gems.
+
+    A group that listed no interests still gets a For You lane, because the
+    lane's membership comes from how the candidates were found.
+    """
+    match = _gem("Roastery", ["a"], fit=3)
+    loose = _gem("Old Shrine", ["b"], fit=1)
+    none = _gem("Back Alley", ["c"], fit=0)
+
+    selected = select_social_candidates([match, loose, none], budget=3)
+
+    assert [choice.lane for choice in selected] == ["for_you"] * 3
+    assert [choice.place.name for choice in selected] == [
+        "Roastery",
+        "Old Shrine",
+        "Back Alley",
+    ]
+
+
+def test_a_hidden_gem_still_needs_evidence_behind_it():
+    """Least popular is not the goal. Between two gems the group has no stated
+    interest in, the better evidenced one goes first."""
+    corroborated = _gem("Two creators", ["a", "b"], authors=["a", "b"])
+    single = _gem("One post", ["c"])
+
+    selected = select_social_candidates([single, corroborated], budget=2)
+
+    assert selected[0].place.name == "Two creators"
+
+
+def test_a_place_both_searches_found_keeps_both_provenances():
+    """Overlap after dedupe is evidence, not a conflict, so it survives."""
+    place = _mined("Nijo Market", ["a"])
+    place.posts.append(
+        MinedPost(
+            platform="instagram",
+            url="b",
+            rank=1,
+            intent_type=SearchIntentType.HIDDEN_GEMS.value,
+        )
+    )
+    place.post_urls.append("b")
+
+    assert place.intent_types == ["places", "hidden_gems"]
+    assert place.is_hidden_gem is True
+    # For You claims it: a hidden-gem search naming it is the rarer evidence,
+    # and trending has the deeper pool to draw from.
+    assert select_social_candidates([place], budget=1)[0].lane == "for_you"
+
+
+def test_a_group_with_no_hidden_gems_found_gets_a_full_trending_deck():
     places = _listicle(10)
 
     selected = select_social_candidates(places, budget=6)
@@ -681,21 +790,23 @@ def test_a_group_with_no_interests_gets_a_full_trending_deck():
     assert {choice.lane for choice in selected} == {"trending"}
 
 
-def test_an_unfilled_interest_lane_is_backfilled_rather_than_left_short():
-    """Only one place clears the fit floor, so the other lane slots must not
+def test_an_unfilled_lane_is_backfilled_rather_than_left_short():
+    """Only one hidden gem was found, so the other For You slots must not
     simply vanish from the budget."""
-    gem = _mined("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
-    weak = _mined("Loose Match", ["https://www.tiktok.com/@d/video/8"], fit=1)
-    places = [*_listicle(10), gem, weak]
+    gem = _gem("Quiet Kissaten", ["https://www.tiktok.com/@c/video/9"], fit=3)
+    places = [*_listicle(10), gem]
 
     selected = select_social_candidates(places, budget=10)
 
     assert len(selected) == 10
     lanes = [choice.lane for choice in selected]
     assert lanes.count("for_you") == 1
-    assert "Loose Match" not in {
-        choice.place.name for choice in selected if choice.lane == "for_you"
-    }
+    # A backfilled card never claims a lane its search never asked for.
+    assert all(
+        choice.place.is_hidden_gem
+        for choice in selected
+        if choice.lane == "for_you"
+    )
 
 
 def test_selection_never_exceeds_or_undershoots_the_budget():
@@ -739,25 +850,25 @@ def test_the_selection_lane_reaches_the_card():
 def test_for_you_still_fills_when_supply_is_below_the_trending_quota():
     """The bug that made the lane dead in production.
 
-    Mining a city yields about nine eligible names while the budget is
-    thirty-two, so trending's quota alone exceeded the entire supply. Drawing
-    trending first took every place and For You chose from an empty list, even
-    though places had cleared the interest bar. Every earlier test had more
-    places than slots, which is the regime that never happens.
+    Mining a city yields far fewer eligible names than the budget, so
+    trending's quota alone exceeded the entire supply. Drawing trending first
+    took every place and For You chose from an empty list. Every earlier test
+    had more places than slots, which is the regime that never happens.
     """
     places = [_mined(f"Popular {i}", [f"u{i}"]) for i in range(6)]
-    places += [_mined(f"Suits us {i}", [f"g{i}"], fit=3) for i in range(3)]
+    places += [_gem(f"Quiet {i}", [f"g{i}"], fit=3) for i in range(3)]
 
     selected = select_social_candidates(places, budget=32)
 
     lanes = Counter(choice.lane for choice in selected)
-    assert lanes["for_you"] > 0, "nine places, twenty-three trending slots"
+    assert lanes["for_you"] == 3, "nine places, twenty-three trending slots"
     assert len(selected) == 9, "every mined place is still verified"
 
 
 def test_lanes_are_sized_against_supply_not_against_the_budget():
     """Slot counts taken from the budget describe places that do not exist."""
-    places = [_mined(f"P{i}", [f"u{i}"], fit=3 if i < 4 else 0) for i in range(10)]
+    places = [_mined(f"P{i}", [f"u{i}"]) for i in range(7)]
+    places += [_gem(f"G{i}", [f"g{i}"]) for i in range(3)]
 
     selected = select_social_candidates(places, budget=32)
     lanes = Counter(choice.lane for choice in selected)
@@ -769,13 +880,9 @@ def test_lanes_are_sized_against_supply_not_against_the_budget():
 
 def test_for_you_draws_before_trending():
     """Order decides whether the lane gets anything at all when supply is
-    short, so it is the behaviour worth pinning, not an implementation
-    detail."""
+    short, so it is the behaviour worth pinning."""
     strong = _mined("Everyone posts this", ["a", "b", "c"], authors=["a", "b", "c"])
-    quiet = _mined("Quiet Kissaten", ["d"], fit=3)
-    # Sized like a real city. Below four places the 70/30 split rounds the
-    # For You lane away entirely, which is a rounding question rather than
-    # the ordering question this test is about.
+    quiet = _gem("Quiet Kissaten", ["d"], fit=3)
     filler = [_mined(f"Filler {i}", [f"f{i}"]) for i in range(8)]
 
     selected = select_social_candidates([strong, quiet, *filler], budget=32)
@@ -785,7 +892,7 @@ def test_for_you_draws_before_trending():
     assert lane_of["Everyone posts this"] == "trending"
 
 
-def test_no_interest_matches_still_spends_the_run():
+def test_no_hidden_gems_still_spends_the_run():
     places = [_mined(f"P{i}", [f"u{i}"]) for i in range(8)]
 
     selected = select_social_candidates(places, budget=32)
@@ -794,14 +901,16 @@ def test_no_interest_matches_still_spends_the_run():
     assert {choice.lane for choice in selected} == {"trending"}
 
 
-def test_the_search_asks_three_different_questions():
-    """One query returned about nine names for a whole city. The angles have
-    to differ in kind, because asking the same thing three ways returns the
-    same posts."""
-    queries = build_discovery_queries(
-        SocialPlatform.TIKTOK, destination="Sapporo", interests=["coffee"]
-    )
+def test_the_three_intents_ask_different_questions():
+    """Asking the same thing three ways returns the same posts, so the intents
+    the planner can choose from have to differ in kind, not in wording."""
+    queries = [
+        build_discovery_query(
+            SearchIntent(platform=SocialPlatform.TIKTOK, intent_type=intent_type),
+            destination="Sapporo",
+        )
+        for intent_type in SearchIntentType
+    ]
 
-    assert len(queries) == 3
-    assert len(set(queries)) == 3
+    assert len(set(queries)) == len(queries)
     assert all("Sapporo" in query for query in queries)
