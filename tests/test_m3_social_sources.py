@@ -323,6 +323,21 @@ def test_an_instagram_reels_profile_chrome_is_not_treated_as_post_text():
     assert post_snippet(chrome) is None
 
 
+def test_instagrams_logged_out_wall_copy_is_not_treated_as_post_text():
+    """The second of Instagram's two chrome strings, and the more damaging.
+
+    Every /p/ photo post carries it, and it is long enough to look like
+    content, so a pasted photo-post link registered as having readable text
+    when it had none and was never sent back for a place name.
+    """
+    wall = (
+        "Create an account or log in to Instagram - Share what you're into "
+        "with the people who get you."
+    )
+
+    assert post_snippet(wall) is None
+
+
 def test_a_real_caption_survives_the_snippet_cleanup():
     """The empty-caption rule must not swallow a snippet that has one."""
     caption = "3413 Likes, 36 Comments. TikTok video from Syafiq: &quot;best ramen&quot;"

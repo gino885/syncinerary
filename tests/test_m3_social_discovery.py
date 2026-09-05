@@ -563,6 +563,81 @@ async def test_an_instagram_link_reads_its_public_indexed_metadata():
     assert "Otaru Canal at night" in metadata.indexed_text
 
 
+async def test_a_pasted_instagram_photo_post_reports_no_readable_text():
+    """Instagram serves its logged-out wall copy as the description of every
+    /p/ post, and it is long enough to look like content.
+
+    agents/gather/personal.py treats a non-empty indexed_text as "the index
+    knows this post", so the boilerplate made a pasted photo post look
+    readable when it was not, and the traveler was never asked for the place
+    name that would have rescued it.
+    """
+    url = "https://www.instagram.com/p/DUP9k78kcz6/"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "url": url,
+                            "description": "Create an account or log in to "
+                            "Instagram - Share what you're into with the "
+                            "people who get you.",
+                        }
+                    ]
+                }
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        metadata = await run_tool(
+            make_social_link_metadata_tool(client=client, api_key="test-key"),
+            SocialLinkMetadataInput(url=url),
+        )
+
+    assert metadata.description is None
+    assert metadata.indexed_text.strip() == ""
+
+
+async def test_a_pasted_photo_post_still_keeps_a_real_title():
+    """The wall copy goes; the post's own indexed title stays."""
+    url = "https://www.instagram.com/p/DUXd-tpkZDI/"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "url": url,
+                            "title": "Sapporo Beer Garden is a must-visit in "
+                            "Hokkaido, Japan",
+                            "description": "Create an account or log in to "
+                            "Instagram - Share what you're into with the "
+                            "people who get you.",
+                        }
+                    ]
+                }
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        metadata = await run_tool(
+            make_social_link_metadata_tool(client=client, api_key="test-key"),
+            SocialLinkMetadataInput(url=url),
+        )
+
+    assert metadata.description is None
+    assert metadata.indexed_text == (
+        "Sapporo Beer Garden is a must-visit in Hokkaido, Japan"
+    )
+
+
 async def test_a_link_the_index_has_never_seen_returns_empty_text():
     def respond(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"web": {"results": []}}, request=request)

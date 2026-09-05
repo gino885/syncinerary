@@ -414,11 +414,20 @@ def build_discovery_query(
 
 
 _HTML_TAG = re.compile(r"<[^>]+>")
-# Instagram serves one og:description for every reel URL, so it is the same
-# string on every result and says nothing about any of them. It ends with an
-# empty quoted caption, which is the general shape worth matching: a snippet
-# whose caption is empty carries no post text whatever the locale.
+# Snippets that are the site talking about itself rather than about the post.
+# Instagram never publishes post text in its search-index description: over 60
+# rows, every reel carried the @reel profile chrome (a follower count and an
+# empty quoted caption) and every /p/ post carried the logged-out wall copy.
+# Both are byte identical across results, so they say nothing about any single
+# post, and the logged-out one is the more damaging of the two: it is long
+# enough to look like content, which made a pasted photo-post link register as
+# having readable text when it had none.
 _EMPTY_CAPTION = re.compile(r':\s*""\s*$')
+_PLATFORM_CHROME = re.compile(
+    r"(?:log in to instagram|create an account or log in"
+    r"|share what you're into with the people who get you)",
+    re.IGNORECASE,
+)
 
 
 def clean_snippet(value: object) -> str | None:
@@ -440,16 +449,15 @@ def clean_snippet(value: object) -> str | None:
 def post_snippet(value: object) -> str | None:
     """The description, or None when it is not about this post.
 
-    Instagram's description for a reel is the @reel account's profile chrome,
-    a follower count followed by an empty caption, and it is byte identical on
-    every result. Measured over one gather that was one distinct string across
-    thirty-four Instagram rows, against twelve distinct across fifteen TikTok
-    rows. Passing it on spent about half the extraction payload and gave the
-    model twenty copies of a follower count to read past, so a snippet whose
-    caption is empty is dropped and the post keeps its title.
+    Instagram publishes two such strings and no post text at all: the @reel
+    profile chrome on every reel, and the logged-out wall copy on every /p/
+    post. Measured over one gather, the reel chrome was one distinct string
+    across thirty-four rows against twelve distinct across fifteen TikTok rows,
+    and it spent about half the extraction payload. The post keeps its title,
+    which for Instagram is the only signal there is.
     """
     text = clean_snippet(value)
-    if text is None or _EMPTY_CAPTION.search(text):
+    if text is None or _EMPTY_CAPTION.search(text) or _PLATFORM_CHROME.search(text):
         return None
     return text
 
