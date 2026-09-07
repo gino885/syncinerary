@@ -71,6 +71,49 @@ def _buzz_candidate(**enrichment) -> CandidatePlace:
     )
 
 
+def test_a_for_you_card_says_so_alongside_where_it_came_from():
+    """Section 8.5. The lane is the whole point of the two-lane selection, and
+    until now it reached the database and stopped there: six cards a
+    hidden-gems search had found looked identical to trending ones."""
+    candidate = _buzz_candidate()
+    candidate.trending_signals = {
+        "selection_lane": "for_you",
+        "discovery_intents": ["hidden_gems"],
+    }
+
+    badges = source_badges(candidate)
+    kinds = [badge.kind.value for badge in badges]
+    for_you = next(badge for badge in badges if badge.kind.value == "for_you")
+
+    assert "for_you" in kinds
+    # Provenance survives: where it came from and why it was chosen are
+    # different facts and the card carries both.
+    assert "social" in kinds or "trending" in kinds
+    assert "discovered" in kinds
+    assert for_you.label == "For You"
+    assert for_you.category.value == "recommendation"
+    assert for_you.discovery_intents == ["hidden_gems"]
+    # No link: no post chose this card, the lane did.
+    assert for_you.url is None
+
+
+def test_a_trending_card_carries_no_recommendation_badge():
+    candidate = _buzz_candidate()
+    candidate.trending_signals = {"selection_lane": "trending"}
+
+    badges = source_badges(candidate)
+
+    assert "for_you" not in [badge.kind.value for badge in badges]
+    assert all(badge.category.value == "provenance" for badge in badges)
+
+
+def test_a_card_with_no_lane_recorded_is_unchanged():
+    """Google foundation cards never went through lane selection."""
+    badges = source_badges(_buzz_candidate())
+
+    assert "for_you" not in [badge.kind.value for badge in badges]
+
+
 def test_public_social_badge_opens_the_best_ranked_post_and_names_its_platform():
     social, _discovered = source_badges(_buzz_candidate())
 

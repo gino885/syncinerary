@@ -350,10 +350,12 @@ async def test_deck_labels_personal_sources_for_the_current_traveler(client, ses
         {
             "kind": "attached_by_you",
             "label": "Attached by you",
+            "category": "provenance",
             "contributor_name": "Gino",
             # No post URL on this row, so the badge stays plain text.
             "url": None,
             "platform": None,
+            "discovery_intents": [],
         }
     ]
 
@@ -393,9 +395,11 @@ async def test_deck_names_the_friend_who_attached_a_source(client, session):
         {
             "kind": "attached_by_group",
             "label": "Attached by Ana",
+            "category": "provenance",
             "contributor_name": "Ana",
             "url": None,
             "platform": None,
+            "discovery_intents": [],
         }
     ]
 

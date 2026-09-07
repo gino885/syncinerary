@@ -403,6 +403,21 @@ class SourceAttachmentOut(BaseModel):
         )
 
 
+class SourceBadgeCategory(str, Enum):
+    """What a badge is claiming, which is not the same as which badge it is.
+
+    Provenance says where the place came from and is checkable against a post
+    or a map page. Recommendation says why this group is being shown it, and
+    has no external URL to check because there is nothing outside the app that
+    made the choice. They share the badge component and the row on the card;
+    keeping the claim typed here stops the two being treated as one fact
+    later, without splitting the payload the client already decodes.
+    """
+
+    PROVENANCE = "provenance"
+    RECOMMENDATION = "recommendation"
+
+
 class SourceBadgeKind(str, Enum):
     CLASSIC = "classic"
     TRENDING = "trending"
@@ -410,17 +425,22 @@ class SourceBadgeKind(str, Enum):
     DISCOVERED = "discovered"
     ATTACHED_BY_YOU = "attached_by_you"
     ATTACHED_BY_GROUP = "attached_by_group"
+    FOR_YOU = "for_you"
 
 
 class SourceBadgeOut(BaseModel):
     kind: SourceBadgeKind
     label: str
+    category: SourceBadgeCategory = SourceBadgeCategory.PROVENANCE
     contributor_name: str | None = None
     # CLAUDE.md section 8.5, source links. A badge whose provenance has a
     # public URL carries it here and the client renders a link; a badge
     # without one stays plain text. Never a search page, never synthesized.
     url: str | None = None
     platform: str | None = None
+    # Which searches turned this place up, for the card details. Only set on
+    # the recommendation badge, where "why am I seeing this" is the question.
+    discovery_intents: list[str] = Field(default_factory=list)
 
 
 class SourcePostOut(BaseModel):
@@ -588,6 +608,24 @@ def source_badges(
                 ),
                 url=top.url if top is not None else None,
                 platform=top.label if top is not None else None,
+            )
+        )
+
+    # Section 8.5: the recommendation reason, alongside provenance rather than
+    # instead of it. It carries no URL because no post chose this card, the
+    # For You lane did, and a link would imply otherwise.
+    if candidate.trending_signals.get("selection_lane") == "for_you":
+        intents = candidate.trending_signals.get("discovery_intents")
+        badges.append(
+            SourceBadgeOut(
+                kind=SourceBadgeKind.FOR_YOU,
+                label="For You",
+                category=SourceBadgeCategory.RECOMMENDATION,
+                discovery_intents=(
+                    [str(intent) for intent in intents]
+                    if isinstance(intents, list)
+                    else []
+                ),
             )
         )
 

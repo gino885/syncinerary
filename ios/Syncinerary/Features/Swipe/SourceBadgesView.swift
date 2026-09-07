@@ -36,6 +36,18 @@ struct SourceBadgesView: View {
                     .foregroundStyle(tint(for: badge.kind))
                 }
                 .accessibilityLabel(badge.accessibilityLabel)
+            } else if badge.isRecommendation {
+                HStack(spacing: AppTheme.spacingXS) {
+                    // SF Symbol rather than a sparkle emoji: the glyph has to
+                    // render everywhere the deck does, and emoji do not.
+                    Image(systemName: "sparkles")
+                        .accessibilityHidden(true)
+                    Text(shortLabel(for: badge))
+                }
+                .font(AppType.mono)
+                .textCase(.uppercase)
+                .foregroundStyle(tint(for: badge.kind))
+                .accessibilityLabel(badge.accessibilityLabel)
             } else {
                 MetaLabel(shortLabel(for: badge), color: tint(for: badge.kind))
                     .accessibilityLabel(badge.accessibilityLabel)
@@ -51,6 +63,7 @@ struct SourceBadgesView: View {
         case "trending": badge.platform ?? "Trending"
         case "classic": "Classic"
         case "attached_by_you": "You added this"
+        case "for_you": "For You"
         default: badge.contributorName.map { "From \($0)" } ?? badge.label
         }
     }
@@ -62,6 +75,9 @@ struct SourceBadgesView: View {
         switch kind {
         case "trending": AppTheme.stamp
         case "attached_by_you", "attached_by_group": AppTheme.violet
+        // Jade, so the recommendation reason reads as its own kind of claim
+        // rather than as another source.
+        case "for_you": AppTheme.jade
         default: AppTheme.faded
         }
     }
@@ -69,8 +85,9 @@ struct SourceBadgesView: View {
 
 #Preview {
     SourceBadgesView(badges: [
-        SourceBadge(kind: "trending", label: "Trending on TikTok", contributorName: nil, url: "https://www.tiktok.com/@a/video/7481234567890123456", platform: "TikTok"),
-        SourceBadge(kind: "discovered", label: "Found on Google Maps", contributorName: nil, url: nil, platform: nil),
+        SourceBadge(kind: "trending", label: "Trending on TikTok", category: "provenance", contributorName: nil, url: "https://www.tiktok.com/@a/video/7481234567890123456", platform: "TikTok", discoveryIntents: nil),
+        SourceBadge(kind: "for_you", label: "For You", category: "recommendation", contributorName: nil, url: nil, platform: nil, discoveryIntents: ["hidden_gems"]),
+        SourceBadge(kind: "discovered", label: "Found on Google Maps", category: "provenance", contributorName: nil, url: nil, platform: nil, discoveryIntents: nil),
     ])
     .padding()
     .background(AppTheme.paper)
