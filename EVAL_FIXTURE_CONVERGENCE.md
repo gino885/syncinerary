@@ -112,13 +112,40 @@ finding here with a long shelf life, because Feature 2's whole claim is
 answering "did this change help or hurt". A metric that disagrees with the
 objective cannot answer it. Not chased yet.
 
-## 7. CI would not have caught any of this
+## 7. What CI does and does not catch
 
-The `eval` job brings up a fresh Postgres service per run, so
-`previous_commit_sha` finds nothing, the runner prints "No previous commit
-stored, so nothing to diff against", and it exits 0. The quality diff is
-therefore a local-developer signal today, not a CI gate, whatever section 12.3
-intends. Feasibility and harness health do gate CI, and those passed.
+An earlier draft of this section claimed CI "exits 0 without comparing
+anything". That was wrong, and the correction matters, because it changes what
+needs building.
+
+CI does lose the commit-to-commit diff. The `eval` job brings up a fresh
+Postgres service per run, so `previous_commit_sha` finds nothing and the runner
+prints "No previous commit stored, so nothing to diff against". The line
+reading "0.92 to 0.88" is a local-developer signal only.
+
+CI does not lose quality gating. A fixture sets floors under any metric it
+cares about in `expected.min_scores`, `score_expected_floors` checks them, and
+those results are appended to the feasibility family, where any failure fails
+the eval. Floors are absolute, so a fresh database costs them nothing. All
+three sabotage modes fail the run with no baseline present:
+
+```
+--break fatigue-cap      exit=1   8/10 fixtures passed
+--break must-go          exit=1   9/10
+--break dietary-filter   exit=1   9/10
+```
+
+The real gap was calibration. `weather_storm_day3/meal_coverage` fell from
+1.00 to 0.75 against a floor of 0.60, and cleared it with room to spare. Only
+the 1.00 floors on `wishlist_explained` and `must_go_coverage` were tight.
+
+That is now fixed for the fixtures where it can be. Eight of the ten reach
+`OPTIMAL` on every solve, and section 4's argument runs backwards for them: a
+converged model gives the same answer whatever steers the search, which is why
+the runner's own docstring can say every optimal fixture is identical on every
+architecture. Their floors sit 0.05 under measured, which is a real gate. The
+two unconverged fixtures keep wide floors and say so in their own
+`description`, because a tight floor there fails CI on unrelated work.
 
 ## 8. What was decided
 
@@ -126,11 +153,20 @@ The nine commits merged unchanged. The ceiling stays: it is non-binding on
 these fixtures but it binds on the real trip that motivated it, where one day
 was handed five restaurants and stage 2 could seat two.
 
+Then the floors were calibrated, in `m7h-eval-floors`: tightened to 0.05 under
+measured on the eight converged fixtures, added to the five disruption
+fixtures, which had gated on no quality metric at all, and left wide on the
+two unconverged ones.
+
 Left open, in rough priority order:
 
-1. Why `weather_storm_day3` scores against the objective (section 6).
-2. Whether the CI eval job should carry a stored baseline so the quality diff
-   gates anything (section 7).
-3. Whether stage 1 should converge on these two fixtures, by search budget or
+1. Why `weather_storm_day3` scores against the objective (section 6). This is
+   the one with the longest shelf life, because a metric that disagrees with
+   the objective cannot answer the question Feature 2 exists to answer.
+2. Whether stage 1 should converge on these two fixtures, by search budget or
    by a tighter formulation, so their numbers stop depending on how the search
-   was steered (sections 4 and 5).
+   was steered (sections 4 and 5). Converging them is also what would let
+   their floors be tightened like everything else.
+3. Whether CI should carry a stored baseline so the diff line works there too
+   (section 7). Lowest of the three: the floors gate without it, and a
+   baseline would inherit the same noise that keeps two fixtures loose.
