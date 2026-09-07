@@ -375,8 +375,34 @@ def assign_days(
 
     capacity = min(8, ceil(len(ranked) / trip.days) + 2)
     nearest_walk_minutes = _nearest_walk_minutes(ranked)
+
+    # Stage 2 can only seat a restaurant inside a meal slot, so a day holding
+    # more food than it has meals will drop the surplus however well it is
+    # clustered. Assigning it here anyway wasted the slot twice over: the food
+    # went nowhere, and the sight that could have used the space was never
+    # offered the day. The ceiling degrades to what the pool forces, because a
+    # cap below the share every day must absorb makes the model infeasible
+    # rather than balanced.
+    food_indices = [
+        index
+        for index, candidate in enumerate(ranked)
+        if candidate.type is CandidateType.FOOD
+    ]
+    # A ceiling only. A floor would force placement, and here a candidate may
+    # legitimately go unplaced, so requiring a minimum made small pools
+    # infeasible rather than balanced. Composing a good day is Stage 2's
+    # meal objective; this only stops Stage 2 being handed food it can never
+    # seat.
+    unavoidable_food = -(-len(food_indices) // trip.days) if trip.days else 0
+    day_food_ceiling = max(FOOD_PER_DAY_MAX, unavoidable_food)
+
     for day in range(trip.days):
         model.add(sum(assigned[(index, day)] for index in range(len(ranked))) <= capacity)
+        if food_indices:
+            model.add(
+                sum(assigned[(index, day)] for index in food_indices)
+                <= day_food_ceiling
+            )
         model.add(
             sum(
                 max(1, candidate.fatigue_cost) * assigned[(index, day)]

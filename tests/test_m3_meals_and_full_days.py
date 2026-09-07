@@ -397,6 +397,49 @@ def test_a_missing_nearby_leg_uses_an_honest_walking_estimate():
     assert route.stops[1].transit_from_prev_min > 0
 
 
+def test_a_day_of_unroutable_city_legs_still_gets_a_plan():
+    """The bug this replaces cost a real day four of its five stops.
+
+    Every one of that day's twenty pairs came back unroutable, so the routing
+    circuit had no arcs and the day held a single stop with six hundred spare
+    minutes. Inside a city a failed lookup is a gap in the provider's
+    coverage, not proof the places are unreachable from each other.
+    """
+    across_town = [
+        _place("North", 43.100, 141.350),
+        _place("Centre", 43.060, 141.350),
+        _place("South", 43.030, 141.360),
+        _place("East", 43.060, 141.420),
+    ]
+
+    route = solve_day(
+        across_town, day=0, trip_date=THURSDAY, transit=TransitMatrix(legs=[])
+    )
+
+    assert len(route.stops) == 4
+    assert route.unplaced == []
+    # Labelled as an estimate, never as a routed journey.
+    assert {stop.transit_from_prev_mode for stop in route.stops[1:]} <= {
+        "walking_estimated",
+        "transit_estimated",
+    }
+
+
+def test_an_estimated_city_leg_is_pessimistic_rather_than_hopeful():
+    """Over-estimating a leg costs a stop; under-estimating strands somebody."""
+    from syncinerary.agents.solver.stage2_route import _estimated_leg
+
+    near, far = _place("A", 43.060, 141.350), _place("B", 43.060, 141.420)
+    minutes, mode = _estimated_leg(near, far)
+
+    assert mode == "transit_estimated"
+    # Roughly 5.7 km apart: brisk on a map, not brisk on a bus with a wait.
+    assert minutes >= 25
+
+    # Beyond the city scale the provider may be telling the truth.
+    assert _estimated_leg(_place("A", 43.06, 141.35), _place("Far", 43.40, 142.10)) is None
+
+
 def test_a_make_up_meal_is_never_worth_losing_two_stops():
     current = DayRoute(
         day=0,

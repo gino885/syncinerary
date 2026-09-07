@@ -24,6 +24,9 @@ from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
+    ESTIMATED_TRANSIT_KMH,
+    ESTIMATED_TRANSIT_MAX_KM,
+    ESTIMATED_TRANSIT_OVERHEAD_MIN,
     M1_DESTINATION_TIMEZONE,
     MEAL_WINDOWS,
     MIN_STOPS_PER_DAY,
@@ -331,11 +334,21 @@ def _estimated_leg(
     origin: CandidatePlace,
     destination: CandidatePlace,
 ) -> tuple[int, str] | None:
-    """Estimate only a nearby walking leg the provider could not route.
+    """Stand in for a pair the transit provider could not route.
 
-    The group chose walking for nearby pairs and public transit for longer
-    pairs. A missing long transit route stays missing rather than becoming an
-    invented car journey the group never selected.
+    A pair with no arc is not "a slow leg", it is "these two places cannot be
+    visited on the same day", and a day whose lookups all failed came back
+    holding one stop and six hundred spare minutes. Within a city a failed
+    lookup is almost always a gap in the provider's coverage, so the leg is
+    estimated rather than dropped.
+
+    Past ESTIMATED_TRANSIT_MAX_KM it is dropped as before. A provider finding
+    no route across a region may be telling the truth, and an invented journey
+    would put a stop on the plan that nobody can reach.
+
+    Estimates are labelled as estimates, never presented as routed journeys,
+    and deliberately slow: over-estimating a leg costs at most a stop, while
+    under-estimating one strands somebody.
     """
     distance_km = haversine_km(
         TransitLocation(lat=origin.lat, lng=origin.lng),
@@ -344,7 +357,12 @@ def _estimated_leg(
     if distance_km <= NEARBY_WALKING_KM:
         # Walking pace, 5 km/h.
         return max(5, round(distance_km * 12)), "walking_estimated"
-    return None
+    if distance_km > ESTIMATED_TRANSIT_MAX_KM:
+        return None
+    minutes = ESTIMATED_TRANSIT_OVERHEAD_MIN + round(
+        distance_km / ESTIMATED_TRANSIT_KMH * 60
+    )
+    return max(5, minutes), "transit_estimated"
 
 
 def _location(candidate: CandidatePlace) -> TransitLocation:

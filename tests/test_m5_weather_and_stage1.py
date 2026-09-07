@@ -154,6 +154,45 @@ def test_closed_and_fatigue_overflow_reasons_are_quantified():
     assert "8-point fatigue cap" in fatigue[0].reason_text
 
 
+def test_a_day_is_never_given_more_food_than_it_can_seat():
+    """Stage 2 can only place a restaurant inside a meal slot, so food beyond
+    the day's meals is dropped however well it is clustered. Assigning it
+    anyway wasted the slot twice: the food went nowhere, and the sight that
+    could have used the space was never offered the day."""
+    from syncinerary.config.solver import FOOD_PER_DAY_MAX
+
+    food = [
+        _place(f"Restaurant {index}", outdoor=False, candidate_type=CandidateType.FOOD)
+        for index in range(8)
+    ]
+    sights = [_place(f"Sight {index}", outdoor=False) for index in range(8)]
+
+    assignment = assign_days(
+        [*food, *sights],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    for bucket in assignment.buckets:
+        seated = sum(1 for place in bucket if place.type is CandidateType.FOOD)
+        assert seated <= max(FOOD_PER_DAY_MAX, -(-len(food) // 2))
+
+
+def test_the_food_ceiling_gives_way_before_it_makes_a_day_impossible():
+    """An all-food pool relaxes the cap rather than failing to assign."""
+    food = [
+        _place(f"Restaurant {index}", outdoor=False, candidate_type=CandidateType.FOOD)
+        for index in range(9)
+    ]
+
+    assignment = assign_days(
+        food, _trip(), weather=_forecast([20, 20]), weights=SolverObjectiveWeights()
+    )
+
+    assert sum(len(bucket) for bucket in assignment.buckets) > 0
+
+
 def test_unknown_hours_are_not_a_closed_door():
     """The bug this replaces dropped an onsen district and a shopping street.
 
