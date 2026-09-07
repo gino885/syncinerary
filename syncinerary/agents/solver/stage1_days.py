@@ -9,6 +9,7 @@ from uuid import UUID
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field
 
+from syncinerary.agents.gather.traits import opening_hours_are_binding, opens_on
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.config.solver import (
     ATTRACTIONS_PER_DAY_MIN,
@@ -374,8 +375,34 @@ def assign_days(
 
     capacity = min(8, ceil(len(ranked) / trip.days) + 2)
     nearest_walk_minutes = _nearest_walk_minutes(ranked)
+
+    # Stage 2 can only seat a restaurant inside a meal slot, so a day holding
+    # more food than it has meals will drop the surplus however well it is
+    # clustered. Assigning it here anyway wasted the slot twice over: the food
+    # went nowhere, and the sight that could have used the space was never
+    # offered the day. The ceiling degrades to what the pool forces, because a
+    # cap below the share every day must absorb makes the model infeasible
+    # rather than balanced.
+    food_indices = [
+        index
+        for index, candidate in enumerate(ranked)
+        if candidate.type is CandidateType.FOOD
+    ]
+    # A ceiling only. A floor would force placement, and here a candidate may
+    # legitimately go unplaced, so requiring a minimum made small pools
+    # infeasible rather than balanced. Composing a good day is Stage 2's
+    # meal objective; this only stops Stage 2 being handed food it can never
+    # seat.
+    unavoidable_food = -(-len(food_indices) // trip.days) if trip.days else 0
+    day_food_ceiling = max(FOOD_PER_DAY_MAX, unavoidable_food)
+
     for day in range(trip.days):
         model.add(sum(assigned[(index, day)] for index in range(len(ranked))) <= capacity)
+        if food_indices:
+            model.add(
+                sum(assigned[(index, day)] for index in food_indices)
+                <= day_food_ceiling
+            )
         model.add(
             sum(
                 max(1, candidate.fatigue_cost) * assigned[(index, day)]
@@ -506,9 +533,28 @@ def _fits_open_hours(
     day_start: time,
     day_end: time,
 ) -> bool:
+    """Whether this day has room inside the place's opening window.
+
+    Unknown hours are not a closed door. Google publishes no schedule for an
+    area rather than a business, and reading that silence as "shut every day"
+    removed an onsen district and a shopping street from the trip while
+    telling the traveler they had no opening window, which was the opposite of
+    what the data said. A weekday genuinely missing from a known schedule is
+    still a closure, so a zoo shut on Wednesdays stays shut.
+    """
     weekday = trip_date.strftime("%a").lower()
     start_minute = day_start.hour * 60 + day_start.minute
     end_minute = day_end.hour * 60 + day_end.minute
+
+    if not opening_hours_are_binding(
+        candidate.category, candidate.enrichment.get("place_types") or [],
+        candidate.hours_by_weekday,
+    ):
+        return start_minute + candidate.duration_estimate_min <= end_minute
+
+    if opens_on(candidate.hours_by_weekday, weekday) is not True:
+        return False
+
     return any(
         max(start_minute, raw_start * 60) + candidate.duration_estimate_min
         <= min(end_minute, raw_end * 60)
@@ -568,12 +614,15 @@ def _unplaced_reason(
     capacity: int,
 ) -> Stage1Unplaced:
     if not feasible_days:
+        # Only reachable now when the schedule is known, so the wording can
+        # say what it means rather than covering for unknown hours too.
         return Stage1Unplaced(
             candidate_id=candidate.id,
             reason_code="closed_on_available_days",
             reason_text=(
-                f"{candidate.name_canonical} had no opening window long enough "
-                f"between {trip.start_date.isoformat()} and {trip.end_date.isoformat()}."
+                f"{candidate.name_canonical} was closed, or open too briefly to "
+                f"visit, on every day between {trip.start_date.isoformat()} and "
+                f"{trip.end_date.isoformat()}."
             ),
         )
     if all(

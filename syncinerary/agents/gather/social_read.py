@@ -185,6 +185,7 @@ async def read_tiktok_posts(
     posts: list[DiscoveredSocialURL],
     *,
     destination: str,
+    query: str | None = None,
     tool: ToolDefinition | None = None,
     cache: CoverTextCache | None = None,
     client: MessagesClient | None = None,
@@ -218,6 +219,10 @@ async def read_tiktok_posts(
             "node": "gather_social_read",
             "platform": "tiktok",
             "destination": destination,
+            # A city can now be searched several times, so without the query
+            # every read of it would hash to the same state slice and look to
+            # the loop detector like no progress.
+            "query": query or "",
         },
     )
     reads = {read.canonical_url: read for read in result.posts}

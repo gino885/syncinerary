@@ -97,7 +97,7 @@ struct SwipeCardView: View {
             description: "Miso broth worth the queue.",
             descriptionSource: "TikTok",
             sourceBadges: [
-                SourceBadge(kind: "trending", label: "Trending on TikTok", contributorName: nil, url: "https://www.tiktok.com/@traveler/video/7481234567890123456", platform: "TikTok")
+                SourceBadge(kind: "trending", label: "Trending on TikTok", category: "provenance", contributorName: nil, url: "https://www.tiktok.com/@traveler/video/7481234567890123456", platform: "TikTok", discoveryIntents: nil)
             ],
             sourcePosts: [],
             delegateBadge: DelegateBadge(type: "confirm", text: "Matches your love of ramen", reasoning: "You listed ramen.")

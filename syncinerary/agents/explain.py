@@ -23,6 +23,7 @@ from typing import Any
 
 from syncinerary.config import settings
 from syncinerary.config.explain import EXPLAIN_EFFORT, EXPLAIN_MAX_TOKENS
+from syncinerary.config.locales import language_name
 from syncinerary.domain.models import (
     CandidatePlace,
     ItineraryNode,
@@ -71,7 +72,11 @@ noticeably longer than the rest.
 - If a wishlist-not-placed section is present, briefly explain each omitted \
 place using only its supplied quantified reason.
 - Write for the whole group, not one person. No second-person singular \
-instructions."""
+instructions.
+- Write in the language named in the Output language line. Place names stay \
+exactly as supplied, in the script they were given in: a name is not \
+translated, because it is what a traveler will look for on a sign or say to a \
+driver."""
 
 
 class ExplainUnavailable(RuntimeError):
@@ -175,7 +180,10 @@ async def generate_narrative(
                 messages=[
                     LLMMessage(
                         role="user",
-                        content=build_prompt(trip, nodes, candidates, wishlist),
+                        content=(
+                            f"Output language: {language_name(trip.output_locale)}\n\n"
+                            + build_prompt(trip, nodes, candidates, wishlist)
+                        ),
                     )
                 ],
             ),

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator, model
 
 from syncinerary.agents.gather.cities import MAX_CITIES_PER_TRIP
 from syncinerary.agents.gather.dietary import dietary_notice
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
@@ -87,6 +88,15 @@ class TripCreateRequest(BaseModel):
     creator_home_city: str | None = None
     creator_interests: list[ProfileValue] = Field(default_factory=list, max_length=12)
     creator_dietary_excludes: list[ProfileValue] = Field(default_factory=list, max_length=12)
+    # The language the group's shared trip content is written in. Persisted
+    # on the trip, not read per request: everyone reads the same narrative.
+    output_locale: str = DEFAULT_OUTPUT_LOCALE
+
+    @field_validator("output_locale")
+    @classmethod
+    def _known_locale(cls, value: str) -> str:
+        """An unsupported tag falls back rather than being stored unusable."""
+        return normalize_output_locale(value)
 
     @field_validator("creator_interests", "creator_dietary_excludes")
     @classmethod
@@ -122,6 +132,7 @@ class TripOut(BaseModel):
     cities: list[str]
     country: str | None
     timezone: str | None
+    output_locale: str
     start_date: date
     end_date: date
     days: int
@@ -135,6 +146,7 @@ class TripOut(BaseModel):
             cities=trip.cities or [trip.destination],
             country=trip.country,
             timezone=trip.timezone,
+            output_locale=trip.output_locale,
             start_date=trip.start_date,
             end_date=trip.end_date,
             days=trip.days,
@@ -403,6 +415,21 @@ class SourceAttachmentOut(BaseModel):
         )
 
 
+class SourceBadgeCategory(str, Enum):
+    """What a badge is claiming, which is not the same as which badge it is.
+
+    Provenance says where the place came from and is checkable against a post
+    or a map page. Recommendation says why this group is being shown it, and
+    has no external URL to check because there is nothing outside the app that
+    made the choice. They share the badge component and the row on the card;
+    keeping the claim typed here stops the two being treated as one fact
+    later, without splitting the payload the client already decodes.
+    """
+
+    PROVENANCE = "provenance"
+    RECOMMENDATION = "recommendation"
+
+
 class SourceBadgeKind(str, Enum):
     CLASSIC = "classic"
     TRENDING = "trending"
@@ -410,17 +437,22 @@ class SourceBadgeKind(str, Enum):
     DISCOVERED = "discovered"
     ATTACHED_BY_YOU = "attached_by_you"
     ATTACHED_BY_GROUP = "attached_by_group"
+    FOR_YOU = "for_you"
 
 
 class SourceBadgeOut(BaseModel):
     kind: SourceBadgeKind
     label: str
+    category: SourceBadgeCategory = SourceBadgeCategory.PROVENANCE
     contributor_name: str | None = None
     # CLAUDE.md section 8.5, source links. A badge whose provenance has a
     # public URL carries it here and the client renders a link; a badge
     # without one stays plain text. Never a search page, never synthesized.
     url: str | None = None
     platform: str | None = None
+    # Which searches turned this place up, for the card details. Only set on
+    # the recommendation badge, where "why am I seeing this" is the question.
+    discovery_intents: list[str] = Field(default_factory=list)
 
 
 class SourcePostOut(BaseModel):
@@ -591,6 +623,24 @@ def source_badges(
             )
         )
 
+    # Section 8.5: the recommendation reason, alongside provenance rather than
+    # instead of it. It carries no URL because no post chose this card, the
+    # For You lane did, and a link would imply otherwise.
+    if candidate.trending_signals.get("selection_lane") == "for_you":
+        intents = candidate.trending_signals.get("discovery_intents")
+        badges.append(
+            SourceBadgeOut(
+                kind=SourceBadgeKind.FOR_YOU,
+                label="For You",
+                category=SourceBadgeCategory.RECOMMENDATION,
+                discovery_intents=(
+                    [str(intent) for intent in intents]
+                    if isinstance(intents, list)
+                    else []
+                ),
+            )
+        )
+
     if any(source.type == "discovery" for source in candidate.sources):
         maps_url = google_maps_place_url(candidate)
         badges.append(
@@ -629,6 +679,41 @@ def source_badges(
             )
         )
     return badges
+
+
+def social_cover_image(candidate: CandidatePlace) -> CandidatePhotoOut | None:
+    """An attributed TikTok cover frame, when Google has no photo.
+
+    Only TikTok: its embed API is the one that publishes a cover frame for
+    display, and section 8.3 keeps the other two at the search snippet. The
+    creator is named in the attribution because the frame is theirs, and the
+    card must not imply otherwise. A frame whose URL has expired simply fails
+    to load and the card falls back to its placeholder, which is why nothing
+    here promises the image still resolves.
+    """
+    posts = candidate.enrichment.get("social_posts")
+    if not isinstance(posts, list):
+        return None
+    for post in posts:
+        if not isinstance(post, dict) or post.get("platform") != "tiktok":
+            continue
+        url = post.get("thumbnail_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            continue
+        author = post.get("author_name")
+        return CandidatePhotoOut(
+            photo_url=url,
+            width_px=None,
+            height_px=None,
+            attributions=[
+                CandidatePhotoAttributionOut(
+                    display_name=author or "TikTok",
+                    uri=post.get("url"),
+                    photo_uri=None,
+                )
+            ],
+        )
+    return None
 
 
 class DelegateBadgeOut(BaseModel):
@@ -854,6 +939,39 @@ class PlanResponse(BaseModel):
     version_no: int
     placed_stops: int
     narrative: str | None
+
+
+class RevisionScope(BaseModel):
+    """What part of the trip a revision applies to.
+
+    Only `day` is supported. The shape is a nested object rather than a bare
+    day number so widening it later to a stop, a time window, or the whole
+    trip does not break a client that already speaks it.
+    """
+
+    type: Literal["day"] = "day"
+    day: int = Field(ge=0)
+
+
+class RevisionRequest(BaseModel):
+    """A repair the traveler asked for, in their own words."""
+
+    scope: RevisionScope
+    instruction: str = Field(min_length=1, max_length=500)
+
+    @field_validator("instruction")
+    @classmethod
+    def _needs_words(cls, value: str) -> str:
+        """Refuse blank text here rather than at the delegate.
+
+        min_length alone lets three spaces through, which then failed inside
+        the parser and surfaced as a server error for what is plainly a bad
+        request.
+        """
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("A revision needs an instruction")
+        return cleaned
 
 
 class DisruptionRequest(BaseModel):

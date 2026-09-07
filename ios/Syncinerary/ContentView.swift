@@ -72,10 +72,32 @@ struct ContentView: View {
         resume(session)
     }
 
-    /// A trip from the board. The thread is the way in, because that is
-    /// where the group is already talking and dropping links.
+    /// A trip from the board, opened at whatever stage it has reached.
+    ///
+    /// The thread is the way in while the group is still talking and dropping
+    /// links, but once an itinerary exists that is the trip, and making
+    /// someone pass back through an empty thread to reach it was the bug this
+    /// replaces. The status comes from the server, so a reinstall, a second
+    /// device, or a trip joined by code all route correctly with no local
+    /// state; a fetch that fails falls back to the thread, which is always
+    /// safe to show.
     private func open(_ trip: TripListRow) {
-        path.append(.chat(trip))
+        Task { await route(to: trip) }
+    }
+
+    private func route(to trip: TripListRow) async {
+        do {
+            let summary = try await APIClient.shared.trip(tripID: trip.id)
+            let session = TripSession(
+                trip: summary,
+                travelerID: trip.travelerID,
+                planRequest: .standard
+            )
+            recentTrips.remember(session)
+            path.append(AppRoute.primary(for: session, row: trip))
+        } catch {
+            path.append(.chat(trip))
+        }
     }
 
     private func joined(_ response: JoinTripResponse) {
@@ -83,7 +105,7 @@ struct ContentView: View {
             await accounts.loadTrips()
             if let row = accounts.trips.first(where: { $0.id == response.trip.id }) {
                 path.removeAll()
-                path.append(.chat(row))
+                await route(to: row)
             }
         }
     }

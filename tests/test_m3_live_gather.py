@@ -14,7 +14,9 @@ from syncinerary.agents.gather.live import (
     select_dense_pool,
 )
 from syncinerary.config.gather import (
+    MAX_SEARCHES_PER_CITY,
     gather_max_steps,
+    social_search_max_steps,
     social_verify_budget,
 )
 from syncinerary.domain.models import (
@@ -517,8 +519,20 @@ def test_automatic_social_discovery_is_the_majority_pool_target():
 
 def test_gather_budget_reserves_a_reality_check_for_each_social_place():
     assert gather_max_steps(default_max_steps=50, days=5) == (
-        50 + social_verify_budget(days=5)
+        50 + social_verify_budget(days=5) + social_search_max_steps(cities=1)
     )
+
+
+def test_gather_budget_reserves_the_search_ceiling_not_its_usual_spend():
+    """Adaptive search spends a variable number of steps, so the reservation
+    covers the worst case a city can reach rather than the typical run."""
+    one_city = gather_max_steps(default_max_steps=50, days=5, cities=1)
+    four_cities = gather_max_steps(default_max_steps=50, days=5, cities=4)
+
+    assert four_cities - one_city == social_search_max_steps(cities=3)
+    # Each city can reach the ceiling, and each iteration can charge a search,
+    # a post read, a cover-frame read, and an extraction.
+    assert social_search_max_steps(cities=1) == MAX_SEARCHES_PER_CITY * 4
 
 
 def test_gather_budget_tracks_trip_size_not_city_count():

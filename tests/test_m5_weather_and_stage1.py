@@ -131,7 +131,12 @@ def test_stage1_honors_fatigue_must_go_and_pinned_day():
 
 
 def test_closed_and_fatigue_overflow_reasons_are_quantified():
-    closed = _place("Closed", outdoor=False).model_copy(update={"hours_by_weekday": {}})
+    # A published schedule that names no trip weekday. An absent schedule
+    # means the hours are unknown, which is a different thing and must not
+    # remove the place: see test_unknown_hours_are_not_a_closed_door.
+    closed = _place("Closed", outdoor=False).model_copy(
+        update={"hours_by_weekday": {"sun": [[9, 17]]}}
+    )
     candidates = [closed, *[_place(f"Heavy {index}", outdoor=False, fatigue=3) for index in range(6)]]
 
     assignment = assign_days(
@@ -143,6 +148,90 @@ def test_closed_and_fatigue_overflow_reasons_are_quantified():
     reasons = {item.candidate_id: item for item in assignment.unplaced}
 
     assert reasons[closed.id].reason_code == "closed_on_available_days"
+    assert "closed" in reasons[closed.id].reason_text
     fatigue = [item for item in assignment.unplaced if item.reason_code == "fatigue_overflow"]
     assert fatigue
     assert "8-point fatigue cap" in fatigue[0].reason_text
+
+
+def test_a_day_is_never_given_more_food_than_it_can_seat():
+    """Stage 2 can only place a restaurant inside a meal slot, so food beyond
+    the day's meals is dropped however well it is clustered. Assigning it
+    anyway wasted the slot twice: the food went nowhere, and the sight that
+    could have used the space was never offered the day."""
+    from syncinerary.config.solver import FOOD_PER_DAY_MAX
+
+    food = [
+        _place(f"Restaurant {index}", outdoor=False, candidate_type=CandidateType.FOOD)
+        for index in range(8)
+    ]
+    sights = [_place(f"Sight {index}", outdoor=False) for index in range(8)]
+
+    assignment = assign_days(
+        [*food, *sights],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    for bucket in assignment.buckets:
+        seated = sum(1 for place in bucket if place.type is CandidateType.FOOD)
+        assert seated <= max(FOOD_PER_DAY_MAX, -(-len(food) // 2))
+
+
+def test_the_food_ceiling_gives_way_before_it_makes_a_day_impossible():
+    """An all-food pool relaxes the cap rather than failing to assign."""
+    food = [
+        _place(f"Restaurant {index}", outdoor=False, candidate_type=CandidateType.FOOD)
+        for index in range(9)
+    ]
+
+    assignment = assign_days(
+        food, _trip(), weather=_forecast([20, 20]), weights=SolverObjectiveWeights()
+    )
+
+    assert sum(len(bucket) for bucket in assignment.buckets) > 0
+
+
+def test_unknown_hours_are_not_a_closed_door():
+    """The bug this replaces dropped an onsen district and a shopping street.
+
+    Google publishes no schedule for a place that is an area rather than a
+    business. Reading that silence as "closed every day" removed them from the
+    trip and told the traveler they had no opening window, which is the
+    opposite of what the data said.
+    """
+    unknown = _place("Jozankei Onsen", outdoor=True).model_copy(
+        update={"hours_by_weekday": {}}
+    )
+
+    assignment = assign_days(
+        [unknown],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    assert not [
+        item
+        for item in assignment.unplaced
+        if item.candidate_id == unknown.id
+        and item.reason_code == "closed_on_available_days"
+    ]
+    assert any(unknown in bucket for bucket in assignment.buckets)
+
+
+def test_an_area_is_not_gated_by_the_hours_of_a_business_inside_it():
+    """A shopping street can inherit one shop's schedule. It is still a street."""
+    area = _place("Susukino Street", outdoor=True).model_copy(
+        update={"category": "natural_feature", "hours_by_weekday": {"sun": [[9, 17]]}}
+    )
+
+    assignment = assign_days(
+        [area],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    assert any(area in bucket for bucket in assignment.buckets)

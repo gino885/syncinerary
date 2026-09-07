@@ -46,17 +46,25 @@ def test_ten_fixtures_ship_and_every_one_parses():
         parse_fixture(path)
 
 
+#: Triggers that represent something going wrong, which is what a disruption
+#: fixture injects. `other` has no product path, and `user_request` is a
+#: revision the traveler asked for rather than a disruption: there is nothing
+#: to inject, because the person is the cause.
+DISRUPTION_TRIGGERS = {
+    trigger
+    for trigger in ReplanTrigger
+    if trigger not in {ReplanTrigger.OTHER, ReplanTrigger.USER_REQUEST}
+}
+
+
 def test_every_f4_trigger_has_a_disruption_fixture():
-    """One fixture per trigger type, except `other`, which has no product path."""
     triggers = {
         fixture.spec.disruption.trigger
         for fixture in load_all()
         if fixture.spec.disruption is not None
     }
-    expected = {
-        trigger.value for trigger in ReplanTrigger if trigger is not ReplanTrigger.OTHER
-    }
-    assert expected <= triggers
+
+    assert {trigger.value for trigger in DISRUPTION_TRIGGERS} <= triggers
 
 
 def test_an_unknown_key_in_a_fixture_is_an_error(tmp_path: Path):
@@ -153,8 +161,10 @@ def _nodes() -> list[ItineraryNode]:
     ]
 
 
-def test_every_trigger_has_an_injector():
-    assert set(INJECTORS) == set(ReplanTrigger)
+def test_every_disruption_trigger_has_an_injector():
+    """A guided redo has no injector on purpose: the traveler is the trigger,
+    so there is no external event for a fixture to simulate."""
+    assert set(INJECTORS) == DISRUPTION_TRIGGERS | {ReplanTrigger.OTHER}
 
 
 @pytest.mark.parametrize(
@@ -211,6 +221,40 @@ def test_harness_health_reports_a_blown_budget():
     checks = score_harness(HarnessObservations(budget_exceeded=True, step_count=51))
     failed = [check.name for check in checks if not check.passed]
     assert failed == ["within_budget"]
+
+
+async def test_narrative_scoring_reads_a_traditional_chinese_narrative():
+    """The scorer must not pass zh-Hant output by being unable to read it.
+
+    It never reads the prose: it looks for the supplied place names inside it,
+    so the language around them is irrelevant and a Traditional Chinese
+    narrative is scored exactly as an English one is. That holds only while
+    place names are reproduced as supplied, which is why the explainer prompt
+    requires it, so the second half of this test is the guard: a narrative
+    that translates a name away scores lower, and would be caught rather than
+    passing silently.
+    """
+    fixture = load_by_name("group_split")
+    outcome = await run_plan_case(fixture)
+    assert outcome.solver_result is not None
+
+    placed = [
+        candidate.name_canonical
+        for candidate in fixture.candidates
+        if candidate.id
+        in {stop.candidate_id for route in outcome.solver_result.routes for stop in route.stops}
+    ]
+    chinese = (
+        "第一天從" + "、".join(placed) + "開始，沿途步行約十分鐘，午餐後前往下一站。"
+    )
+    grounded = score_narrative(fixture, chinese, outcome.solver_result)
+
+    # Same prose, with one name translated instead of reproduced.
+    translated = chinese.replace(placed[0], "白色戀人公園")
+    lost = score_narrative(fixture, translated, outcome.solver_result)
+
+    assert grounded.value == pytest.approx(1.0)
+    assert lost.value < grounded.value
 
 
 async def test_narrative_scoring_punishes_a_place_that_is_not_in_the_trip():

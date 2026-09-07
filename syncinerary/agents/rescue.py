@@ -125,6 +125,12 @@ def select_affected_nodes(
             and actual_start is not None
             and node.start_time < actual_start
         ]
+    elif trigger_type is ReplanTrigger.USER_REQUEST:
+        # The traveler asked for this day to be reconsidered, so the whole day
+        # is in scope. Nothing is unavailable: the solver is being asked to
+        # find a better arrangement, not to route around a closure.
+        day = trigger_payload.get("day")
+        affected = [node for node in nodes if node.day == day]
     elif trigger_type is ReplanTrigger.WEATHER:
         day = trigger_payload.get("day")
         affected = [
@@ -167,7 +173,7 @@ def _cutoff(
         start = min(node.start_time for node in affected)
         minute = start.hour * 60 + start.minute + delay_minutes
         return time(min(23, minute // 60), minute % 60)
-    if trigger_type is ReplanTrigger.WEATHER:
+    if trigger_type in {ReplanTrigger.WEATHER, ReplanTrigger.USER_REQUEST}:
         return time(DEFAULT_DAY_START_HOUR)
     return min(node.start_time for node in affected)
 

@@ -105,6 +105,9 @@ class Trip(Base):
         JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
     )
     timezone: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    output_locale: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, server_default=sa.text("'en'")
+    )
     start_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     end_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     days: Mapped[int] = mapped_column(sa.Integer, nullable=False)

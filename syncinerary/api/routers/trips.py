@@ -63,6 +63,7 @@ from syncinerary.api.schemas import (
     VoteProgressOut,
     VoteRequest,
     WishlistNotPlacedOut,
+    social_cover_image,
 )
 from syncinerary.config import settings
 from syncinerary.config.aggregate import MUST_GO_CAP_PER_DAY
@@ -229,6 +230,7 @@ async def create_trip(
             country=payload.country,
             resolved_cities=[city.model_dump(mode="json") for city in resolved],
             timezone=timezone,
+            output_locale=payload.output_locale,
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=days,
@@ -415,6 +417,14 @@ async def candidate_photo(
         PlacePhotoInput(place_id=place_id),
     )
     if photo.photo_url is None:
+        # Section 8.5: a Google photo first, and an attributed TikTok cover
+        # frame only when there is none. The frame is what TikTok's own embed
+        # API publishes for display, so it is a permitted image rather than a
+        # hotlink, and it is credited to the creator who posted it.
+        cover = social_cover_image(candidate)
+        if cover is not None:
+            response.headers["Cache-Control"] = "no-store"
+            return cover
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             "This place has no permitted photo",
@@ -813,6 +823,10 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
                 max_steps=gather_max_steps(
                     default_max_steps=settings.sync_max_steps,
                     days=trip.days,
+                    # Each city runs its own adaptive search loop, so the
+                    # search reservation scales with the city count while
+                    # verification stays sized to the trip.
+                    cities=max(1, len(trip.cities)),
                 ),
             ):
                 await graph.ainvoke(

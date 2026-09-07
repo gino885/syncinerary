@@ -13,6 +13,25 @@ M1_DESTINATION_TIMEZONE = "Asia/Tokyo"
 # pairs use public transit. The project owner chose 2 km as the cutoff.
 NEARBY_WALKING_KM = 2.0
 
+# Fallback pace for a pair the transit provider could not route. Deliberately
+# pessimistic: door to door on urban public transport, including the wait, is
+# well above this in practice, and an optimistic estimate would pack a day
+# that does not work on the ground. Over-estimating the minutes only costs a
+# stop; under-estimating them strands somebody.
+#
+# This exists because dropping an unroutable pair was worse than estimating
+# it. The arc disappeared from the routing circuit, so a day whose provider
+# lookups all failed could hold exactly one stop, and said so with a reason
+# that read "no order of the day's 1 stops fitted it in".
+ESTIMATED_TRANSIT_KMH = 15.0
+ESTIMATED_TRANSIT_OVERHEAD_MIN = 10
+# Past this the estimate stops. Inside a metro area a failed lookup is almost
+# always a gap in the provider's coverage, and the two places plainly are
+# connected. Across a region it may mean there is genuinely no public
+# transport, and inventing one would put a stop on the plan that nobody can
+# reach. Long pairs therefore stay unroutable, as they always have.
+ESTIMATED_TRANSIT_MAX_KM = 30.0
+
 FATIGUE_COST_LOW = 1
 FATIGUE_COST_MED = 2
 FATIGUE_COST_HIGH = 3

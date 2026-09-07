@@ -464,7 +464,8 @@ def test_mentions_carry_each_posts_words_and_the_length_cap_is_enforced():
         ]
     )
 
-    mined = merge_mentions({}, mentions, posts, SocialPlatform.TIKTOK)
+    mined: dict = {}
+    merge_mentions(mined, mentions, posts, SocialPlatform.TIKTOK)
 
     place = mined["ramen shingen"]
     assert [post.url for post in place.posts] == place.post_urls == [_video(1), _video(2)]
@@ -549,10 +550,10 @@ async def test_platform_search_reads_tiktok_posts_and_leaves_the_others_alone(mo
     monkeypatch.setattr(social_read, "read_tiktok_posts", fake_read)
 
     tiktok = await social_module._search_platform(
-        SocialPlatform.TIKTOK, destination="Sapporo", interests=[]
+        SocialPlatform.TIKTOK, query="Sapporo must eat", destination="Sapporo"
     )
     instagram = await social_module._search_platform(
-        SocialPlatform.INSTAGRAM, destination="Sapporo", interests=[]
+        SocialPlatform.INSTAGRAM, query="Sapporo must eat", destination="Sapporo"
     )
 
     assert [destination for _, destination in read_calls] == ["Sapporo"]

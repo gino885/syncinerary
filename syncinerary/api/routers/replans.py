@@ -7,6 +7,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from redis.exceptions import RedisError
 
+from syncinerary.agents.delegate.revision import (
+    RevisionParsingUnavailable,
+    parse_revision_instruction,
+)
 from syncinerary.agents.rescue import (
     ReplanAlreadyDecided,
     ReplanConflict,
@@ -22,9 +26,10 @@ from syncinerary.api.schemas import (
     ItineraryDiffOut,
     ReplanDecisionRequest,
     ReplanProposalOut,
+    RevisionRequest,
 )
 from syncinerary.diff.itinerary_diff import itinerary_diff
-from syncinerary.domain.models import ReplanEvent, Trip
+from syncinerary.domain.models import ReplanEvent, ReplanTrigger, Trip
 from syncinerary.harness import tracked_run
 from syncinerary.store.db import session_scope
 from syncinerary.store.redis import get_redis
@@ -164,6 +169,51 @@ async def report_disruption(
         await publish_replan_proposal(get_redis(), response)
     except RedisError:
         logger.warning("Replan proposal persisted but WebSocket publish failed")
+    return response
+
+
+@router.post("/{trip_id}/revisions", status_code=status.HTTP_201_CREATED)
+async def request_revision(
+    trip_id: UUID,
+    payload: RevisionRequest,
+    session: Session,
+) -> ReplanProposalOut:
+    """Redo one day the way the traveler asked, as a proposal they must approve.
+
+    This is the rescue path with a different cause, not a second way to build
+    an itinerary. The instruction becomes structured preferences, the solver
+    decides what is feasible, and the result is a pending version behind the
+    same approval gate as a disruption. Nothing here writes a stop or a time,
+    and nothing auto-commits (CLAUDE.md sections 2 and 12.2).
+    """
+    await _load_trip(session, trip_id)
+    try:
+        hints = await parse_revision_instruction(payload.instruction)
+    except RevisionParsingUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+    try:
+        async with tracked_run(trip_id=trip_id, kind="replan"):
+            proposal = await create_replan_proposal(
+                session,
+                trip_id=trip_id,
+                trigger_type=ReplanTrigger.USER_REQUEST,
+                trigger_payload={
+                    "scope": payload.scope.model_dump(mode="json"),
+                    "day": payload.scope.day,
+                    **hints,
+                },
+            )
+    except ReplanInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except ReplanConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    response = await _proposal_out(session, proposal.event)
+    try:
+        await publish_replan_proposal(get_redis(), response)
+    except RedisError:
+        logger.warning("Revision proposal persisted but WebSocket publish failed")
     return response
 
 
