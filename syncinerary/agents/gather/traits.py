@@ -1,7 +1,7 @@
 """Deterministic scheduling traits derived from Google place types."""
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from syncinerary.domain.models import CandidateType
 
@@ -24,6 +24,57 @@ LOW_FATIGUE_TYPES = OUTDOOR_PLACE_TYPES | {
     "museum",
     "shopping_mall",
 }
+
+
+# Places that are an area rather than a business, where a published opening
+# window is not what decides whether a traveler can go. Google usually returns
+# no hours at all for these, which is the case the tri-state below exists for;
+# this set covers the ones that carry a type and sometimes inherit the hours of
+# one business inside them.
+AREA_PLACE_TYPES = frozenset(
+    {
+        "natural_feature",
+        "neighborhood",
+        "plaza",
+        "sublocality",
+        "sublocality_level_1",
+    }
+)
+
+
+def opening_hours_are_binding(
+    primary_type: str | None,
+    types: Iterable[str],
+    hours_by_weekday: Mapping[str, list] | None,
+) -> bool:
+    """Whether a published schedule should gate scheduling for this place.
+
+    An area is open in the sense that matters: you can walk into an onsen
+    district or a shopping street at any hour, and Google says nothing about
+    when. Treating that silence as a schedule is what dropped both of them
+    from a trip.
+    """
+    if _all_types(primary_type, types) & AREA_PLACE_TYPES:
+        return False
+    return bool(hours_by_weekday)
+
+
+def opens_on(
+    hours_by_weekday: Mapping[str, list] | None,
+    weekday: str,
+) -> bool | None:
+    """Tri-state: open, closed, or the schedule does not say.
+
+    None is the case that matters and the one the solver used to get wrong.
+    An empty schedule is unknown hours, not a closed door, and the two deserve
+    opposite treatment: unknown must not remove a place from the trip, while a
+    weekday genuinely missing from a known schedule must.
+    """
+    if not hours_by_weekday:
+        return None
+    # A weekday the schedule names with no window is closed that day, and a
+    # weekday it omits is too. Only an absent schedule is unknown.
+    return bool(hours_by_weekday.get(weekday))
 
 
 def _all_types(primary_type: str | None, place_types: Iterable[str]) -> set[str]:
@@ -57,10 +108,13 @@ def fatigue_cost(
 
 
 __all__ = [
+    "AREA_PLACE_TYPES",
     "OUTDOOR_PLACE_TYPES",
     "fatigue_cost",
     "is_visitable_place",
     "is_weather_dependent",
+    "opening_hours_are_binding",
+    "opens_on",
 ]
 
 

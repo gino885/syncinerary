@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 
@@ -669,6 +669,41 @@ def source_badges(
     return badges
 
 
+def social_cover_image(candidate: CandidatePlace) -> CandidatePhotoOut | None:
+    """An attributed TikTok cover frame, when Google has no photo.
+
+    Only TikTok: its embed API is the one that publishes a cover frame for
+    display, and section 8.3 keeps the other two at the search snippet. The
+    creator is named in the attribution because the frame is theirs, and the
+    card must not imply otherwise. A frame whose URL has expired simply fails
+    to load and the card falls back to its placeholder, which is why nothing
+    here promises the image still resolves.
+    """
+    posts = candidate.enrichment.get("social_posts")
+    if not isinstance(posts, list):
+        return None
+    for post in posts:
+        if not isinstance(post, dict) or post.get("platform") != "tiktok":
+            continue
+        url = post.get("thumbnail_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            continue
+        author = post.get("author_name")
+        return CandidatePhotoOut(
+            photo_url=url,
+            width_px=None,
+            height_px=None,
+            attributions=[
+                CandidatePhotoAttributionOut(
+                    display_name=author or "TikTok",
+                    uri=post.get("url"),
+                    photo_uri=None,
+                )
+            ],
+        )
+    return None
+
+
 class DelegateBadgeOut(BaseModel):
     type: str
     text: str
@@ -892,6 +927,39 @@ class PlanResponse(BaseModel):
     version_no: int
     placed_stops: int
     narrative: str | None
+
+
+class RevisionScope(BaseModel):
+    """What part of the trip a revision applies to.
+
+    Only `day` is supported. The shape is a nested object rather than a bare
+    day number so widening it later to a stop, a time window, or the whole
+    trip does not break a client that already speaks it.
+    """
+
+    type: Literal["day"] = "day"
+    day: int = Field(ge=0)
+
+
+class RevisionRequest(BaseModel):
+    """A repair the traveler asked for, in their own words."""
+
+    scope: RevisionScope
+    instruction: str = Field(min_length=1, max_length=500)
+
+    @field_validator("instruction")
+    @classmethod
+    def _needs_words(cls, value: str) -> str:
+        """Refuse blank text here rather than at the delegate.
+
+        min_length alone lets three spaces through, which then failed inside
+        the parser and surfaced as a server error for what is plainly a bad
+        request.
+        """
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("A revision needs an instruction")
+        return cleaned
 
 
 class DisruptionRequest(BaseModel):

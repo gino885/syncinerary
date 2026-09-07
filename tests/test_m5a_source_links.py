@@ -13,6 +13,7 @@ from syncinerary.api.schemas import (
     CandidateCardOut,
     ItineraryStopOut,
     google_maps_place_url,
+    social_cover_image,
     source_badges,
     source_posts,
 )
@@ -69,6 +70,54 @@ def _buzz_candidate(**enrichment) -> CandidatePlace:
             **enrichment,
         },
     )
+
+
+def test_a_tiktok_cover_frame_is_the_fallback_card_image():
+    """Section 8.5: Google first, an attributed cover frame only when there is
+    none. The frame is what TikTok's embed API publishes for display, and the
+    creator is named because it is theirs."""
+    candidate = _buzz_candidate(
+        social_posts=[
+            {
+                "platform": "instagram",
+                "url": REEL,
+                "rank": 1,
+                "thumbnail_url": "https://cdn.example/ig.jpg",
+            },
+            {
+                "platform": "tiktok",
+                "url": TIKTOK,
+                "rank": 2,
+                "author_name": "Travel Notes",
+                "thumbnail_url": "https://p16.tiktokcdn.example/cover.jpg",
+            },
+        ]
+    )
+
+    cover = social_cover_image(candidate)
+
+    assert cover is not None
+    # Instagram publishes no cover frame for display, so it is skipped even
+    # though its post is ranked higher.
+    assert cover.photo_url == "https://p16.tiktokcdn.example/cover.jpg"
+    assert cover.attributions[0].display_name == "Travel Notes"
+    assert cover.attributions[0].uri == TIKTOK
+
+
+def test_a_card_with_no_tiktok_cover_has_no_fallback_image():
+    assert social_cover_image(_buzz_candidate()) is None
+
+
+def test_an_unusable_cover_url_is_not_offered_as_an_image():
+    """A card falls back to its placeholder rather than to a broken link."""
+    candidate = _buzz_candidate(
+        social_posts=[
+            {"platform": "tiktok", "url": TIKTOK, "rank": 1, "thumbnail_url": None},
+            {"platform": "tiktok", "url": TIKTOK, "rank": 2, "thumbnail_url": "not-a-url"},
+        ]
+    )
+
+    assert social_cover_image(candidate) is None
 
 
 def test_a_for_you_card_says_so_alongside_where_it_came_from():

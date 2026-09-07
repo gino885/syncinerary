@@ -70,6 +70,12 @@ class ReplanTrigger(str, Enum):
     PLACE_CLOSED = "place_closed"
     WEATHER = "weather"
     OTHER = "other"
+    # A revision the traveler asked for, rather than something that went
+    # wrong. It runs the same rescue path and the same approval gate: the
+    # difference is who started it, which the trace has to be able to say.
+    # Declared last because PostgreSQL appends an added enum value, and the
+    # schema test compares the two orders.
+    USER_REQUEST = "user_request"
 
 
 class ReplanStatus(str, Enum):

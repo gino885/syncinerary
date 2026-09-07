@@ -550,7 +550,12 @@ Each card shows badges based on `sources[]`:
 - 🔥 Popular (has a social source with explicit post engagement)
 - ↗ Found on Instagram / TikTok / RedNote (has a social source without
   explicit post engagement)
-- ✨ For You (`trending_signals.selection_lane == 'for_you'`). Named for the
+- ✨ For You (`trending_signals.selection_lane == 'for_you'`), rendered with
+  the `sparkles` SF Symbol rather than the emoji, which does not render on
+  every device the deck runs on. This is a recommendation badge, not a
+  provenance one: it carries no URL, because no post chose the card and a link
+  would imply otherwise. The payload types the difference so the two claims do
+  not silently merge. Named for the
   mechanism that chose it, not "Hidden Gem": obscurity is not something the
   available data measures, and claiming it would be the same error as printing
   a like count that was never measured. It coexists with 🔥 / ↗ rather than
@@ -590,7 +595,7 @@ Rules:
   there. "Why is this on my trip" is asked at least as often about a scheduled
   stop as about a swipe card.
 
-Every swipe card includes a primary image when a permitted image is available. For a user attachment, prefer the submitted screenshot crop or a platform-provided public preview and label it as user-attached. For an automatically discovered place, use an attributed Google Places photo. If neither is permitted or available, show the standard place placeholder rather than hotlinking or copying a restricted image.
+Every swipe card includes a primary image when a permitted image is available. For a user attachment, prefer the submitted screenshot crop or a platform-provided public preview and label it as user-attached. For an automatically discovered place, use an attributed Google Places photo. When Google has no photo for it, an attributed TikTok cover frame from the official embed API may be used as the fallback, credited to the creator who posted it. That is narrow and deliberate: the frame is what TikTok itself publishes for display, so it is a permitted image rather than a hotlink, and it does not license anything else. No video or audio is downloaded, no other platform's media is used this way, the original post stays linkable, and the section 15 constraints are unchanged. A cover URL can expire, so a card whose frame no longer loads falls back to the placeholder. If neither is permitted or available, show the standard place placeholder rather than hotlinking or copying a restricted image.
 
 ### 8.6 Three card types and how they enter the flow
 

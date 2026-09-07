@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
+from syncinerary.agents.gather.traits import opening_hours_are_binding, opens_on
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
 from syncinerary.agents.solver.stage1_days import assign_days, assign_days_by_city
@@ -173,10 +174,27 @@ def _open_windows(
     trip_date: date,
     options: SolverOptions,
 ) -> list[tuple[int, int]]:
+    """When this place can be visited on this day, in minutes past midnight.
+
+    A place whose hours are unknown, or that is an area rather than a
+    business, is bounded by the traveler's day rather than by a schedule
+    nobody published. See traits.opens_on for why the difference matters.
+    """
     weekday = trip_date.strftime("%a").lower()
     day_start = _minute_of_day(options.day_start)
     day_end = _minute_of_day(options.day_end)
     duration = candidate.duration_estimate_min
+
+    if not opening_hours_are_binding(
+        candidate.category,
+        candidate.enrichment.get("place_types") or [],
+        candidate.hours_by_weekday,
+    ):
+        return [(day_start, day_end)] if day_start + duration <= day_end else []
+
+    if opens_on(candidate.hours_by_weekday, weekday) is not True:
+        return []
+
     windows: list[tuple[int, int]] = []
     for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, []):
         start = max(day_start, raw_start * 60)
@@ -184,6 +202,98 @@ def _open_windows(
         if start + duration <= end:
             windows.append((start, end))
     return windows
+
+
+def _routing_reason(
+    candidate: CandidatePlace,
+    stops: list[ScheduledStop],
+    trip_date: date,
+    options: SolverOptions,
+    placed_by_id: dict[UUID, CandidatePlace],
+) -> UnplacedCandidate:
+    """Say which constraint actually blocked this place, not all three.
+
+    The old message named opening hours, transit, and the day cap together for
+    every candidate the router left out, which meant it was right by accident
+    at best: a day finishing at half past one was still telling travelers its
+    twelve hours were full. The checks below run in the order a scheduler hits
+    them, and the first that fails is the one reported.
+    """
+    windows = _open_windows(candidate, trip_date, options)
+    if not windows:
+        known = opening_hours_are_binding(
+            candidate.category,
+            candidate.enrichment.get("place_types") or [],
+            candidate.hours_by_weekday,
+        )
+        return UnplacedCandidate(
+            candidate_id=candidate.id,
+            reason_code="closed_on_available_days",
+            reason_text=(
+                f"{candidate.name_canonical} was not open long enough on "
+                f"{trip_date.isoformat()} for a {candidate.duration_estimate_min}-minute "
+                "visit inside the planned day."
+                if known
+                else f"{candidate.name_canonical} needs "
+                f"{candidate.duration_estimate_min} minutes, which is longer than "
+                "the planned day allows."
+            ),
+        )
+
+    day_start = _minute_of_day(options.day_start)
+    day_end = _minute_of_day(options.day_end)
+    booked = sum(stop.end_minute - stop.start_minute for stop in stops)
+    travel = sum(stop.transit_from_prev_min or 0 for stop in stops)
+    free = (day_end - day_start) - booked - travel
+
+    # Reaching a new stop costs travel there and back, so the day needs more
+    # slack than the visit alone. Estimated from the nearest stop actually on
+    # the day at a walking-scale pace, which is a lower bound: the real detour
+    # can only be longer, so this never blames the clock for something the
+    # clock allowed.
+    detour = _nearest_detour_minutes(candidate, stops, placed_by_id)
+    needed = candidate.duration_estimate_min + detour
+    if free < needed:
+        return UnplacedCandidate(
+            candidate_id=candidate.id,
+            reason_code="no_day_fit",
+            reason_text=(
+                f"{candidate.name_canonical} needs {candidate.duration_estimate_min} "
+                f"minutes plus about {detour} to reach it, and the day had "
+                f"{max(0, free)} left after {len(stops)} stops and {travel} minutes "
+                "of travel."
+            ),
+        )
+
+    return UnplacedCandidate(
+        candidate_id=candidate.id,
+        reason_code="no_day_fit",
+        reason_text=(
+            f"{candidate.name_canonical} was open and the day had "
+            f"{free} spare minutes, but no order of the day's {len(stops)} stops "
+            "fitted it in without pushing another stop outside its opening hours."
+        ),
+    )
+
+
+def _nearest_detour_minutes(
+    candidate: CandidatePlace,
+    stops: list[ScheduledStop],
+    placed_by_id: dict[UUID, CandidatePlace],
+) -> int:
+    """A lower bound on the travel a new stop would add to the day."""
+    distances = [
+        haversine_km(
+            TransitLocation(lat=candidate.lat, lng=candidate.lng),
+            TransitLocation(lat=placed.lat, lng=placed.lng),
+        )
+        for stop in stops
+        if (placed := placed_by_id.get(stop.candidate_id)) is not None
+    ]
+    if not distances:
+        return 0
+    # Both directions, at a brisk urban pace of five kilometres an hour.
+    return round(min(distances) * 12) * 2
 
 
 def _meal_slot_windows(options: SolverOptions) -> dict[str, tuple[int, int]]:
@@ -567,13 +677,12 @@ def solve_day(
     for candidate in open_candidates:
         if candidate.id not in placed_ids:
             unplaced.append(
-                UnplacedCandidate(
-                    candidate_id=candidate.id,
-                    reason_code="no_day_fit",
-                    reason_text=(
-                        f"{candidate.name_canonical} did not fit within opening hours, "
-                        f"transit, and the {options.day_duration_cap_hours}-hour day cap."
-                    ),
+                _routing_reason(
+                    candidate,
+                    stops,
+                    trip_date,
+                    options,
+                    {item.id: item for item in open_candidates},
                 )
             )
 

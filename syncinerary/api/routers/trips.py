@@ -63,6 +63,7 @@ from syncinerary.api.schemas import (
     VoteProgressOut,
     VoteRequest,
     WishlistNotPlacedOut,
+    social_cover_image,
 )
 from syncinerary.config import settings
 from syncinerary.config.aggregate import MUST_GO_CAP_PER_DAY
@@ -415,6 +416,14 @@ async def candidate_photo(
         PlacePhotoInput(place_id=place_id),
     )
     if photo.photo_url is None:
+        # Section 8.5: a Google photo first, and an attributed TikTok cover
+        # frame only when there is none. The frame is what TikTok's own embed
+        # API publishes for display, so it is a permitted image rather than a
+        # hotlink, and it is credited to the creator who posted it.
+        cover = social_cover_image(candidate)
+        if cover is not None:
+            response.headers["Cache-Control"] = "no-store"
+            return cover
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             "This place has no permitted photo",

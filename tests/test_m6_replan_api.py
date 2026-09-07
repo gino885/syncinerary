@@ -321,6 +321,124 @@ async def test_disruption_endpoint_builds_a_pending_proposal(
     assert (await ItineraryVersionRepository(session).get_active(trip.id)).id == active.id
 
 
+async def test_a_guided_redo_is_a_proposal_the_traveler_must_approve(
+    client,
+    session,
+    monkeypatch,
+):
+    """Section 2 and 12.2: the instruction moves preferences, the solver
+    decides, and nothing reaches the trip without approval."""
+    trip = await TripRepository(session).add(
+        Trip(
+            destination="Sapporo",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 1),
+            days=1,
+        )
+    )
+    places = await CandidatePlaceRepository(session).add_many(
+        [
+            CandidatePlace(
+                trip_id=trip.id,
+                type=CandidateType.ATTRACTION,
+                name_canonical=name,
+                lat=43.06 + index / 1000,
+                lng=141.35 + index / 1000,
+                fatigue_cost=1,
+                hours_by_weekday={
+                    weekday: [[8, 20]]
+                    for weekday in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+                },
+            )
+            for index, name in enumerate(("Busy stop", "Quiet cafe"))
+        ]
+    )
+    active = await ItineraryVersionRepository(session).add(
+        ItineraryVersion(trip_id=trip.id, version_no=1, status=ItineraryStatus.ACTIVE)
+    )
+    await ItineraryNodeRepository(session).add(
+        ItineraryNode(
+            version_id=active.id,
+            candidate_id=places[0].id,
+            day=0,
+            start_time=time(9),
+            end_time=time(10),
+        )
+    )
+
+    parsed: list[str] = []
+
+    async def fake_parse(instruction, **_kwargs):
+        parsed.append(instruction)
+        return {
+            "instruction": instruction,
+            "categories_more": ["coffee"],
+            "categories_less": [],
+            "less_walking": True,
+            "more_relaxed": False,
+            "avoid_touristy": False,
+            "note": None,
+        }
+
+    async def no_publish(*_args):
+        return None
+
+    @asynccontextmanager
+    async def use_test_session():
+        yield session
+
+    monkeypatch.setattr(
+        "syncinerary.api.routers.replans.parse_revision_instruction", fake_parse
+    )
+    monkeypatch.setattr(
+        "syncinerary.agents.rescue.make_transit_client", ContextTransit
+    )
+    monkeypatch.setattr(
+        "syncinerary.agents.rescue.GooglePlacesAlternativeProvider", NoAlternatives
+    )
+    monkeypatch.setattr(
+        "syncinerary.api.routers.replans.publish_replan_proposal", no_publish
+    )
+    monkeypatch.setattr("syncinerary.harness.wrapper.session_scope", use_test_session)
+
+    response = await client.post(
+        f"/trips/{trip.id}/revisions",
+        json={
+            "scope": {"type": "day", "day": 0},
+            "instruction": "more local coffee and less walking",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "pending"
+    assert parsed == ["more local coffee and less walking"]
+    # The active version is untouched until somebody approves.
+    assert (await ItineraryVersionRepository(session).get_active(trip.id)).id == active.id
+
+
+async def test_a_revision_needs_an_instruction_and_a_scope(client, session):
+    trip = await TripRepository(session).add(
+        Trip(
+            destination="Sapporo",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 1),
+            days=1,
+        )
+    )
+
+    empty = await client.post(
+        f"/trips/{trip.id}/revisions",
+        json={"scope": {"type": "day", "day": 0}, "instruction": "   "},
+    )
+    missing_scope = await client.post(
+        f"/trips/{trip.id}/revisions", json={"instruction": "more coffee"}
+    )
+
+    assert empty.status_code == 422
+    assert missing_scope.status_code == 422
+
+
 class FakeRedis:
     def __init__(self):
         self.messages = []

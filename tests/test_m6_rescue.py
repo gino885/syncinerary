@@ -89,6 +89,9 @@ def _node(number: int, *, day: int, start: int) -> ItineraryNode:
         (ReplanTrigger.OVERSLEPT, {"day": 0, "at": "10:30"}, [1]),
         (ReplanTrigger.PLACE_CLOSED, {"node_id": str(_node(2, day=0, start=11).id)}, [2]),
         (ReplanTrigger.WEATHER, {"day": 0}, [2]),
+        # A traveler asking for a day to be redone puts the whole day in
+        # scope, unlike a disruption which names one stop.
+        (ReplanTrigger.USER_REQUEST, {"day": 0}, [1, 2]),
         (ReplanTrigger.OTHER, {"affected_node_ids": [str(_node(3, day=1, start=9).id)]}, [3]),
     ],
 )
@@ -294,6 +297,7 @@ async def _seed_scheduled_trip(session, *, days: int):
         ReplanTrigger.OVERSLEPT,
         ReplanTrigger.PLACE_CLOSED,
         ReplanTrigger.WEATHER,
+        ReplanTrigger.USER_REQUEST,
     ],
 )
 async def test_each_main_trigger_creates_a_pending_proposal(session, trigger):
@@ -302,6 +306,8 @@ async def test_each_main_trigger_creates_a_pending_proposal(session, trigger):
         payload = {"day": 0, "at": "10:30"}
     elif trigger is ReplanTrigger.WEATHER:
         payload = {"day": 0, "condition": "heavy rain"}
+    elif trigger is ReplanTrigger.USER_REQUEST:
+        payload = {"day": 0, "instruction": "more coffee, less walking"}
     else:
         payload = {"node_id": str(nodes[0].id)}
         if trigger is ReplanTrigger.TRANSIT_DELAY:

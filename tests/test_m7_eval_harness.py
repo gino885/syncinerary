@@ -46,17 +46,25 @@ def test_ten_fixtures_ship_and_every_one_parses():
         parse_fixture(path)
 
 
+#: Triggers that represent something going wrong, which is what a disruption
+#: fixture injects. `other` has no product path, and `user_request` is a
+#: revision the traveler asked for rather than a disruption: there is nothing
+#: to inject, because the person is the cause.
+DISRUPTION_TRIGGERS = {
+    trigger
+    for trigger in ReplanTrigger
+    if trigger not in {ReplanTrigger.OTHER, ReplanTrigger.USER_REQUEST}
+}
+
+
 def test_every_f4_trigger_has_a_disruption_fixture():
-    """One fixture per trigger type, except `other`, which has no product path."""
     triggers = {
         fixture.spec.disruption.trigger
         for fixture in load_all()
         if fixture.spec.disruption is not None
     }
-    expected = {
-        trigger.value for trigger in ReplanTrigger if trigger is not ReplanTrigger.OTHER
-    }
-    assert expected <= triggers
+
+    assert {trigger.value for trigger in DISRUPTION_TRIGGERS} <= triggers
 
 
 def test_an_unknown_key_in_a_fixture_is_an_error(tmp_path: Path):
@@ -153,8 +161,10 @@ def _nodes() -> list[ItineraryNode]:
     ]
 
 
-def test_every_trigger_has_an_injector():
-    assert set(INJECTORS) == set(ReplanTrigger)
+def test_every_disruption_trigger_has_an_injector():
+    """A guided redo has no injector on purpose: the traveler is the trigger,
+    so there is no external event for a fixture to simulate."""
+    assert set(INJECTORS) == DISRUPTION_TRIGGERS | {ReplanTrigger.OTHER}
 
 
 @pytest.mark.parametrize(

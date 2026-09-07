@@ -131,7 +131,12 @@ def test_stage1_honors_fatigue_must_go_and_pinned_day():
 
 
 def test_closed_and_fatigue_overflow_reasons_are_quantified():
-    closed = _place("Closed", outdoor=False).model_copy(update={"hours_by_weekday": {}})
+    # A published schedule that names no trip weekday. An absent schedule
+    # means the hours are unknown, which is a different thing and must not
+    # remove the place: see test_unknown_hours_are_not_a_closed_door.
+    closed = _place("Closed", outdoor=False).model_copy(
+        update={"hours_by_weekday": {"sun": [[9, 17]]}}
+    )
     candidates = [closed, *[_place(f"Heavy {index}", outdoor=False, fatigue=3) for index in range(6)]]
 
     assignment = assign_days(
@@ -143,6 +148,51 @@ def test_closed_and_fatigue_overflow_reasons_are_quantified():
     reasons = {item.candidate_id: item for item in assignment.unplaced}
 
     assert reasons[closed.id].reason_code == "closed_on_available_days"
+    assert "closed" in reasons[closed.id].reason_text
     fatigue = [item for item in assignment.unplaced if item.reason_code == "fatigue_overflow"]
     assert fatigue
     assert "8-point fatigue cap" in fatigue[0].reason_text
+
+
+def test_unknown_hours_are_not_a_closed_door():
+    """The bug this replaces dropped an onsen district and a shopping street.
+
+    Google publishes no schedule for a place that is an area rather than a
+    business. Reading that silence as "closed every day" removed them from the
+    trip and told the traveler they had no opening window, which is the
+    opposite of what the data said.
+    """
+    unknown = _place("Jozankei Onsen", outdoor=True).model_copy(
+        update={"hours_by_weekday": {}}
+    )
+
+    assignment = assign_days(
+        [unknown],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    assert not [
+        item
+        for item in assignment.unplaced
+        if item.candidate_id == unknown.id
+        and item.reason_code == "closed_on_available_days"
+    ]
+    assert any(unknown in bucket for bucket in assignment.buckets)
+
+
+def test_an_area_is_not_gated_by_the_hours_of_a_business_inside_it():
+    """A shopping street can inherit one shop's schedule. It is still a street."""
+    area = _place("Susukino Street", outdoor=True).model_copy(
+        update={"category": "natural_feature", "hours_by_weekday": {"sun": [[9, 17]]}}
+    )
+
+    assignment = assign_days(
+        [area],
+        _trip(),
+        weather=_forecast([20, 20]),
+        weights=SolverObjectiveWeights(),
+    )
+
+    assert any(area in bucket for bucket in assignment.buckets)

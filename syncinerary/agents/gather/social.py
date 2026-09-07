@@ -211,6 +211,10 @@ class MinedPost(BaseModel):
     comment_count: int | None = Field(default=None, ge=0)
     interest_fit: int = Field(default=0, ge=0, le=3)
     matched_interests: list[str] = Field(default_factory=list)
+    # The post's cover frame, when the platform publishes one for display.
+    # TikTok's official embed API does; nothing else here does. Used as a
+    # card image only when Google has no photo (CLAUDE.md section 8.5).
+    thumbnail_url: str | None = None
     # Which search intent surfaced this post. The candidate's lane follows
     # from this rather than from its score, so provenance has to survive the
     # merge: a place both a broad and a hidden-gem search named carries both.
@@ -552,6 +556,7 @@ def merge_mentions(
                 comment_count=post.comment_count,
                 interest_fit=mention.interest_fit,
                 matched_interests=list(mention.matched_interests),
+                thumbnail_url=post.thumbnail_url,
                 intent_type=intent_type.value,
             )
         )
