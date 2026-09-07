@@ -380,6 +380,11 @@
     "day": 0
   },
   "expected": {
-    "replan_day": 0
+    "replan_day": 0,
+    "min_scores": {
+      "worst_traveler_satisfaction": 0.95,
+      "meal_coverage": 0.95,
+      "transit_efficiency": 0.85
+    }
   }
 }

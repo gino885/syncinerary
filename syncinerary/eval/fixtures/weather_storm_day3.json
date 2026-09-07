@@ -1,6 +1,6 @@
 {
   "name": "weather_storm_day3",
-  "description": "An outdoor-heavy pool with heavy rain on day 3. The weather weighting should keep exposed places off that day.",
+  "description": "An outdoor-heavy pool with heavy rain on day 3. The weather weighting should keep exposed places off that day. Its floors are deliberately loose, and tightening them will fail CI on unrelated changes: this is one of two fixtures whose model exhausts the solver's budget rather than proving optimality, and its meal coverage alone reads 0.62, 0.75, or 1.00 depending only on how much search budget it was given. See EVAL_FIXTURE_CONVERGENCE.md.",
   "destination": "Sapporo",
   "cities": [
     "Sapporo"
