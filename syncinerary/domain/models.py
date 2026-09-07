@@ -121,6 +121,12 @@ class Trip(BaseModel):
     resolved_cities: list[dict[str, Any]] = Field(default_factory=list)
     # IANA zone for the destination, looked up from the first city.
     timezone: str | None = None
+    # The language the server writes shared trip content in: the narrative,
+    # the not-placed reasons, the card highlights. Persisted on the trip
+    # because the group reads one artifact, so it cannot depend on whose
+    # device asked for it. Separate from UI language and from the language
+    # social discovery searches in, which stays tuned for retrieval.
+    output_locale: str = "en"
     start_date: date
     end_date: date
     days: int

@@ -223,6 +223,40 @@ def test_harness_health_reports_a_blown_budget():
     assert failed == ["within_budget"]
 
 
+async def test_narrative_scoring_reads_a_traditional_chinese_narrative():
+    """The scorer must not pass zh-Hant output by being unable to read it.
+
+    It never reads the prose: it looks for the supplied place names inside it,
+    so the language around them is irrelevant and a Traditional Chinese
+    narrative is scored exactly as an English one is. That holds only while
+    place names are reproduced as supplied, which is why the explainer prompt
+    requires it, so the second half of this test is the guard: a narrative
+    that translates a name away scores lower, and would be caught rather than
+    passing silently.
+    """
+    fixture = load_by_name("group_split")
+    outcome = await run_plan_case(fixture)
+    assert outcome.solver_result is not None
+
+    placed = [
+        candidate.name_canonical
+        for candidate in fixture.candidates
+        if candidate.id
+        in {stop.candidate_id for route in outcome.solver_result.routes for stop in route.stops}
+    ]
+    chinese = (
+        "第一天從" + "、".join(placed) + "開始，沿途步行約十分鐘，午餐後前往下一站。"
+    )
+    grounded = score_narrative(fixture, chinese, outcome.solver_result)
+
+    # Same prose, with one name translated instead of reproduced.
+    translated = chinese.replace(placed[0], "白色戀人公園")
+    lost = score_narrative(fixture, translated, outcome.solver_result)
+
+    assert grounded.value == pytest.approx(1.0)
+    assert lost.value < grounded.value
+
+
 async def test_narrative_scoring_punishes_a_place_that_is_not_in_the_trip():
     fixture = load_by_name("group_split")
     outcome = await run_plan_case(fixture)

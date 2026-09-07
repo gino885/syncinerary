@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator, model
 
 from syncinerary.agents.gather.cities import MAX_CITIES_PER_TRIP
 from syncinerary.agents.gather.dietary import dietary_notice
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
@@ -87,6 +88,15 @@ class TripCreateRequest(BaseModel):
     creator_home_city: str | None = None
     creator_interests: list[ProfileValue] = Field(default_factory=list, max_length=12)
     creator_dietary_excludes: list[ProfileValue] = Field(default_factory=list, max_length=12)
+    # The language the group's shared trip content is written in. Persisted
+    # on the trip, not read per request: everyone reads the same narrative.
+    output_locale: str = DEFAULT_OUTPUT_LOCALE
+
+    @field_validator("output_locale")
+    @classmethod
+    def _known_locale(cls, value: str) -> str:
+        """An unsupported tag falls back rather than being stored unusable."""
+        return normalize_output_locale(value)
 
     @field_validator("creator_interests", "creator_dietary_excludes")
     @classmethod
@@ -122,6 +132,7 @@ class TripOut(BaseModel):
     cities: list[str]
     country: str | None
     timezone: str | None
+    output_locale: str
     start_date: date
     end_date: date
     days: int
@@ -135,6 +146,7 @@ class TripOut(BaseModel):
             cities=trip.cities or [trip.destination],
             country=trip.country,
             timezone=trip.timezone,
+            output_locale=trip.output_locale,
             start_date=trip.start_date,
             end_date=trip.end_date,
             days=trip.days,

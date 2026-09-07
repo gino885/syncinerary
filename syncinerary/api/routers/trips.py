@@ -230,6 +230,7 @@ async def create_trip(
             country=payload.country,
             resolved_cities=[city.model_dump(mode="json") for city in resolved],
             timezone=timezone,
+            output_locale=payload.output_locale,
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=days,
