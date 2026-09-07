@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, time, timedelta
+from itertools import combinations
 from math import ceil
 from uuid import UUID
 
@@ -17,7 +18,10 @@ from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
     FOOD_PER_DAY_MAX,
+    MEAL_MISS_PENALTY,
+    MEAL_WINDOWS,
     MEALS_PER_DAY_MIN,
+    REQUIRED_MEALS,
     SOLVER_DETERMINISTIC_LIMIT,
     SOLVER_TIME_LIMIT_SECONDS,
     WALKING_MINUTES_PER_DAY,
@@ -396,6 +400,19 @@ def assign_days(
     unavoidable_food = -(-len(food_indices) // trip.days) if trip.days else 0
     day_food_ceiling = max(FOOD_PER_DAY_MAX, unavoidable_food)
 
+    # Which required meals each food candidate could sit inside, per day.
+    # Meal coverage is decided here and nowhere else: Stage 2 seats every meal
+    # its day makes seatable, so a day handed two dinner-only restaurants
+    # loses its lunch before Stage 2 ever runs. Counting restaurants per day
+    # cannot see that, which is why the ceiling above is not enough on its own.
+    meal_eligibility = {
+        (index, day): required_meals_on(
+            ranked[index], trip.start_date + timedelta(days=day), day_start, day_end
+        )
+        for index in food_indices
+        for day in range(trip.days)
+    }
+
     for day in range(trip.days):
         model.add(sum(assigned[(index, day)] for index in range(len(ranked))) <= capacity)
         if food_indices:
@@ -417,6 +434,28 @@ def assign_days(
             )
             <= WALKING_MINUTES_PER_DAY
         )
+
+    # One bool per day per required meal, true only when that day holds a
+    # distinct restaurant able to serve it. The subset constraints are Hall's
+    # condition over the meals: a day whose only two restaurants both serve
+    # dinner alone can raise one of these, never both, so the objective cannot
+    # be told a lie about what the day can eat.
+    meal_covered: dict[tuple[int, str], cp_model.IntVar] = {}
+    if food_indices:
+        for day in range(trip.days):
+            for meal in REQUIRED_MEALS:
+                meal_covered[(day, meal)] = model.new_bool_var(f"meal_{day}_{meal}")
+            for size in range(1, len(REQUIRED_MEALS) + 1):
+                for subset in combinations(REQUIRED_MEALS, size):
+                    servers = [
+                        index
+                        for index in food_indices
+                        if meal_eligibility[(index, day)] & set(subset)
+                    ]
+                    model.add(
+                        sum(meal_covered[(day, meal)] for meal in subset)
+                        <= sum(assigned[(index, day)] for index in servers)
+                    )
 
     terms: list[cp_model.LinearExpr] = []
     base_not_placed_penalty = 1_000_000
@@ -451,6 +490,9 @@ def assign_days(
                 terms.append(
                     objective_weights.conditional * rain * assigned[(index, day)]
                 )
+
+    for (day, meal), variable in meal_covered.items():
+        terms.append(objective_weights.meal * MEAL_MISS_PENALTY * (1 - variable))
 
     for left in range(len(ranked)):
         for right in range(left + 1, len(ranked)):
@@ -542,24 +584,77 @@ def _fits_open_hours(
     what the data said. A weekday genuinely missing from a known schedule is
     still a closure, so a zoo shut on Wednesdays stays shut.
     """
+    return bool(open_windows_on(candidate, trip_date, day_start, day_end))
+
+
+def open_windows_on(
+    candidate: CandidatePlace,
+    trip_date: date,
+    day_start: time,
+    day_end: time,
+) -> list[tuple[int, int]]:
+    """When this place can be visited on this day, in minutes past midnight.
+
+    The windows already allow for the visit, so an empty list means the day
+    has no room for this place rather than that the place is shut. Stage 2
+    reads the same function, because a day Stage 1 believes is open and Stage 2
+    believes is shut produces a plan neither of them can explain.
+    """
     weekday = trip_date.strftime("%a").lower()
     start_minute = day_start.hour * 60 + day_start.minute
     end_minute = day_end.hour * 60 + day_end.minute
+    duration = candidate.duration_estimate_min
 
     if not opening_hours_are_binding(
         candidate.category, candidate.enrichment.get("place_types") or [],
         candidate.hours_by_weekday,
     ):
-        return start_minute + candidate.duration_estimate_min <= end_minute
+        return [(start_minute, end_minute)] if start_minute + duration <= end_minute else []
 
     if opens_on(candidate.hours_by_weekday, weekday) is not True:
-        return False
+        return []
 
-    return any(
-        max(start_minute, raw_start * 60) + candidate.duration_estimate_min
-        <= min(end_minute, raw_end * 60)
-        for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, [])
-    )
+    windows: list[tuple[int, int]] = []
+    for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, []):
+        start = max(start_minute, raw_start * 60)
+        end = min(end_minute, raw_end * 60)
+        if start + duration <= end:
+            windows.append((start, end))
+    return windows
+
+
+def required_meals_on(
+    candidate: CandidatePlace,
+    trip_date: date,
+    day_start: time,
+    day_end: time,
+) -> frozenset[str]:
+    """Which of lunch and dinner this food candidate could actually sit inside.
+
+    A restaurant that opens at five serves dinner and cannot serve lunch, and
+    two of those on one day leave that day with one meal whatever Stage 2
+    does. Counting restaurants per day cannot see that; this is what Stage 1
+    needs instead.
+    """
+    windows = open_windows_on(candidate, trip_date, day_start, day_end)
+    if not windows:
+        return frozenset()
+    day_start_minute = day_start.hour * 60 + day_start.minute
+    day_end_minute = day_end.hour * 60 + day_end.minute
+    duration = candidate.duration_estimate_min
+    eligible = set()
+    for meal in REQUIRED_MEALS:
+        slot_start_hour, slot_end_hour = MEAL_WINDOWS[meal]
+        slot_start = max(day_start_minute, slot_start_hour * 60)
+        slot_end = min(day_end_minute, slot_end_hour * 60)
+        if slot_start >= slot_end:
+            continue
+        if any(
+            max(window_start, slot_start) + duration <= min(window_end, slot_end)
+            for window_start, window_end in windows
+        ):
+            eligible.add(meal)
+    return frozenset(eligible)
 
 
 def _allowed_days_by_city(

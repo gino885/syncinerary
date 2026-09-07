@@ -258,7 +258,10 @@ async def test_narrative_scoring_reads_a_traditional_chinese_narrative():
 
 
 async def test_narrative_scoring_punishes_a_place_that_is_not_in_the_trip():
-    fixture = load_by_name("group_split")
+    # clean_5day_hokkaido rather than group_split: this needs a place the
+    # fixture knows and the trip left out, and group_split now routes all
+    # fifteen of its candidates, so it has none to offer.
+    fixture = load_by_name("clean_5day_hokkaido")
     outcome = await run_plan_case(fixture)
     assert outcome.solver_result is not None
 
@@ -276,11 +279,15 @@ async def test_narrative_scoring_punishes_a_place_that_is_not_in_the_trip():
     )
     assert honest.value == pytest.approx(1.0)
 
-    absent = next(
+    unplaced_names = [
         candidate.name_canonical
         for candidate in fixture.candidates
         if candidate.name_canonical not in placed
-    )
+    ]
+    # Asserted rather than assumed, so a fixture that starts placing
+    # everything says so instead of raising StopIteration out of a coroutine.
+    assert unplaced_names, "this fixture no longer leaves a place out to name"
+    absent = unplaced_names[0]
     hallucinated = score_narrative(fixture, f"{placed[0]} and {absent}", outcome.solver_result)
     assert hallucinated.value < honest.value
     # A name the fixture has never heard of is not punished: only claims

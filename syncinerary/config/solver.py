@@ -62,6 +62,20 @@ FOOD_PER_DAY_MAX = 3
 ATTRACTIONS_PER_DAY_MIN = 3
 ATTRACTIONS_PER_DAY_TARGET = 4
 
+# What one uncovered lunch or dinner costs the Stage 1 objective, before the
+# meal weight multiplies it. Measured rather than guessed: meal coverage is
+# decided entirely by which restaurants Stage 1 puts on which day, because
+# Stage 2 seats every meal that its day makes seatable and no more. Two
+# dinner-only restaurants on one day cost that day its lunch however well the
+# day clusters, and counting restaurants cannot see it.
+#
+# Sized against the two neighbours that matter. It has to outrank dispersion,
+# whose worst pair is 100 times the 20 km cost cap, or a tight cluster would
+# keep winning against a day that can eat. It has to stay well under the
+# 1,000,000 penalty for leaving a candidate unplaced, or the solver would drop
+# places from the trip to buy a meal, which is the trade nobody asked for.
+MEAL_MISS_PENALTY = 5_000
+
 # Day fullness (make-up plan). A day below this many stops can borrow a selected
 # candidate that did not fit another day, nearest-first, then be re-solved.
 # Three sights plus lunch and dinner.

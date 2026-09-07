@@ -16,10 +16,14 @@ from zoneinfo import ZoneInfo
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
-from syncinerary.agents.gather.traits import opening_hours_are_binding, opens_on
+from syncinerary.agents.gather.traits import opening_hours_are_binding
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
-from syncinerary.agents.solver.stage1_days import assign_days, assign_days_by_city
+from syncinerary.agents.solver.stage1_days import (
+    assign_days,
+    assign_days_by_city,
+    open_windows_on,
+)
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
@@ -183,28 +187,7 @@ def _open_windows(
     business, is bounded by the traveler's day rather than by a schedule
     nobody published. See traits.opens_on for why the difference matters.
     """
-    weekday = trip_date.strftime("%a").lower()
-    day_start = _minute_of_day(options.day_start)
-    day_end = _minute_of_day(options.day_end)
-    duration = candidate.duration_estimate_min
-
-    if not opening_hours_are_binding(
-        candidate.category,
-        candidate.enrichment.get("place_types") or [],
-        candidate.hours_by_weekday,
-    ):
-        return [(day_start, day_end)] if day_start + duration <= day_end else []
-
-    if opens_on(candidate.hours_by_weekday, weekday) is not True:
-        return []
-
-    windows: list[tuple[int, int]] = []
-    for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, []):
-        start = max(day_start, raw_start * 60)
-        end = min(day_end, raw_end * 60)
-        if start + duration <= end:
-            windows.append((start, end))
-    return windows
+    return open_windows_on(candidate, trip_date, options.day_start, options.day_end)
 
 
 def _routing_reason(

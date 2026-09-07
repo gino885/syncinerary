@@ -90,27 +90,75 @@ main's exact numbers, 0.80 and 0.92, with the whole suite still finishing in
 reverted, because the limit is a product default and stage 1 on that fixture
 goes from about 3 seconds to about 12, which `POST /plan` would pay.
 
-## 6. The part that does not go away
+## 6. The part that did not go away, and what it turned out to be
 
-`weather_storm_day3` does not recover with more budget, and moves
-non-monotonically:
+Updated 2026-09-07, later the same day. This section originally recorded that
+`weather_storm_day3` did not recover with more search budget, moved
+non-monotonically, and scored against the objective the solver optimises. That
+was all true, and the cause was not the one section 4 implies.
 
-| Deterministic limit | meal_coverage | weather_fit | worst_traveler |
-|---|---|---|---|
-| 4 (current) | 0.750 | 0.750 | 0.870 |
-| 16 | 0.625 | 0.750 | 0.826 |
-| 64 | 0.750 | 0.875 | 0.870 |
-| main at 4 | 1.000 | 0.875 | 0.957 |
+Sweeping the CP-SAT random seed over twelve runs made it measurable. The
+stage-1 objective spread across those twelve plans was 1.8 per cent, while
+meal coverage ranged from 0.625 to 1.000, and the correlation between them was
+`r = +0.38`: if anything, the better the objective, the worse the meal
+coverage.
 
-Its solver objective improves monotonically across those same three runs:
-1,138,085 then 1,131,491 then 1,125,189. So on this fixture the quality
-metrics move against the objective the solver is optimizing. Better plans by
-the model's own scoring score worse on the eval.
+Then the decisive measurement. Stage 1 returned the same answer every time,
+twenty-two places and eight restaurants on every seed, and every stop stage 2
+dropped was a restaurant. Meal coverage turned out to be predictable exactly,
+on eight seeds out of eight, from a property of the day assignment alone:
 
-That is a gap in the eval rail rather than in `b3d068d`, and it is the one
-finding here with a long shelf life, because Feature 2's whole claim is
-answering "did this change help or hurt". A metric that disagrees with the
-objective cannot answer it. Not chased yet.
+    meal coverage = per day, the number of lunches and dinners fillable by
+                    distinct restaurants that day holds, over days times two
+
+Stage 2 was never losing meals. It was seating every meal its day made
+seatable, and proving that optimal each time. A day handed two dinner-only
+restaurants has lost its lunch before stage 2 starts, and `FOOD_PER_DAY_MAX`
+could not see that, because counting restaurants is not the same question as
+asking which meals they can serve.
+
+So the divergence was not noise and not the search. Stage 1 chose the thing
+the metric measures, and had no term for it.
+
+The fix is in `m7i-stage1-meal-awareness`: stage 1 now computes, per candidate
+per day, which required meals that restaurant could actually sit inside, and
+carries one bool per day per meal whose subset constraints are Hall's
+condition over the meals, so a day cannot claim a lunch it has no distinct
+restaurant to serve. Uncovered meals are penalised in the objective, above
+dispersion and well below the flat cost of leaving a candidate unplaced.
+
+What that produced, measured the same way:
+
+| | before | after |
+|---|---|---|
+| storm meal coverage, 12 seeds | 0.625 to 1.000 | 1.000 on every seed |
+| storm worst-traveler, 12 seeds | 0.826 to 0.957 | 0.957 on every seed |
+| clean meal coverage, 12 seeds | moved | 0.900 on every seed |
+| clean worst-traveler, 12 seeds | moved | 0.960 on every seed |
+| storm transit efficiency | `r = -0.37`, unrelated | `r = -0.94`, tracks the objective |
+
+More of the trip also survives: `group_split` routes 15 of 15 candidates
+rather than 13, `clean_5day_hokkaido` 25 of 26 rather than 23, and
+`weather_storm_day3` 22 of 23 rather than 20. The worst-off traveler improved
+on every fixture, because the metric counts placed cards that traveler liked.
+
+The two models still terminate at `FEASIBLE`. That is the surprise worth
+keeping: convergence and metric stability are separable. The numbers were not
+unstable because the search stopped early, they were unstable because the
+objective was indifferent to them, and a search wandering a plateau reports
+whichever corner it stopped in. Give the objective an opinion and every
+near-optimal plan agrees, unconverged or not.
+
+It also settles the architecture caveat for these metrics.
+`clean_5day_hokkaido` was the original example, 0.80 meal coverage on arm64
+against 0.70 on x86-64. It now scores 0.90 and 0.96 on both. Transit
+efficiency still differs by architecture on that fixture, 0.56 against 0.43,
+which is why it carries no floor there.
+
+What is left on `weather_storm_day3` is `weather_fit`, which still moves
+between 0.875 and 1.000, one exposed stop, at `r = +0.52`. Stage 1 does carry
+a weather term, so this is a weighting question rather than a blind spot, and
+it is one stop rather than a quarter of the meals.
 
 ## 7. What CI does and does not catch
 
@@ -158,15 +206,26 @@ measured on the eight converged fixtures, added to the five disruption
 fixtures, which had gated on no quality metric at all, and left wide on the
 two unconverged ones.
 
+Then section 6 was chased down and fixed, in `m7i-stage1-meal-awareness`, and
+the floors re-baselined against the better numbers it produced. Two fixture
+assumptions broke in the process and both were real signals rather than
+breakage: `group_split` stopped leaving any candidate unplaced, which retired
+its `wishlist_explained` floor and moved one narrative test onto a fixture
+that still leaves a place out.
+
 Left open, in rough priority order:
 
-1. Why `weather_storm_day3` scores against the objective (section 6). This is
-   the one with the longest shelf life, because a metric that disagrees with
-   the objective cannot answer the question Feature 2 exists to answer.
-2. Whether stage 1 should converge on these two fixtures, by search budget or
-   by a tighter formulation, so their numbers stop depending on how the search
-   was steered (sections 4 and 5). Converging them is also what would let
-   their floors be tightened like everything else.
-3. Whether CI should carry a stored baseline so the diff line works there too
-   (section 7). Lowest of the three: the floors gate without it, and a
-   baseline would inherit the same noise that keeps two fixtures loose.
+1. `weather_fit` on `weather_storm_day3`, the one metric section 6 did not
+   settle. One exposed stop, and a weighting question rather than a blind
+   spot.
+2. `group_split` no longer makes the solver choose. It routes all fifteen of
+   its candidates, so the two opposing factions it was written to represent
+   never actually contend, and `worst_traveler_satisfaction` reads 1.00
+   because everyone got everything. The fixture needs more candidates than the
+   trip can hold to test what its name claims.
+3. Whether stage 1 should converge on the two hard fixtures at all. Less
+   urgent than it looked: their metrics are stable and architecture-stable
+   without it, so this now only buys a provable optimum rather than a
+   trustworthy number.
+4. Whether CI should carry a stored baseline so the diff line works there too
+   (section 7). The floors gate without it.

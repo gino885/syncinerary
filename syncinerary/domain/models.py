@@ -413,6 +413,10 @@ class SolverObjectiveWeights(BaseModel):
     weather: int = Field(default=30, ge=0, le=100)
     vote: int = Field(default=25, ge=0, le=100)
     conditional: int = Field(default=35, ge=0, le=100)
+    #: How hard Stage 1 works to leave every day able to seat lunch and
+    #: dinner. Above weather because a day that cannot eat is a worse day than
+    #: a damp one, and below the flat penalty for dropping a candidate.
+    meal: int = Field(default=40, ge=0, le=100)
 
 
 # ----- Working state for the LangGraph -----
