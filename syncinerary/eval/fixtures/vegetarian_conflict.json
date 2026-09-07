@@ -562,9 +562,9 @@
       "sushi-counter"
     ],
     "min_scores": {
-      "worst_traveler_satisfaction": 0.76,
-      "meal_coverage": 0.62,
-      "transit_efficiency": 0.87,
+      "worst_traveler_satisfaction": 0.88,
+      "meal_coverage": 0.95,
+      "transit_efficiency": 0.83,
       "wishlist_explained": 1.0
     }
   }

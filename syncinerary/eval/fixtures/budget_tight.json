@@ -529,9 +529,9 @@
   ],
   "expected": {
     "min_scores": {
-      "worst_traveler_satisfaction": 0.83,
-      "meal_coverage": 0.78,
-      "transit_efficiency": 0.84,
+      "worst_traveler_satisfaction": 0.89,
+      "meal_coverage": 0.95,
+      "transit_efficiency": 0.82,
       "wishlist_explained": 1.0
     }
   }

@@ -789,8 +789,8 @@
     ],
     "min_scores": {
       "must_go_coverage": 1.0,
-      "meal_coverage": 0.6,
-      "worst_traveler_satisfaction": 0.5,
+      "worst_traveler_satisfaction": 0.86,
+      "meal_coverage": 0.8,
       "wishlist_explained": 1.0
     }
   }

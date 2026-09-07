@@ -692,8 +692,9 @@
   ],
   "expected": {
     "min_scores": {
-      "weather_fit": 0.5,
-      "meal_coverage": 0.6
+      "worst_traveler_satisfaction": 0.86,
+      "meal_coverage": 0.9,
+      "weather_fit": 0.75
     }
   }
 }
