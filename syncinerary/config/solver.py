@@ -112,3 +112,18 @@ TOPUP_MAX_DETOUR_KM = 12.0
 # from "provably optimal" to "the best plan found in the budget".
 SOLVER_DETERMINISTIC_LIMIT = 4.0
 SOLVER_TIME_LIMIT_SECONDS = 30.0
+
+
+# Routing-aware repair (M7k). Stage 1 cannot see what Stage 2 will refuse, so
+# a refusal is fed back as "not this candidate on that day" and Stage 1 is
+# re-solved. The bounds exist because every re-solved day is a transit lookup
+# and a harness step, and because a repair loop that cannot terminate is worse
+# than one that gives up.
+REPAIR_MAX_ROUNDS = 3
+#: Hard ceiling on extra Stage 2 solves across the whole repair loop. Sized
+#: against the harness step cap: a long trip could otherwise spend its entire
+#: budget re-routing days that were never going to improve.
+REPAIR_MAX_DAY_SOLVES = 12
+#: Reserve candidates admitted per trip when a selected place turns out to be
+#: structurally impossible. One hole, one replacement.
+REPAIR_MAX_REPLACEMENTS = 4

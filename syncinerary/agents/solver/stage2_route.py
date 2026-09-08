@@ -8,6 +8,7 @@ owned by OR-Tools under CLAUDE.md §2.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any, NamedTuple, Protocol
 from uuid import UUID
@@ -19,7 +20,20 @@ from pydantic import BaseModel, Field, model_validator
 from syncinerary.agents.gather.traits import opening_hours_are_binding
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
+from syncinerary.agents.solver.repair import (
+    REASON_LOWER_MARGINAL_UTILITY,
+    REASON_REPAIR_EXHAUSTED,
+    RepairBudget,
+    RepairLedger,
+    classify_bucket_changes,
+    learn_day_blocks,
+    learn_incompatible_pairs,
+    plan_value,
+    select_replacements,
+    value_by_candidate,
+)
 from syncinerary.agents.solver.stage1_days import (
+    Stage1Unplaced,
     assign_days,
     assign_days_by_city,
     open_windows_on,
@@ -117,6 +131,11 @@ class DayRoute(BaseModel):
     unplaced: list[UnplacedCandidate] = Field(default_factory=list)
     total_transit_minutes: int = 0
     meals_covered: list[str] = Field(default_factory=list)
+    #: Pairs this day could not connect in either direction, after the transit
+    #: chain and its estimate had both been tried. Not a fact about the day:
+    #: two places with no arc between them cannot share ANY day, which is why
+    #: Stage 1 is told about them rather than only this day's solver.
+    unroutable_pairs: list[tuple[UUID, UUID]] = Field(default_factory=list)
 
     @property
     def missing_required_meals(self) -> list[str]:
@@ -132,6 +151,8 @@ class SolverResult(BaseModel):
     routes: list[DayRoute]
     stage1_unplaced: list[UnplacedCandidate] = Field(default_factory=list)
     stage1_objective: dict[str, float] = Field(default_factory=dict)
+    #: What the routing-aware repair loop did to get here.
+    repair: RepairLedger = Field(default_factory=RepairLedger)
 
     def wishlist(self, shortlisted: list[UUID]) -> list[UnplacedCandidate]:
         """Shortlisted cards no day ended up placing, each reported once.
@@ -543,6 +564,7 @@ def solve_day(
         arcs[(index, 0)] = to_depot
         circuit.extend(((0, index, from_depot), (index, 0, to_depot)))
 
+    missing_arcs: set[tuple[UUID, UUID]] = set()
     for origin_index, origin in enumerate(open_candidates, start=1):
         for destination_index, destination in enumerate(open_candidates, start=1):
             if origin_index == destination_index:
@@ -551,6 +573,7 @@ def solve_day(
             if leg is None:
                 leg = _estimated_leg(origin, destination)
                 if leg is None:
+                    missing_arcs.add((origin.id, destination.id))
                     continue
                 leg_by_pair[(origin.id, destination.id)] = leg
             transit_minutes = leg.minutes
@@ -720,6 +743,15 @@ def solve_day(
         meals_covered=[
             meal for meal in MEAL_WINDOWS if any(s.meal_slot == meal for s in stops)
         ],
+        # Only pairs with no arc either way. One direction is enough to
+        # sequence two places, so a single missing arc is not incompatibility.
+        unroutable_pairs=sorted(
+            {
+                (min(left, right, key=str), max(left, right, key=str))
+                for left, right in missing_arcs
+                if (right, left) in missing_arcs
+            }
+        ),
     )
 
 
@@ -974,52 +1006,294 @@ async def solve_full_routes(
     pinned_days: dict[UUID, int] | None = None,
     fixed_start_minutes: dict[UUID, int] | None = None,
     weights: SolverObjectiveWeights | None = None,
+    reserve_candidates: Sequence[CandidatePlace] = (),
+    budget: RepairBudget | None = None,
 ) -> SolverResult:
-    """Run the M5 Stage 1 assignment, then route each decided day once."""
+    """Stage 1, then Stage 2, then let Stage 2 answer Stage 1 back.
+
+    The first pass is the M5 behavior exactly: assign days, route each one.
+    What follows is the part that was missing. Stage 1 chooses days from
+    straight-line dispersion and a walking estimate; Stage 2 rejects places
+    using opening hours, real transit and a twelve-hour clock. Until now a
+    rejection ended there, so a place could lose its seat on the trip purely
+    because its first day assignment was a poor one, and a day whose pairs did
+    not work could collapse to a single stop while other days sat half empty.
+
+    Each round feeds those rejections back as "not this candidate on that day"
+    and re-solves Stage 1, which is already a cross-day model: moving a place
+    to a quieter day, swapping two places between days, and dropping the
+    lower-scoring of two that genuinely conflict are all things it does. Only
+    the days whose membership actually changed are re-routed, and a round is
+    kept only if the trip is worth more afterwards, measured in retained user
+    value before stop count.
+    """
     options = options or SolverOptions()
+    limits = budget or RepairBudget()
     fixed_starts = fixed_start_minutes or {}
     must_go = (must_go_ids or set()) | set(fixed_starts)
     pinned = pinned_days or {}
-    assignment = assign_days(
-        candidates,
-        state.trip,
-        weather=weather,
-        weights=weights,
-        scores=state.candidate_scores,
-        votes=state.votes,
-        must_go_ids=must_go,
-        pinned_days=pinned,
-        day_start=options.day_start,
-        day_end=options.day_end,
-    )
-    routes = [
-        await _solve_one_day(
+    protected = must_go | set(pinned)
+    ledger = RepairLedger()
+
+    reserve = [
+        candidate
+        for candidate in reserve_candidates
+        if candidate.id not in {selected.id for selected in candidates}
+    ]
+    values = value_by_candidate(list(candidates) + reserve, state.candidate_scores)
+    admitted: list[CandidatePlace] = []
+    blocks: dict[UUID, set[int]] = {}
+    conflicts: set[tuple[UUID, UUID]] = set()
+
+    def _assign(pool: list[CandidatePlace], admitted_now: list[CandidatePlace]):
+        return assign_days(
+            pool,
+            state.trip,
+            weather=weather,
+            weights=weights,
+            scores=state.candidate_scores,
+            votes=state.votes,
+            must_go_ids=must_go,
+            pinned_days=pinned,
+            blocked_days=blocks,
+            incompatible_pairs=sorted(conflicts, key=lambda pair: (str(pair[0]), str(pair[1]))),
+            reserve_ids={candidate.id for candidate in admitted_now},
+            replacement_budget=len(admitted_now),
+            day_start=options.day_start,
+            day_end=options.day_end,
+        )
+
+    async def _route(bucket: list[CandidatePlace], day: int) -> DayRoute:
+        return await _solve_one_day(
             bucket,
             day=day,
             trip_date=state.trip.start_date + timedelta(days=day),
             transit_provider=transit_provider,
             options=options,
-            required_candidate_ids=(must_go | set(pinned))
-            & {candidate.id for candidate in bucket},
+            required_candidate_ids=protected & {candidate.id for candidate in bucket},
             fixed_start_minutes={
                 candidate.id: fixed_starts[candidate.id]
                 for candidate in bucket
                 if candidate.id in fixed_starts
             },
         )
-        for day, bucket in enumerate(assignment.buckets)
+
+    assignment = _assign(list(candidates), admitted)
+    routes = [
+        await _route(bucket, day) for day, bucket in enumerate(assignment.buckets)
     ]
+
+    for _round in range(limits.max_rounds):
+        refusals = [
+            (item.candidate_id, route.day, item.reason_code)
+            for route in routes
+            for item in route.unplaced
+        ]
+        conflicts, found_conflict = learn_incompatible_pairs(
+            (route.unroutable_pairs for route in routes),
+            existing=conflicts,
+        )
+        blocks, learned = learn_day_blocks(
+            refusals,
+            protected_ids=protected,
+            conflicted_ids={
+                candidate_id for pair in conflicts for candidate_id in pair
+            },
+            existing=blocks,
+        )
+        # A hole is a selected place no day can hold: every day has refused
+        # it, or Stage 1 could not open a day to it in the first place. That is
+        # a structural conflict rather than a scheduling accident, and it is
+        # the one situation that earns a replacement from below the shortlist
+        # line. A place merely squeezed out by capacity is not a hole: the
+        # same capacity would squeeze out its replacement.
+        exhausted = {
+            candidate.id
+            for candidate in candidates
+            if candidate.id not in protected
+            and len(blocks.get(candidate.id, set())) >= state.trip.days
+        } | {
+            item.candidate_id
+            for item in assignment.unplaced
+            if item.reason_code == "closed_on_available_days"
+        }
+        replacements = select_replacements(
+            reserve,
+            already_admitted={candidate.id for candidate in admitted},
+            limit=min(
+                len(exhausted) - len(admitted),
+                limits.max_replacements - len(admitted),
+            ),
+        )
+        if not learned and not found_conflict and not replacements:
+            # Nothing new to tell Stage 1 and no hole to fill, so the next
+            # round would re-solve an identical model and get the same answer.
+            break
+        trial_admitted = admitted + replacements
+
+        trial_assignment = _assign(list(candidates) + trial_admitted, trial_admitted)
+        changed = [
+            day
+            for day, bucket in enumerate(trial_assignment.buckets)
+            if {candidate.id for candidate in bucket}
+            != {candidate.id for candidate in assignment.buckets[day]}
+        ]
+        if not changed:
+            break
+        if ledger.day_solves + len(changed) > limits.max_day_solves:
+            break
+
+        trial_routes = list(routes)
+        for day in changed:
+            trial_routes[day] = await _route(trial_assignment.buckets[day], day)
+            ledger.day_solves += 1
+
+        current = plan_value(
+            (stop.candidate_id for route in routes for stop in route.stops),
+            values,
+            sum(route.total_transit_minutes for route in routes),
+        )
+        trial = plan_value(
+            (stop.candidate_id for route in trial_routes for stop in route.stops),
+            values,
+            sum(route.total_transit_minutes for route in trial_routes),
+        )
+        if not trial > current:
+            # A round that does not pay for itself is discarded whole, so the
+            # repair loop can never leave the trip worse than the plain M5 run.
+            break
+
+        moves, swaps = classify_bucket_changes(
+            assignment.buckets, trial_assignment.buckets
+        )
+        ledger.cross_day_moves += moves
+        ledger.cross_day_swaps += swaps
+        ledger.same_day_reorders += _count_reorders(routes, trial_routes)
+        ledger.replacement_candidates_used += len(trial_admitted) - len(admitted)
+        ledger.high_priority_places_preserved_by_reassignment += _preserved_count(
+            routes, trial_routes, values
+        )
+        ledger.repair_rounds += 1
+        assignment, routes, admitted = trial_assignment, trial_routes, trial_admitted
+
+    placed = {stop.candidate_id for route in routes for stop in route.stops}
+    ledger.places_dropped_for_feasibility = sum(
+        1 for candidate in candidates if candidate.id not in placed
+    )
+    ledger.unresolved_structural_conflicts = sum(
+        1
+        for candidate in candidates
+        if candidate.id not in placed
+        and len(blocks.get(candidate.id, set())) >= state.trip.days
+    )
+
+    # Which of the two answers a dropped place gets is the difference between
+    # "we ran out of days for it" and "we chose the other one", and a traveler
+    # asking why their place is missing is owed the real one.
+    outranked = {
+        left if right in placed else right
+        for left, right in conflicts
+        if (left in placed) != (right in placed)
+    }
+    name_of = {candidate.id: candidate.name_canonical for candidate in candidates}
     return SolverResult(
         routes=routes,
         stage1_unplaced=[
             UnplacedCandidate(
                 candidate_id=item.candidate_id,
-                reason_code=item.reason_code,
-                reason_text=item.reason_text,
+                reason_code=_repair_reason_code(
+                    item.candidate_id, item.reason_code, blocks, outranked
+                ),
+                reason_text=_repair_reason_text(
+                    item, blocks, outranked, conflicts, placed, name_of
+                ),
             )
             for item in assignment.unplaced
+            # A reserve that was offered and not used is not a place the group
+            # chose and then lost, so it does not belong on their wishlist.
+            if item.candidate_id not in {candidate.id for candidate in admitted}
         ],
         stage1_objective=assignment.objective_breakdown,
+        repair=ledger,
+    )
+
+
+def _repair_reason_code(
+    candidate_id: UUID,
+    reason_code: str,
+    blocks: dict[UUID, set[int]],
+    outranked: set[UUID],
+) -> str:
+    if candidate_id in outranked:
+        return REASON_LOWER_MARGINAL_UTILITY
+    if candidate_id in blocks:
+        return REASON_REPAIR_EXHAUSTED
+    return reason_code
+
+
+def _repair_reason_text(
+    item: Stage1Unplaced,
+    blocks: dict[UUID, set[int]],
+    outranked: set[UUID],
+    conflicts: set[tuple[UUID, UUID]],
+    placed: set[UUID],
+    name_of: dict[UUID, str],
+) -> str:
+    if item.candidate_id in outranked:
+        rival = next(
+            (
+                name_of.get(other)
+                for left, right in conflicts
+                for other in (left, right)
+                if item.candidate_id in (left, right)
+                and other != item.candidate_id
+                and other in placed
+            ),
+            None,
+        )
+        kept = f" {rival} was kept instead." if rival else ""
+        return (
+            f"{item.reason_text} No day could hold it alongside the places the "
+            f"group rated higher.{kept}"
+        )
+    if item.candidate_id in blocks:
+        return f"{item.reason_text} No other day could seat it either."
+    return item.reason_text
+
+
+def _count_reorders(before: list[DayRoute], after: list[DayRoute]) -> int:
+    """Days that kept every stop but visit them in a different order.
+
+    Reordering is not a repair operation in this architecture: Stage 2's
+    circuit chooses the order freely on every solve. It is counted because a
+    reader comparing two rounds wants to know when the fix was the order.
+    """
+    count = 0
+    for old, new in zip(before, after, strict=True):
+        old_ids = [stop.candidate_id for stop in old.stops]
+        new_ids = [stop.candidate_id for stop in new.stops]
+        if set(old_ids) == set(new_ids) and old_ids != new_ids:
+            count += 1
+    return count
+
+
+def _preserved_count(
+    before: list[DayRoute],
+    after: list[DayRoute],
+    values: dict[UUID, int],
+) -> int:
+    """Places the round rescued, weighted by nothing but whether they stayed.
+
+    Counting rescues rather than net stops is the honest measure: a round that
+    seats two cheap substitutes while losing the group's favourite has not
+    preserved anything, and a bare stop count would call it an improvement.
+    """
+    was = {stop.candidate_id for route in before for stop in route.stops}
+    now = {stop.candidate_id for route in after for stop in route.stops}
+    gained = now - was
+    lost = was - now
+    return sum(1 for candidate_id in gained if values.get(candidate_id, 0) > 0) - sum(
+        1 for candidate_id in lost if values.get(candidate_id, 0) > 0
     )
 
 
@@ -1051,6 +1325,11 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                 raise ValueError("Cannot solve a trip before its shortlist exists")
             repo = CandidatePlaceRepository(session)
             candidates = await repo.list_by_ids(shortlist.selected_candidate_ids)
+            # Everything the group voted on that fell below the shortlist line,
+            # in ranked order. Kept out of the plan unless a selected place
+            # turns out to be structurally impossible, and then used to fill
+            # exactly that hole rather than to pad the trip.
+            reserve = await repo.list_by_ids(shortlist.wishlist_excluded_ids)
 
         options = SolverOptions(
             day_start=state.day_start,
@@ -1074,7 +1353,11 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                 must_go_ids=set(shortlist.must_go_candidate_ids),
                 pinned_days=pinned_by_candidate,
                 weights=state.solver_weights,
+                reserve_candidates=reserve,
             )
+
+        for name, value in result.repair.as_metrics().items():
+            span.set_attribute(name, value)
 
         async with session_scope() as session:
             versions = ItineraryVersionRepository(session)
@@ -1095,6 +1378,10 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                         "total_transit_minutes": float(result.total_transit_minutes),
                         "required_meals_covered": float(result.meal_coverage_count),
                         "required_meals_target": float(len(REQUIRED_MEALS) * trip.days),
+                        **{
+                            name: float(value)
+                            for name, value in result.repair.as_metrics().items()
+                        },
                     },
                 )
             )
