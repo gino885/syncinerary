@@ -499,6 +499,7 @@ class ItineraryNode(Base):
         sa.Integer, nullable=False, server_default="0"
     )
     transit_from_prev_mode: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    transit_from_prev_provider: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     notes_for_travelers: Mapped[dict[str, Any]] = _jsonb_dict()
 
     __table_args__ = (

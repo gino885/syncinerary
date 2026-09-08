@@ -18,6 +18,7 @@ from syncinerary.config.transit import (
     TRANSIT_CACHE_TTL_SECONDS,
 )
 from syncinerary.store.redis import get_redis
+from syncinerary.tools.transit.errors import TransitFailureKind, TransitProviderError
 from syncinerary.tools.transit.models import (
     PairwiseTransitRequest,
     TransitDuration,
@@ -31,14 +32,17 @@ from syncinerary.tools.transit.models import (
 )
 
 MAX_TRANSIT_MATRIX_LOCATIONS = 10
+PROVIDER_NAME = "google"
 
 
-class RoutesError(RuntimeError):
+class RoutesError(TransitProviderError):
     """Base class for typed Google Routes failures."""
 
 
 class RoutesConfigurationError(RoutesError):
     """The API key or matrix dimensions are invalid."""
+
+    kind = TransitFailureKind.UNSUPPORTED
 
 
 class RoutesResponseError(RoutesError):
@@ -54,9 +58,13 @@ class RoutesResponseError(RoutesError):
 class RoutesRouteUnavailable(RoutesResponseError):
     """Google found no transit route for one directed pair."""
 
+    kind = TransitFailureKind.NO_ROUTE
+
 
 class RoutesRateLimited(RoutesResponseError):
     """The Google Routes quota was exhausted."""
+
+    kind = TransitFailureKind.RATE_LIMITED
 
 
 class _ElementStatus(BaseModel):
@@ -110,6 +118,7 @@ def _duration(request: TransitRequest, seconds: int, *, cache_hit: bool) -> Tran
         duration_seconds=seconds,
         duration_minutes=max(1, (seconds + 59) // 60),
         cache_hit=cache_hit,
+        provider=PROVIDER_NAME,
     )
 
 
@@ -141,6 +150,8 @@ def _walking_seconds(request: TransitRequest) -> int:
 
 class GoogleRoutesClient:
     """Fetch one transit matrix per day and estimate nearby walking locally."""
+
+    name = PROVIDER_NAME
 
     def __init__(
         self,
@@ -280,6 +291,7 @@ class GoogleRoutesClient:
             for origin_index, origin in enumerate(request.locations)
             for destination_index, destination in enumerate(request.locations)
             if origin_index != destination_index
+            and request.wants(origin_index, destination_index)
             and choose_mode(
                 origin,
                 destination,
@@ -359,6 +371,7 @@ class GoogleRoutesClient:
 
 
 __all__ = [
+    "PROVIDER_NAME",
     "GoogleRoutesClient",
     "RoutesConfigurationError",
     "RoutesError",

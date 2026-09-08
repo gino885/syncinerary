@@ -414,6 +414,7 @@ async def _build_replan_proposal(
             lock_reason=node.lock_reason,
             transit_from_prev_min=node.transit_from_prev_min,
             transit_from_prev_mode=node.transit_from_prev_mode,
+            transit_from_prev_provider=node.transit_from_prev_provider,
             notes_for_travelers=node.notes_for_travelers,
         )
         for node in old_nodes
@@ -428,6 +429,7 @@ async def _build_replan_proposal(
             end_time=time(stop.end_minute // 60, stop.end_minute % 60),
             transit_from_prev_min=stop.transit_from_prev_min,
             transit_from_prev_mode=stop.transit_from_prev_mode,
+            transit_from_prev_provider=stop.transit_from_prev_provider,
             fixed=stop.candidate_id in required,
             lock_reason=lock_reason_by_candidate.get(stop.candidate_id),
         )

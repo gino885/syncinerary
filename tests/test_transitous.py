@@ -222,22 +222,27 @@ async def test_transit_provider_factory_keeps_transitous_explicitly_opt_in():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: None)) as http:
         transitous = make_transit_client(
             provider="transitous",
+            fallbacks="",
             redis=FakeRedis(),  # type: ignore[arg-type]
             http_client=http,
         )
         google = make_transit_client(
             provider="google",
+            fallbacks="",
             redis=FakeRedis(),  # type: ignore[arg-type]
             http_client=http,
         )
 
-        assert isinstance(transitous, TransitousClient)
-        assert type(google).__name__ == "GoogleRoutesClient"
+        # The factory now returns the chain rather than one client, so the
+        # selected provider is the head of it, not the whole of it.
+        assert isinstance(transitous.providers[0], TransitousClient)
+        assert type(google.providers[0]).__name__ == "GoogleRoutesClient"
 
 
 def test_unknown_transit_provider_is_rejected():
     with pytest.raises(ValueError, match="Unknown transit provider"):
         make_transit_client(
             provider="surprise",
+            fallbacks="",
             redis=FakeRedis(),  # type: ignore[arg-type]
         )

@@ -24,6 +24,7 @@ from syncinerary.config.transit import (
     TRANSITOUS_USER_AGENT,
 )
 from syncinerary.store.redis import get_redis
+from syncinerary.tools.transit.errors import TransitFailureKind, TransitProviderError
 from syncinerary.tools.transit.models import (
     PairwiseTransitRequest,
     TransitDuration,
@@ -37,14 +38,17 @@ from syncinerary.tools.transit.models import (
 )
 
 MAX_TRANSITOUS_LOCATIONS = 10
+PROVIDER_NAME = "transitous"
 
 
-class TransitousError(RuntimeError):
+class TransitousError(TransitProviderError):
     """Base class for typed Transitous failures."""
 
 
 class TransitousConfigurationError(TransitousError):
     """The prototype request exceeds its bounded size."""
+
+    kind = TransitFailureKind.UNSUPPORTED
 
 
 class TransitousResponseError(TransitousError):
@@ -60,9 +64,13 @@ class TransitousResponseError(TransitousError):
 class TransitousRouteUnavailable(TransitousResponseError):
     """Transitous found no public transport route for one pair."""
 
+    kind = TransitFailureKind.NO_ROUTE
+
 
 class TransitousRateLimited(TransitousResponseError):
     """The shared prototype endpoint asked the client to slow down."""
+
+    kind = TransitFailureKind.RATE_LIMITED
 
 
 class _IntermodalDuration(BaseModel):
@@ -103,7 +111,7 @@ def _duration(request: TransitRequest, seconds: int, *, cache_hit: bool) -> Tran
         duration_seconds=seconds,
         duration_minutes=max(1, (seconds + 59) // 60),
         cache_hit=cache_hit,
-        provider="transitous",
+        provider=PROVIDER_NAME,
     )
 
 
@@ -114,6 +122,8 @@ def _walking_seconds(request: TransitRequest) -> int:
 
 class TransitousClient:
     """Fetch bounded one-to-many transit rows and cache every directed leg."""
+
+    name = PROVIDER_NAME
 
     def __init__(
         self,
@@ -226,6 +236,7 @@ class TransitousClient:
             for origin_index, origin in enumerate(request.locations)
             for destination_index, destination in enumerate(request.locations)
             if origin_index != destination_index
+            and request.wants(origin_index, destination_index)
             and choose_mode(
                 origin,
                 destination,
@@ -293,6 +304,7 @@ class TransitousClient:
 
 
 __all__ = [
+    "PROVIDER_NAME",
     "TransitousClient",
     "TransitousConfigurationError",
     "TransitousError",

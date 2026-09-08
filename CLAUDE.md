@@ -747,9 +747,39 @@ Run independently for each day. Input: the candidates assigned to that day in St
 - Match meal categories to meal times.
 
 **Transit lookup:**
-- Pre-fetch all pairwise transit times among the day's candidates via Google Directions API.
+- Pre-fetch all pairwise transit times among the day's candidates in one
+  Google Routes matrix request.
 - Cache aggressively: cache key is `(origin_place_id, dest_place_id, mode, departure_window)`.
-- For a `days=5, shortlist=30` trip with 6 candidates per day, lookups are O(n^2) per day = 36 calls per day = ~180 calls per trip. Well within free tier.
+- For a `days=5, shortlist=30` trip with 6 candidates per day, lookups are O(n^2) per day = 36 elements per day = ~180 per trip. Well within free tier.
+
+**Provider fallback.** A missing arc is not a slow leg. In the Stage 2 circuit
+it says two places cannot share a day, and no single provider is entitled to
+that claim: a coverage gap, an HTTP 500, an exhausted quota and an unsupported
+region all look identical from the outside. So a provider that cannot answer
+is a reason to ask the next one, never a verdict:
+
+```
+primary (Google Routes)
+  -> secondary (HERE Transit, when configured)
+  -> regional providers from the registry, when any are registered
+  -> conservative city-scale estimate
+  -> unroutable
+```
+
+Rules:
+
+- Each step is asked only about the arcs the previous step left, over only the
+  locations those arcs touch. The primary sees the day as one matrix request;
+  nothing is ever queried twice in parallel for comparison.
+- A routed leg from any provider is a routed leg. Only the estimate is shown
+  as approximate, and the ceiling for estimating is `ESTIMATED_TRANSIT_MAX_KM`:
+  past it, an invented journey would strand somebody.
+- Which provider answered is internal provenance, stored on the itinerary node
+  and never rendered as a per-leg label. The one thing that does surface is a
+  data-source credit where a provider's licence requires one, and it is
+  itinerary-level rather than attached to a journey.
+- A country-specific provider is a registry entry plus a credential. Neither
+  solver stage, nor the resolver, may branch on where a trip is.
 
 ### 11.3 Independent replan property
 
@@ -1066,7 +1096,11 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 | Repair attempt cap | 2 | `config/harness.py` |
 | Loop hash repeat threshold | 3 | `config/harness.py` |
 | Weather source | Open-Meteo | `tools/weather/` |
-| Transit source | Google Directions API | `tools/transit/` |
+| Primary transit provider | Google Routes matrix | env `SYNC_TRANSIT_PROVIDER` |
+| Transit fallback chain | `here` (dropped when unconfigured) | env `SYNC_TRANSIT_FALLBACK_PROVIDERS` |
+| HERE Transit credentials | unset, provider optional | env `HERE_API_KEY` |
+| Estimated transit ceiling | 30 km, then unroutable | `config/solver.py` |
+| Regional transit providers | none registered | `tools/transit/registry.py` |
 
 ---
 

@@ -192,6 +192,7 @@ async def _seed_active_itinerary(session: Any, fixture: LoadedFixture, result: S
                 end_time=clock_time(stop.end_minute // 60, stop.end_minute % 60),
                 transit_from_prev_min=stop.transit_from_prev_min,
                 transit_from_prev_mode=stop.transit_from_prev_mode,
+                transit_from_prev_provider=stop.transit_from_prev_provider,
             )
             for route in result.routes
             for stop in sorted(route.stops, key=lambda item: item.start_minute)

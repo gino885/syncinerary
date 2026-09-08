@@ -241,7 +241,10 @@ def test_solver_minimizes_total_transit_after_maximizing_placements():
         assert current.start_minute >= previous.end_minute + current.transit_from_prev_min
 
 
-def test_solver_preserves_transitous_attribution_on_the_scheduled_leg():
+def test_solver_keeps_provider_provenance_off_the_traveler_facing_label():
+    """Which provider routed a leg is internal. The traveler is told two
+    things only: this was routed, or this is approximate. Otherwise a second
+    provider in the chain becomes a second label on the itinerary."""
     first = _place("First", 43.06, 141.35)
     second = _place("Second", 43.10, 141.40)
     matrix = _matrix([first, second])
@@ -263,7 +266,8 @@ def test_solver_preserves_transitous_attribution_on_the_scheduled_leg():
         transit=matrix,
     )
 
-    assert route.stops[1].transit_from_prev_mode == "transit_transitous"
+    assert route.stops[1].transit_from_prev_mode == "transit"
+    assert route.stops[1].transit_from_prev_provider == "transitous"
 
 
 def test_closed_candidate_is_unplaced_with_specific_reason():
@@ -351,7 +355,7 @@ async def test_solver_node_persists_active_append_only_itinerary(session, monkey
     before = state.model_dump(mode="json")
     transit = StubTransitClient()
     _use_test_session(monkeypatch, session)
-    monkeypatch.setattr(solver_module, "_make_transit_client", lambda: transit)
+    monkeypatch.setattr(solver_module, "_make_transit_client", lambda *_a, **_k: transit)
 
     first_result = await solver_node(state)
     first = first_result["current_itinerary"]
@@ -402,7 +406,9 @@ async def test_solver_node_never_schedules_a_card_the_group_excluded(
     )
     state = TripState(trip=trip, shortlist=shortlist)
     _use_test_session(monkeypatch, session)
-    monkeypatch.setattr(solver_module, "_make_transit_client", StubTransitClient)
+    monkeypatch.setattr(
+        solver_module, "_make_transit_client", lambda *_a, **_k: StubTransitClient()
+    )
 
     result = await solver_node(state)
     nodes = await ItineraryNodeRepository(session).list_for_version(

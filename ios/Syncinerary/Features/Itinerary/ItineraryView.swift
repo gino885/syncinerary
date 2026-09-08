@@ -40,11 +40,16 @@ struct ItineraryView: View {
 
                     WishlistSection(items: itinerary.wishlistNotPlaced)
 
-                    if itinerary.usesTransitous,
-                       let sourcesURL = URL(string: "https://transitous.org/sources/") {
+                    if !itinerary.transitAttributions.isEmpty {
                         Section {
-                            Link(destination: sourcesURL) {
-                                MetaLabel("Transit data by Transitous ↗", color: AppTheme.ink)
+                            ForEach(itinerary.transitAttributions) { credit in
+                                if let url = credit.url {
+                                    Link(destination: url) {
+                                        MetaLabel("\(credit.text) ↗", color: AppTheme.ink)
+                                    }
+                                } else {
+                                    MetaLabel(credit.text)
+                                }
                             }
                         }
                         .journalRow()

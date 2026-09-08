@@ -9,7 +9,7 @@ owned by OR-Tools under CLAUDE.md §2.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -28,13 +28,9 @@ from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
-    ESTIMATED_TRANSIT_KMH,
-    ESTIMATED_TRANSIT_MAX_KM,
-    ESTIMATED_TRANSIT_OVERHEAD_MIN,
     M1_DESTINATION_TIMEZONE,
     MEAL_WINDOWS,
     MIN_STOPS_PER_DAY,
-    NEARBY_WALKING_KM,
     OPTIONAL_MEALS,
     REQUIRED_MEALS,
     SOLVER_DETERMINISTIC_LIMIT,
@@ -63,11 +59,15 @@ from syncinerary.store.repositories import (
     WishlistNotPlacedRepository,
 )
 from syncinerary.tools.transit import (
-    GoogleRoutesClient,
+    FallbackTransitResolver,
     PairwiseTransitRequest,
+    TransitDuration,
     TransitLocation,
     TransitMatrix,
-    TransitousClient,
+    TransitMode,
+    TransitRegion,
+    TransitRoutingStatus,
+    estimated_transit_leg,
     haversine_km,
     make_transit_client,
 )
@@ -97,6 +97,10 @@ class ScheduledStop(BaseModel):
     end_minute: int
     transit_from_prev_min: int = 0
     transit_from_prev_mode: str | None = None
+    # Which adapter produced the leg into this stop, or "estimated". Internal
+    # provenance for debugging and provider coverage measurement: a traveler
+    # is told routed from approximate, never told which company said so.
+    transit_from_prev_provider: str | None = None
     # Which meal this stop fills, when it is a food stop inside a meal window.
     meal_slot: str | None = None
 
@@ -313,39 +317,63 @@ def _eligible_meal_slots(
     return eligible
 
 
+class _Leg(NamedTuple):
+    """One directed arc as Stage 2 uses it: how long, labelled how, from whom."""
+
+    minutes: int
+    mode: str
+    provider: str | None
+
+
+def _leg_mode_label(mode: TransitMode, status: TransitRoutingStatus) -> str:
+    """What the traveler is told about this leg.
+
+    Only two claims are made: this was routed, or this is approximate. Which
+    provider routed it is internal, so a second provider in the chain can
+    never turn into a second label on the itinerary.
+    """
+    if status is TransitRoutingStatus.ESTIMATED:
+        return f"{mode.value}_estimated"
+    return mode.value
+
+
 def _estimated_leg(
     origin: CandidatePlace,
     destination: CandidatePlace,
-) -> tuple[int, str] | None:
-    """Stand in for a pair the transit provider could not route.
+) -> _Leg | None:
+    """Stand in for a pair no provider could route.
 
     A pair with no arc is not "a slow leg", it is "these two places cannot be
     visited on the same day", and a day whose lookups all failed came back
-    holding one stop and six hundred spare minutes. Within a city a failed
-    lookup is almost always a gap in the provider's coverage, so the leg is
-    estimated rather than dropped.
+    holding one stop and six hundred spare minutes.
 
-    Past ESTIMATED_TRANSIT_MAX_KM it is dropped as before. A provider finding
-    no route across a region may be telling the truth, and an invented journey
-    would put a stop on the plan that nobody can reach.
-
-    Estimates are labelled as estimates, never presented as routed journeys,
-    and deliberately slow: over-estimating a leg costs at most a stop, while
-    under-estimating one strands somebody.
+    The resolver already applies this estimate to the matrices it builds. This
+    call is the net under matrices built elsewhere, notably the eval harness's
+    deterministic provider and hand-written test fixtures, which never pass
+    through the chain and must not lose their arcs either. Both paths share
+    estimated_transit_leg so the two can never drift apart.
     """
-    distance_km = haversine_km(
+    estimate = estimated_transit_leg(
         TransitLocation(lat=origin.lat, lng=origin.lng),
         TransitLocation(lat=destination.lat, lng=destination.lng),
     )
-    if distance_km <= NEARBY_WALKING_KM:
-        # Walking pace, 5 km/h.
-        return max(5, round(distance_km * 12)), "walking_estimated"
-    if distance_km > ESTIMATED_TRANSIT_MAX_KM:
+    if estimate is None:
         return None
-    minutes = ESTIMATED_TRANSIT_OVERHEAD_MIN + round(
-        distance_km / ESTIMATED_TRANSIT_KMH * 60
+    minutes, mode = estimate
+    return _Leg(
+        minutes,
+        _leg_mode_label(mode, TransitRoutingStatus.ESTIMATED),
+        "estimated",
     )
-    return max(5, minutes), "transit_estimated"
+
+
+def _leg_from_duration(leg: TransitDuration) -> _Leg:
+    """One matrix leg in the solver's own terms, provenance kept apart."""
+    return _Leg(
+        leg.duration_minutes,
+        _leg_mode_label(leg.mode, leg.routing_status),
+        leg.provider,
+    )
 
 
 def _location(candidate: CandidatePlace) -> TransitLocation:
@@ -439,19 +467,12 @@ def solve_day(
     candidate_by_cache_id = {
         location.cache_id: candidate_id for candidate_id, location in locations.items()
     }
-    leg_by_pair: dict[tuple[UUID, UUID], tuple[int, str]] = {}
+    leg_by_pair: dict[tuple[UUID, UUID], _Leg] = {}
     for leg in transit.legs:
         origin_id = candidate_by_cache_id.get(leg.origin.cache_id)
         destination_id = candidate_by_cache_id.get(leg.destination.cache_id)
         if origin_id is not None and destination_id is not None:
-            leg_by_pair[(origin_id, destination_id)] = (
-                leg.duration_minutes,
-                (
-                    f"{leg.mode.value}_{leg.provider}"
-                    if leg.provider
-                    else leg.mode.value
-                ),
-            )
+            leg_by_pair[(origin_id, destination_id)] = _leg_from_duration(leg)
 
     model = cp_model.CpModel()
     day_start = _minute_of_day(options.day_start)
@@ -532,7 +553,7 @@ def solve_day(
                 if leg is None:
                     continue
                 leg_by_pair[(origin.id, destination.id)] = leg
-            transit_minutes, _mode = leg
+            transit_minutes = leg.minutes
             arc = model.new_bool_var(f"arc_{origin_index}_{destination_index}")
             arcs[(origin_index, destination_index)] = arc
             circuit.append((origin_index, destination_index, arc))
@@ -557,8 +578,7 @@ def solve_day(
             continue
         origin = open_candidates[origin_index - 1]
         destination = open_candidates[destination_index - 1]
-        transit_minutes, _mode = leg_by_pair[(origin.id, destination.id)]
-        transit_terms.append(transit_minutes * arc)
+        transit_terms.append(leg_by_pair[(origin.id, destination.id)].minutes * arc)
 
     # One food stop per meal window at most: covered is boolean, so the
     # equality below also stops the day from scheduling two lunches.
@@ -650,8 +670,9 @@ def solve_day(
         candidate = open_candidates[index - 1]
         transit_minutes = 0
         mode: str | None = None
+        provider: str | None = None
         if previous_id is not None:
-            transit_minutes, mode = leg_by_pair[(previous_id, candidate.id)]
+            transit_minutes, mode, provider = leg_by_pair[(previous_id, candidate.id)]
             total_transit += transit_minutes
         meal_slot = next(
             (
@@ -669,6 +690,7 @@ def solve_day(
                 end_minute=solver.value(ends[index]),
                 transit_from_prev_min=transit_minutes,
                 transit_from_prev_mode=mode,
+                transit_from_prev_provider=provider,
                 meal_slot=meal_slot,
             )
         )
@@ -1001,8 +1023,13 @@ async def solve_full_routes(
     )
 
 
-def _make_transit_client() -> GoogleRoutesClient | TransitousClient:
-    return make_transit_client()
+def _make_transit_client(region: TransitRegion | None = None) -> FallbackTransitResolver:
+    """The provider chain for this trip.
+
+    The region is handed to the regional registry, which is empty here. The
+    solver never asks what country a trip is in, and must not start.
+    """
+    return make_transit_client(region=region)
 
 
 def _make_weather_client() -> OpenMeteoClient:
@@ -1035,7 +1062,9 @@ async def solver_node(state: TripState) -> dict[str, Any]:
         pinned_by_candidate = pinned_days(state.constraints, trip.start_date)
         async with _make_weather_client() as weather_client:
             weather = await forecast_for_solver(state, candidates, weather_client)
-        async with _make_transit_client() as transit_client:
+        async with _make_transit_client(
+            TransitRegion(country=trip.country, city=trip.destination)
+        ) as transit_client:
             result = await solve_full_routes(
                 state,
                 candidates,
@@ -1079,6 +1108,7 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     end_time=_as_time(stop.end_minute),
                     transit_from_prev_min=stop.transit_from_prev_min,
                     transit_from_prev_mode=stop.transit_from_prev_mode,
+                    transit_from_prev_provider=stop.transit_from_prev_provider,
                     fixed=stop.candidate_id in pinned_by_candidate,
                     lock_reason=(
                         "user_pinned"

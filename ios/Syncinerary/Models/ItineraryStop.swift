@@ -7,16 +7,20 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
         "\(startTime.prefix(5)) to \(endTime.prefix(5))"
     }
 
+    /// What the leg into this stop is called out loud.
+    ///
+    /// Two claims only: routed, or approximate. The provider that answered is
+    /// internal to the backend, so a second provider in its chain can never
+    /// become a second wording here.
     var transitLabel: String {
-        if transitFromPrevMode == "transit_transitous" {
-            "public transit"
-        } else {
-            transitFromPrevMode ?? "travel"
+        switch transitFromPrevMode {
+        case "transit": "public transit"
+        case "transit_estimated": "approx. public transit"
+        case "walking", "walk": "walk"
+        case "walking_estimated": "approx. walk"
+        case let mode?: mode
+        case nil: "travel"
         }
-    }
-
-    var usesTransitous: Bool {
-        transitFromPrevMode == "transit_transitous"
     }
 
     /// "Lunch", "Dinner", "Breakfast", or nil for a stop that is not a meal.
