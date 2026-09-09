@@ -18,7 +18,14 @@ class Settings(BaseSettings):
     google_maps_api_key: str = ""
     brave_search_api_key: str = ""
     attachment_upload_dir: str = ".data/attachments"
+    # The primary transit provider. Anything after it in the chain below is a
+    # fallback for arcs it could not route, never a parallel query.
     sync_transit_provider: Literal["google", "transitous"] = "google"
+    # Ordered, comma separated. A provider whose credentials are missing is
+    # left out of the chain rather than failing, so the pipeline still runs on
+    # a laptop with only a Google key.
+    sync_transit_fallback_providers: str = "here"
+    here_api_key: str = ""
 
     # LLM
     anthropic_api_key: str = ""

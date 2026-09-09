@@ -56,6 +56,7 @@ from syncinerary.api.schemas import (
     ShortlistEditRequest,
     ShortlistOut,
     SourceAttachmentOut,
+    TransitAttributionOut,
     TripCreatedResponse,
     TripCreateRequest,
     TripOut,
@@ -105,6 +106,7 @@ from syncinerary.tools.places import (
     make_place_search_tool,
 )
 from syncinerary.tools.timezone import TimezoneUnavailable
+from syncinerary.tools.transit import attributions_for
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -962,5 +964,11 @@ async def get_itinerary(
         wishlist_not_placed=[
             WishlistNotPlacedOut.of(item, by_id.get(item.candidate_id))
             for item in wishlist
+        ],
+        transit_attributions=[
+            TransitAttributionOut(text=item.text, url=item.url)
+            for item in attributions_for(
+                node.transit_from_prev_provider for node in nodes
+            )
         ],
     )

@@ -536,7 +536,7 @@ enum APIContractTests {
                         "start_time": "12:00:00",
                         "end_time": "13:15:00",
                         "transit_from_prev_min": 12,
-                        "transit_from_prev_mode": "transit_transitous",
+                        "transit_from_prev_mode": "transit",
                         "meal_slot": "lunch",
                         "source_badges": [{
                             "kind": "trending",
@@ -566,6 +566,10 @@ enum APIContractTests {
                     "name": "Museum",
                     "reason_code": "time_window",
                     "reason_text": "No compatible opening window."
+                }],
+                "transit_attributions": [{
+                    "text": "Transit data by Transitous",
+                    "url": "https://transitous.org/sources/"
                 }]
             }
             """#.utf8
@@ -587,11 +591,11 @@ enum APIContractTests {
         )
         try require(
             response.days[0].stops[1].transitLabel == "public transit",
-            "Transitous legs must have a traveler-facing transit label"
+            "A routed leg must read as routed, with no provider named on it"
         )
         try require(
-            response.usesTransitous,
-            "Transitous-backed itineraries must expose their attribution requirement"
+            response.transitAttributions.first?.text == "Transit data by Transitous",
+            "A provider's required data-source credit must reach the itinerary"
         )
         try require(
             response.days[0].stops[0].sourceBadges[0].label == "Found on Google Maps",

@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from math import asin, cos, radians, sin, sqrt
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from syncinerary.config.solver import NEARBY_WALKING_KM
 
@@ -13,6 +13,18 @@ from syncinerary.config.solver import NEARBY_WALKING_KM
 class TransitMode(str, Enum):
     WALKING = "walking"
     TRANSIT = "transit"
+
+
+class TransitRoutingStatus(str, Enum):
+    """How much a leg's duration is actually worth.
+
+    ``ROUTED`` came from a provider that planned the journey. ``ESTIMATED``
+    was derived from distance because no provider could, and must never be
+    presented to a traveler as though someone had routed it.
+    """
+
+    ROUTED = "routed"
+    ESTIMATED = "estimated"
 
 
 class TransitLocation(BaseModel):
@@ -59,14 +71,53 @@ class TransitDuration(BaseModel):
     duration_seconds: int = Field(gt=0)
     duration_minutes: int = Field(gt=0)
     cache_hit: bool = False
+    #: Internal provenance: which adapter produced this leg. Never rendered.
     provider: str | None = None
+    routing_status: TransitRoutingStatus = TransitRoutingStatus.ROUTED
 
 
 class PairwiseTransitRequest(BaseModel):
+    """Every directed transit pair among ``locations``, or a named subset.
+
+    ``required_pairs`` exists for the fallback chain: once the primary
+    provider has answered, the next one is asked only about the arcs still
+    missing, over only the locations those arcs touch. ``None`` keeps the
+    original meaning of "every pair".
+    """
+
     locations: list[TransitLocation]
     departure_window: str = Field(min_length=1, max_length=40)
     departure_at: datetime | None = None
     walking_cutoff_km: float = Field(default=NEARBY_WALKING_KM, gt=0)
+    required_pairs: list[tuple[int, int]] | None = None
+
+    _wanted: frozenset[tuple[int, int]] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _required_pairs_index_real_locations(self) -> PairwiseTransitRequest:
+        if self.required_pairs is None:
+            return self
+        limit = len(self.locations)
+        for origin_index, destination_index in self.required_pairs:
+            if not 0 <= origin_index < limit or not 0 <= destination_index < limit:
+                raise ValueError("required_pairs references a missing location")
+            if origin_index == destination_index:
+                raise ValueError("required_pairs cannot contain a self pair")
+        return self
+
+    @model_validator(mode="after")
+    def _index_required_pairs(self) -> PairwiseTransitRequest:
+        """Membership is checked once per directed pair, so precompute it."""
+        self._wanted = (
+            None if self.required_pairs is None else frozenset(self.required_pairs)
+        )
+        return self
+
+    def wants(self, origin_index: int, destination_index: int) -> bool:
+        """Whether this directed pair was asked for."""
+        if self._wanted is None:
+            return True
+        return (origin_index, destination_index) in self._wanted
 
 
 class TransitUnavailable(BaseModel):

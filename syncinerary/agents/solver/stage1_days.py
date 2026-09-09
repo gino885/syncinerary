@@ -293,6 +293,11 @@ def assign_days(
     votes: Sequence[Vote] = (),
     must_go_ids: set[UUID] | None = None,
     pinned_days: dict[UUID, int] | None = None,
+    blocked_days: dict[UUID, set[int]] | None = None,
+    incompatible_pairs: Sequence[tuple[UUID, UUID]] = (),
+    day_capacities: Sequence[tuple[int, frozenset[UUID], int]] = (),
+    reserve_ids: set[UUID] | None = None,
+    replacement_budget: int = 0,
     day_start: time = time(DEFAULT_DAY_START_HOUR),
     day_end: time = time(DEFAULT_DAY_END_HOUR),
 ) -> DayAssignment:
@@ -301,6 +306,34 @@ def assign_days(
     Hard constraints decide feasibility. The weighted objective only chooses
     among feasible assignments, so model-produced weights can never override
     opening hours, fatigue, walking, city blocks, must-go, or pinned days.
+
+    ``blocked_days`` is how Stage 2 answers back. Stage 1 measures a day by
+    straight-line dispersion and a walking estimate; Stage 2 measures it by
+    opening hours, real transit and a twelve-hour clock, and when it refuses a
+    place the fact learned is "not this one on that day", never "not this one".
+    Feeding the refusal back here means the cross-day repair is done by the
+    model that already knows how to trade days off against each other, rather
+    than by a second, weaker one outside it.
+
+    ``incompatible_pairs`` are two places with no arc between them in either
+    direction, which is the strongest thing a routing graph can say: they
+    cannot share any day. Expressed here rather than resolved in Stage 2
+    because deciding which of two conflicting places to keep is a question
+    about their value to the group, and the objective below already prices
+    that. Left to Stage 2 it would be answered by whichever one its circuit
+    happened to seat first.
+
+    ``day_capacities`` are the same idea learned from the clock rather than
+    from the map: at most this many of that set of candidates can share that
+    date, measured by Stage 2 rather than inferred from which one it refused.
+    Stage 1 is told the limit and left to choose who takes the seats, which is
+    the whole division of labour here: Stage 2 knows what fits, Stage 1 knows
+    what the group wanted.
+
+    ``reserve_ids`` are candidates from below the shortlist line, admitted only
+    to fill holes: at most ``replacement_budget`` of them may be placed, and
+    leaving one unplaced always costs less than leaving any selected candidate
+    unplaced, so a reserve can never displace a place the group chose.
     """
     ranked = list(candidates)
     if trip.days <= 0:
@@ -311,6 +344,16 @@ def assign_days(
     objective_weights = weights or SolverObjectiveWeights()
     must_go = must_go_ids or set()
     pinned = dict(pinned_days or {})
+    reserve = reserve_ids or set()
+    conflicts = [
+        (left, right)
+        for left, right in incompatible_pairs
+        if left != right
+    ]
+    blocked = {
+        candidate_id: set(days)
+        for candidate_id, days in (blocked_days or {}).items()
+    }
     candidate_by_id = {candidate.id: candidate for candidate in ranked}
     unknown_required = (must_go | set(pinned)) - set(candidate_by_id)
     if unknown_required:
@@ -340,6 +383,21 @@ def assign_days(
                 day_start,
                 day_end,
             )
+        ]
+
+    # A block narrows a candidate's feasible days, and never past empty: a
+    # candidate Stage 2 refused everywhere is a structural conflict for the
+    # objective to price, not a model to make infeasible. Must-go and pinned
+    # candidates are never blocked at all, because the group or a reservation
+    # already decided they are going.
+    for candidate in ranked:
+        if candidate.id in must_go or candidate.id in pinned:
+            continue
+        excluded = blocked.get(candidate.id)
+        if not excluded:
+            continue
+        feasible_days[candidate.id] = [
+            day for day in feasible_days[candidate.id] if day not in excluded
         ]
 
     for candidate_id in must_go | set(pinned):
@@ -457,8 +515,64 @@ def assign_days(
                         <= sum(assigned[(index, day)] for index in servers)
                     )
 
+    index_of = {candidate.id: index for index, candidate in enumerate(ranked)}
+    for day, member_ids, limit in day_capacities:
+        if not 0 <= day < trip.days:
+            continue
+        members = [index_of[member] for member in member_ids if member in index_of]
+        if len(members) != len(member_ids) or not members:
+            continue
+        # Pinned and must-go candidates are placed by somebody else's decision,
+        # so they use seats the limit still has to account for. Lowering the
+        # limit below what they already occupy would make the model infeasible
+        # rather than honest, so the constraint is dropped in that case.
+        forced = sum(
+            1
+            for member in member_ids
+            if member in pinned and pinned[member] == day
+        )
+        if forced > limit:
+            continue
+        model.add(sum(assigned[member, day] for member in members) <= limit)
+
+    for left_id, right_id in conflicts:
+        left, right = index_of.get(left_id), index_of.get(right_id)
+        if left is None or right is None:
+            continue
+        # Two candidates the group pinned to the same day outrank a routing
+        # graph's opinion. Dropping the constraint keeps the model solvable and
+        # leaves the pin honoured; Stage 2 will report what it could not seat.
+        if left_id in pinned and right_id in pinned and pinned[left_id] == pinned[right_id]:
+            continue
+        for day in range(trip.days):
+            model.add(assigned[(left, day)] + assigned[(right, day)] <= 1)
+
+    # At most this many reserves may be placed, so a hole left by a
+    # structurally impossible selection is filled once rather than the trip
+    # quietly refilling itself from below the shortlist line.
+    reserve_indices = [
+        index for index, candidate in enumerate(ranked) if candidate.id in reserve
+    ]
+    if reserve_indices:
+        model.add(
+            sum(
+                assigned[(index, day)]
+                for index in reserve_indices
+                for day in range(trip.days)
+            )
+            <= max(0, replacement_budget)
+        )
+
     terms: list[cp_model.LinearExpr] = []
     base_not_placed_penalty = 1_000_000
+    # A reserve's not-placed penalty sits below every selected candidate's, by
+    # more than the largest the per-candidate terms can ever add. Derived from
+    # the model rather than picked, so the ordering still holds on a sixteen
+    # day trip where the weather term alone is worth more than a guessed gap.
+    max_candidate_terms = (
+        objective_weights.vote * 100 + objective_weights.weather * 100 * trip.days
+    )
+    reserve_not_placed_penalty = max(0, base_not_placed_penalty - max_candidate_terms - 1)
     score_by_id = {score.candidate_id: score.score for score in scores}
     weather_good_ids = {
         vote.candidate_id
@@ -469,12 +583,13 @@ def assign_days(
     for index, candidate in enumerate(ranked):
         score = max(-2.0, min(2.0, score_by_id.get(candidate.id, 0.0)))
         vote_value = round((score + 2.0) * 25)
+        base_penalty = (
+            reserve_not_placed_penalty
+            if candidate.id in reserve
+            else base_not_placed_penalty
+        )
         terms.append(
-            (
-                base_not_placed_penalty
-                + objective_weights.vote * vote_value
-            )
-            * not_placed[index]
+            (base_penalty + objective_weights.vote * vote_value) * not_placed[index]
         )
         for day in range(trip.days):
             rain = _rain_probability(weather, trip.start_date + timedelta(days=day))

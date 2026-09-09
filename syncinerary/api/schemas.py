@@ -1313,6 +1313,18 @@ class WishlistNotPlacedOut(BaseModel):
         )
 
 
+class TransitAttributionOut(BaseModel):
+    """A data-source credit a transit provider's licence requires.
+
+    Itinerary-level on purpose. Which provider routed a given leg is internal
+    provenance and stays out of the response; a credit is a statement about
+    where the trip's transit data came from, not a label on one journey.
+    """
+
+    text: str
+    url: str | None
+
+
 class ItineraryOut(BaseModel):
     version_id: UUID
     version_no: int
@@ -1320,6 +1332,7 @@ class ItineraryOut(BaseModel):
     days: list[ItineraryDayOut]
     narrative: str | None
     wishlist_not_placed: list[WishlistNotPlacedOut]
+    transit_attributions: list[TransitAttributionOut] = []
 
 
 class ErrorOut(BaseModel):

@@ -143,7 +143,9 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
     graph_runtime,
 ):
     _use_test_session(monkeypatch, session)
-    monkeypatch.setattr(solver_module, "_make_transit_client", StubTransitClient)
+    monkeypatch.setattr(
+        solver_module, "_make_transit_client", lambda *_a, **_k: StubTransitClient()
+    )
     monkeypatch.setattr(explain_module, "_make_client", StubMessages)
 
     created_response = await client.post(

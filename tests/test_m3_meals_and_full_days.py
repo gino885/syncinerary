@@ -430,9 +430,11 @@ def test_an_estimated_city_leg_is_pessimistic_rather_than_hopeful():
     from syncinerary.agents.solver.stage2_route import _estimated_leg
 
     near, far = _place("A", 43.060, 141.350), _place("B", 43.060, 141.420)
-    minutes, mode = _estimated_leg(near, far)
+    leg = _estimated_leg(near, far)
+    minutes = leg.minutes
 
-    assert mode == "transit_estimated"
+    assert leg.mode == "transit_estimated"
+    assert leg.provider == "estimated"
     # Roughly 5.7 km apart: brisk on a map, not brisk on a bus with a wait.
     assert minutes >= 25
 

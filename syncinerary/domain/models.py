@@ -335,7 +335,14 @@ class ItineraryNode(BaseModel):
     fixed: bool = False
     lock_reason: str | None = None
     transit_from_prev_min: int = 0
+    # Routed or approximate, never which company routed it. See
+    # transit_from_prev_provider for the provenance that stays internal.
     transit_from_prev_mode: str | None = None
+    # Which transit adapter produced this leg ("google", "here", "estimated",
+    # ...). Kept for debugging and provider coverage measurement, and read by
+    # the data-source credits some providers' licences require. It is never a
+    # per-leg label in the app.
+    transit_from_prev_provider: str | None = None
     notes_for_travelers: dict[str, str] = Field(default_factory=dict)
 
 
