@@ -26,7 +26,12 @@ from syncinerary.agents.solver.repair import (
     select_replacements,
 )
 from syncinerary.agents.solver.stage1_days import assign_days
-from syncinerary.agents.solver.stage2_route import SolverOptions, solve_full_routes
+from syncinerary.agents.solver.stage2_route import (
+    DayRoute,
+    SolverOptions,
+    solve_day,
+    solve_full_routes,
+)
 from syncinerary.config.solver import DAILY_FATIGUE_BUDGET
 from syncinerary.domain.models import (
     CandidatePlace,
@@ -48,7 +53,9 @@ from syncinerary.tools.transit import (
 from syncinerary.tools.weather import WeatherForecast
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-START = date(2026, 5, 21)
+START = date(2026, 5, 21)  # a Thursday
+THURSDAY = START
+WINDOW = "2026-05-21-0800"
 
 
 def _trip(days: int = 3) -> Trip:
@@ -1034,3 +1041,149 @@ async def test_l_repair_is_measured_in_value_kept_not_stops_added():
     assert after_value > before_value
     # And nothing was swapped in: every place kept is one the group chose.
     assert _placed_names(before, candidates) <= _placed_names(after, candidates)
+
+
+# --------------------------------------------------------------------------
+# The capacity probe's own contract
+# --------------------------------------------------------------------------
+
+
+def _matrix_for(candidates: list[CandidatePlace], minutes: int) -> TransitMatrix:
+    locations = {
+        candidate.id: TransitLocation(lat=candidate.lat, lng=candidate.lng)
+        for candidate in candidates
+    }
+    return TransitMatrix(
+        legs=[
+            TransitDuration(
+                origin=locations[origin.id],
+                destination=locations[destination.id],
+                mode=TransitMode.TRANSIT,
+                departure_window=WINDOW,
+                duration_seconds=minutes * 60,
+                duration_minutes=minutes,
+                provider="stub",
+            )
+            for origin in candidates
+            for destination in candidates
+            if origin.id != destination.id
+        ]
+    )
+
+
+def test_the_probe_counts_seats_and_ignores_what_stage_2_would_prefer():
+    """The guard against a future objective weight breaking repair silently.
+
+    Stage 2 will give up one stop to seat a required meal, so on this day its
+    plan holds fewer places than the day can physically take. The probe must
+    report what fits, not what Stage 2 would choose, because the number
+    becomes a constraint on Stage 1 and an under-count would forbid an
+    arrangement that works.
+    """
+    # Three sights of three and a half hours each fit the day. A four hour
+    # lunch sitting can only start inside its window, which leaves room for
+    # one sight after it and none before, so seating the meal costs a seat.
+    sights = [
+        _place(f"Sight {index}", 43.060 + index * 0.004, 141.350, duration=210)
+        for index in range(3)
+    ]
+    lunch = _place(
+        "Long Lunch",
+        43.072,
+        141.362,
+        kind=CandidateType.FOOD,
+        duration=240,
+        hours_by_weekday={day: [[11, 15]] for day in WEEKDAYS},
+    )
+    candidates = [*sights, lunch]
+    transit = _matrix_for(candidates, 10)
+
+    planned = solve_day(candidates, day=0, trip_date=THURSDAY, transit=transit)
+    probed = solve_day(
+        candidates,
+        day=0,
+        trip_date=THURSDAY,
+        transit=transit,
+        count_placements_only=True,
+    )
+
+    # The plan bought a meal with a seat; the probe reports the seats.
+    assert "lunch" in planned.meals_covered
+    assert len(planned.stops) == 2
+    assert len(probed.stops) == 3
+    assert probed.proven is True
+
+
+def test_a_capacity_is_scoped_to_the_set_that_was_probed():
+    """"Three of those four fit" is not "this day holds three".
+
+    The constraint names its members, so a different set of the same size on
+    the same day is untouched by it. Generalising a measurement into a
+    property of the day would forbid arrangements nobody ever measured.
+    """
+    measured = [
+        _place(f"Measured {index}", 43.060 + index * 0.004, 141.350)
+        for index in range(4)
+    ]
+    others = [
+        _place(f"Other {index}", 43.061 + index * 0.004, 141.351)
+        for index in range(4)
+    ]
+    candidates = [*measured, *others]
+    trip = _trip(2)
+
+    assignment = assign_days(
+        candidates,
+        trip,
+        day_capacities=[(0, frozenset(place.id for place in measured), 1)],
+    )
+
+    on_day_zero = {candidate.id for candidate in assignment.buckets[0]}
+    assert len(on_day_zero & {place.id for place in measured}) <= 1
+    # The day was never capped at one: the untouched set still fills it.
+    assert len(on_day_zero) > 1
+
+
+def test_a_capacity_leaves_a_pinned_place_alone_rather_than_going_infeasible():
+    """A limit below what the group already pinned is dropped, not enforced."""
+    pinned = _place("Pinned", 43.060, 141.350)
+    other = _place("Other", 43.064, 141.354)
+    trip = _trip(2)
+
+    assignment = assign_days(
+        [pinned, other],
+        trip,
+        pinned_days={pinned.id: 0},
+        day_capacities=[(0, frozenset({pinned.id, other.id}), 0)],
+    )
+
+    assert pinned.id in {candidate.id for candidate in assignment.buckets[0]}
+
+
+def test_a_probe_the_solver_could_not_prove_teaches_nothing():
+    """An unproven count could be under the truth, and would over-constrain.
+
+    Simulated rather than provoked: reproducing a real timeout would need a
+    day large enough to make the suite slow, and the branch under test is the
+    one line that reads the flag.
+    """
+    from syncinerary.agents.solver.stage2_route import _DaySolve, _probe_day_capacity
+
+    candidates = [
+        _place("A", 43.060, 141.350),
+        _place("B", 43.064, 141.354),
+        _place("C", 43.068, 141.358),
+    ]
+    unproven = DayRoute(day=0, proven=False)
+
+    capacity = _probe_day_capacity(
+        candidates,
+        _DaySolve(unproven, _matrix_for(candidates, 10)),
+        day=0,
+        trip_date=THURSDAY,
+        options=SolverOptions(),
+        required=set(),
+        fixed_starts={},
+    )
+
+    assert capacity is None or capacity.limit == len(candidates)

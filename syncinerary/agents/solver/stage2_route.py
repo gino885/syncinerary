@@ -133,6 +133,10 @@ class UnplacedCandidate(BaseModel):
 class DayRoute(BaseModel):
     day: int
     stops: list[ScheduledStop] = Field(default_factory=list)
+    #: Whether the search proved this answer rather than running out of time.
+    #: Only the repair loop reads it, and only to refuse to learn from a
+    #: number the solver never finished checking.
+    proven: bool = True
     unplaced: list[UnplacedCandidate] = Field(default_factory=list)
     total_transit_minutes: int = 0
     meals_covered: list[str] = Field(default_factory=list)
@@ -424,10 +428,17 @@ def solve_day(
 ) -> DayRoute:
     """Solve one day's optional path with opening and transit constraints.
 
-    ``count_placements_only`` drops the meal terms from the objective. It is
-    not a planning mode: the repair loop uses it to ask how many of a day's
-    candidates can be seated at once, and the ordinary objective cannot answer
-    that, because it will trade one stop for a required meal.
+    ``count_placements_only`` replaces the objective with the one question the
+    repair loop needs answered: how many of these candidates can physically
+    share this day. It is not a planning mode, and it deliberately optimizes
+    nothing else. The ordinary objective cannot answer it, because it will
+    trade one stop for a required meal.
+
+    A dedicated objective rather than a reweighted one. Seated count does
+    dominate the planning objective today, by an arithmetic accident of how
+    unplaced_penalty is sized against the transit and start terms, but nothing
+    in the code enforces that and a future weight would break the repair
+    loop's soundness silently. Maximizing the count outright cannot.
     """
     options = options or SolverOptions()
     fixed_starts = fixed_start_minutes or {}
@@ -650,12 +661,18 @@ def solve_day(
             elif meal in OPTIONAL_MEALS:
                 meal_terms.append(optional_meal_penalty * (1 - variable))
 
-    model.minimize(
-        unplaced_penalty * (count - sum(active.values()))
-        + sum(meal_terms)
-        + transit_weight * sum(transit_terms)
-        + sum(start_costs.values())
-    )
+    if count_placements_only:
+        # The only question: how many of these fit at once. Not which ones,
+        # not in what order, not how pleasant the day is. Which of them should
+        # keep the seats is Stage 1's decision, made with the group's scores.
+        model.maximize(sum(active.values()))
+    else:
+        model.minimize(
+            unplaced_penalty * (count - sum(active.values()))
+            + sum(meal_terms)
+            + transit_weight * sum(transit_terms)
+            + sum(start_costs.values())
+        )
 
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
@@ -663,6 +680,7 @@ def solve_day(
     solver.parameters.max_deterministic_time = SOLVER_DETERMINISTIC_LIMIT
     solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
     status = solver.solve(model)
+    proven = status in (cp_model.OPTIMAL, cp_model.INFEASIBLE)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         if required:
             names = ", ".join(
@@ -673,6 +691,7 @@ def solve_day(
             raise RuntimeError(f"Required candidates could not fit the daily route: {names}")
         return DayRoute(
             day=day,
+            proven=proven,
             unplaced=unplaced
             + [
                 UnplacedCandidate(
@@ -750,6 +769,7 @@ def solve_day(
     unplaced.sort(key=lambda item: rank[item.candidate_id])
     return DayRoute(
         day=day,
+        proven=proven,
         stops=stops,
         unplaced=unplaced,
         total_transit_minutes=total_transit,
@@ -1344,11 +1364,20 @@ def _probe_day_capacity(
     and a cardinality cut read straight off the plan are both wrong sometimes,
     and wrong in the direction that quietly drops a place the group wanted.
 
-    So the day is asked directly, with the meal terms removed and nothing else
-    changed. What comes back is the largest number of these candidates that
-    can share this date: a measurement rather than an inference. Stage 1 then
-    decides which of them are worth the seats. The probe costs one CP-SAT
-    solve and no lookup, because the arcs are already in hand.
+    So the day is asked directly, under an objective that maximizes seated
+    count and optimizes nothing else. What comes back is the largest number of
+    these candidates that can share this date: a measurement rather than an
+    inference. Stage 1 then decides which of them are worth the seats. The
+    probe costs one CP-SAT solve and no lookup, because the arcs are already
+    in hand.
+
+    The answer is used only when the search proved it. A number the solver ran
+    out of time to check could be lower than the truth, and a capacity learned
+    from it would constrain Stage 1 out of an arrangement that actually fits,
+    which is the failure this whole loop exists to stop.
+
+    The fact is scoped to exactly the set that was probed. It says nothing
+    about the day in general: a different four candidates may well all fit.
     """
     members = [candidate.id for candidate in bucket]
     if len(members) < 2:
@@ -1363,6 +1392,8 @@ def _probe_day_capacity(
         fixed_start_minutes=fixed_starts,
         count_placements_only=True,
     )
+    if not probe.proven:
+        return None
     limit = len(probe.stops)
     if limit >= len(members):
         # They all fit after all, and the ordinary objective simply preferred
