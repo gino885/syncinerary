@@ -101,6 +101,30 @@ Every repair operation the prompt lists falls out of that:
 Bounds: `REPAIR_MAX_ROUNDS`, `REPAIR_MAX_DAY_SOLVES` (a hard ceiling on extra
 Stage 2 calls, because each is a harness step), `REPAIR_MAX_REPLACEMENTS`.
 
+## 3a. Correction: what a combination failure is allowed to teach
+
+The first version of this learned a unary "not on that day" block from every
+day-specific refusal, `no_day_fit` included. That was unsound, and unsound in
+the direction that costs a place its seat.
+
+`no_day_fit` means the clock ran out around a whole combination. It names a
+victim, because Stage 2 has to refuse somebody, but the victim is chosen by
+its circuit rather than by worth. Worse, Stage 2's objective will trade one
+stop for a required meal (`required_meal_penalty > unplaced_penalty`), so
+neither "it refused this one" nor "only k fitted" proves the rest could not
+have fitted. A cardinality cut read straight off the plan is wrong for the
+same reason.
+
+The fix is to measure rather than infer. A day that reports a combination
+failure is re-solved with the meal terms removed and nothing else changed,
+which makes the seated count the true maximum for that set. The learned fact
+is a capacity: at most this many of these candidates can share this date.
+Stage 1 is told the limit and picks who takes the seats.
+
+Only two refusals still justify a unary block, and both are already about the
+place and the date alone with no other candidate involved:
+`closed_on_available_days` and `no_meal_slot`.
+
 ## 4. What must not move
 
 - The transit chain. A provider failing is not a fact about the world. Blocks

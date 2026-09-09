@@ -295,6 +295,7 @@ def assign_days(
     pinned_days: dict[UUID, int] | None = None,
     blocked_days: dict[UUID, set[int]] | None = None,
     incompatible_pairs: Sequence[tuple[UUID, UUID]] = (),
+    day_capacities: Sequence[tuple[int, frozenset[UUID], int]] = (),
     reserve_ids: set[UUID] | None = None,
     replacement_budget: int = 0,
     day_start: time = time(DEFAULT_DAY_START_HOUR),
@@ -321,6 +322,13 @@ def assign_days(
     about their value to the group, and the objective below already prices
     that. Left to Stage 2 it would be answered by whichever one its circuit
     happened to seat first.
+
+    ``day_capacities`` are the same idea learned from the clock rather than
+    from the map: at most this many of that set of candidates can share that
+    date, measured by Stage 2 rather than inferred from which one it refused.
+    Stage 1 is told the limit and left to choose who takes the seats, which is
+    the whole division of labour here: Stage 2 knows what fits, Stage 1 knows
+    what the group wanted.
 
     ``reserve_ids`` are candidates from below the shortlist line, admitted only
     to fill holes: at most ``replacement_budget`` of them may be placed, and
@@ -508,6 +516,25 @@ def assign_days(
                     )
 
     index_of = {candidate.id: index for index, candidate in enumerate(ranked)}
+    for day, member_ids, limit in day_capacities:
+        if not 0 <= day < trip.days:
+            continue
+        members = [index_of[member] for member in member_ids if member in index_of]
+        if len(members) != len(member_ids) or not members:
+            continue
+        # Pinned and must-go candidates are placed by somebody else's decision,
+        # so they use seats the limit still has to account for. Lowering the
+        # limit below what they already occupy would make the model infeasible
+        # rather than honest, so the constraint is dropped in that case.
+        forced = sum(
+            1
+            for member in member_ids
+            if member in pinned and pinned[member] == day
+        )
+        if forced > limit:
+            continue
+        model.add(sum(assigned[member, day] for member in members) <= limit)
+
     for left_id, right_id in conflicts:
         left, right = index_of.get(left_id), index_of.get(right_id)
         if left is None or right is None:

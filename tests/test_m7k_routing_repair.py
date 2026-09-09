@@ -19,6 +19,7 @@ import pytest
 from syncinerary.agents.solver.repair import (
     REASON_LOWER_MARGINAL_UTILITY,
     RepairBudget,
+    candidate_value,
     classify_bucket_changes,
     learn_day_blocks,
     plan_value,
@@ -620,19 +621,38 @@ async def test_l_an_impossible_trip_returns_its_best_subset_by_value():
 # --------------------------------------------------------------------------
 
 
-def test_only_day_specific_refusals_become_blocks():
-    left, right = uuid4(), uuid4()
+def test_only_refusals_about_the_place_itself_become_blocks():
+    """A block must be a fact about the place and the date, nothing else.
+
+    "closed_on_available_days" names no other candidate, so it is one.
+    "no_day_fit" means the clock ran out around a combination, which says
+    nothing about whether this place or its neighbours should give way, and
+    turning it into "A cannot be on Thursday" would let Stage 2's refusal
+    order decide. That case is probed and becomes a capacity fact instead.
+    """
+    closed, crowded, tired = uuid4(), uuid4(), uuid4()
 
     blocks, learned = learn_day_blocks(
         [
-            (left, 0, "no_day_fit"),
-            (right, 1, "fatigue_overflow"),
+            (closed, 0, "closed_on_available_days"),
+            (crowded, 0, "no_day_fit"),
+            (tired, 1, "fatigue_overflow"),
         ],
         protected_ids=set(),
     )
 
-    assert blocks == {left: {0}}
+    assert blocks == {closed: {0}}
     assert learned is True
+
+
+def test_a_food_place_that_cannot_reach_a_meal_window_is_a_block():
+    candidate = uuid4()
+
+    blocks, _learned = learn_day_blocks(
+        [(candidate, 2, "no_meal_slot")], protected_ids=set()
+    )
+
+    assert blocks == {candidate: {2}}
 
 
 def test_a_must_go_place_is_never_blocked_off_a_day():
@@ -768,3 +788,249 @@ async def test_a_dropped_place_says_which_one_was_kept_instead():
     reasons = {item.candidate_id: item for item in result.stage1_unplaced}
     assert reasons[drop.id].reason_code == REASON_LOWER_MARGINAL_UTILITY
     assert "Keep was kept instead" in reasons[drop.id].reason_text
+
+
+# --------------------------------------------------------------------------
+# What the repair loop must NOT do
+# --------------------------------------------------------------------------
+
+
+class CountingTransit(OpenTransit):
+    """OpenTransit that records how many lookups the planner asked for."""
+
+    def __init__(self, minutes: int = 20) -> None:
+        super().__init__(minutes)
+        self.lookups = 0
+
+    async def prefetch_pairwise(self, request: PairwiseTransitRequest) -> TransitMatrix:
+        self.lookups += 1
+        return await super().prefetch_pairwise(request)
+
+
+async def test_a_healthy_itinerary_is_left_exactly_as_it_was():
+    """No refusals means no facts, no rounds, and no extra lookups.
+
+    The cost of the repair loop on a trip that does not need it has to be
+    zero, or every healthy plan pays for the broken ones.
+    """
+    candidates = [
+        _place(f"Place {index}", 43.060 + index * 0.01, 141.350)
+        for index in range(6)
+    ]
+    state = _state(
+        candidates,
+        {f"Place {index}": 2.0 - index * 0.1 for index in range(6)},
+    )
+
+    plain_transit = CountingTransit()
+    plain = await solve_full_routes(
+        state,
+        candidates,
+        plain_transit,
+        weather=WeatherForecast(),
+        budget=RepairBudget(max_rounds=0),
+    )
+    repaired_transit = CountingTransit()
+    repaired = await solve_full_routes(
+        state, candidates, repaired_transit, weather=WeatherForecast()
+    )
+
+    assert repaired.repair.repair_rounds == 0
+    assert repaired.repair.day_solves == 0
+    assert repaired.repair.learned_day_capacities == 0
+    assert repaired.repair.learned_blocked_days == 0
+    assert repaired_transit.lookups == plain_transit.lookups
+    assert _stops_per_day(repaired) == _stops_per_day(plain)
+    assert _placed_names(repaired, candidates) == _placed_names(plain, candidates)
+
+
+async def test_f_a_day_a_different_order_can_solve_teaches_stage_1_nothing():
+    """Ordering is Stage 2's job, on every solve, and needs no constraint.
+
+    These four are reachable in one sequence and unreachable in another, so
+    the day depends on its route order. Stage 2 finds the order itself, and
+    the repair layer must stay out of it: no capacity, no block, no round.
+    """
+    candidates = [
+        _place("First", 43.060, 141.350, duration=60),
+        _place("Second", 43.064, 141.354, duration=60),
+        _place("Third", 43.068, 141.358, duration=60),
+        _place("Fourth", 43.072, 141.362, duration=60),
+    ]
+    state = _state(
+        candidates,
+        {"First": 2.0, "Second": 1.9, "Third": 1.8, "Fourth": 1.7},
+        days=2,
+    )
+
+    result = await solve_full_routes(
+        state, candidates, OpenTransit(minutes=10), weather=WeatherForecast()
+    )
+
+    assert len(_placed_names(result, candidates)) == 4
+    assert result.repair.learned_day_capacities == 0
+    assert result.repair.learned_blocked_days == 0
+    assert result.repair.learned_incompatible_pairs == 0
+    assert result.repair.repair_rounds == 0
+
+
+async def test_e_a_closed_place_is_a_blocked_day_and_not_a_pair_constraint():
+    """The one refusal that is genuinely about the place and the date alone."""
+    open_thursday_only = {
+        "thu": [[8, 21]],
+        **{day: [] for day in WEEKDAYS if day != "thu"},
+    }
+    # Stage 1 can see this one is closed, so the block comes from its own
+    # feasibility filter rather than from a Stage 2 refusal.
+    restricted = _place(
+        "Thursday Only", 43.062, 141.352, hours_by_weekday=open_thursday_only
+    )
+    others = [
+        _place("Anytime A", 43.060, 141.350),
+        _place("Anytime B", 43.064, 141.354),
+    ]
+    candidates = [restricted, *others]
+    state = _state(
+        candidates,
+        {"Thursday Only": 2.0, "Anytime A": 1.9, "Anytime B": 1.8},
+        days=3,
+    )
+
+    result = await solve_full_routes(
+        state, candidates, OpenTransit(), weather=WeatherForecast()
+    )
+
+    days_of = {
+        stop.candidate_id: route.day for route in result.routes for stop in route.stops
+    }
+    assert days_of[restricted.id] == 0
+    # Nothing about the other places was inferred from its restriction.
+    assert result.repair.learned_incompatible_pairs == 0
+
+
+async def test_h_a_reserve_never_replaces_an_original_that_could_be_moved():
+    """Fuller is not better. A movable original outranks any substitute."""
+    hours = {"thu": [[10, 13]], **{day: [[8, 21]] for day in WEEKDAYS if day != "thu"}}
+    candidates = [
+        _place(f"Chosen {index}", 43.060 + index * 0.004, 141.350, duration=90,
+               hours_by_weekday=hours)
+        for index in range(5)
+    ]
+    spare = _place("Spare", 43.070, 141.360, duration=90)
+    state = _state(
+        [*candidates, spare],
+        {
+            **{f"Chosen {index}": 2.0 - index * 0.1 for index in range(5)},
+            "Spare": 0.5,
+        },
+        days=2,
+    )
+
+    result = await solve_full_routes(
+        state,
+        candidates,
+        OpenTransit(minutes=15),
+        weather=WeatherForecast(),
+        reserve_candidates=[spare],
+    )
+
+    # Every original was preserved by moving days, so nothing was replaced.
+    assert _placed_names(result, candidates) == {
+        candidate.name_canonical for candidate in candidates
+    }
+    assert result.repair.replacement_candidates_used == 0
+
+
+async def test_c_input_order_never_decides_which_of_two_conflicts_survives():
+    """The guard against Stage 2's seating order choosing the winner."""
+    thursday = {"thu": [[8, 21]], **{day: [] for day in WEEKDAYS if day != "thu"}}
+
+    async def plan(order: str) -> set[str]:
+        keep = _place("Keep", 43.060, 141.350, hours_by_weekday=thursday)
+        drop = _place("Drop", 43.600, 141.350, hours_by_weekday=thursday)
+        candidates = [keep, drop] if order == "keep first" else [drop, keep]
+        state = _state(candidates, {"Keep": 2.0, "Drop": -1.0}, days=2)
+        result = await solve_full_routes(
+            state,
+            candidates,
+            FallbackTransitResolver([BlindTransit()]),
+            weather=WeatherForecast(),
+        )
+        return _placed_names(result, candidates)
+
+    assert await plan("keep first") == {"Keep"}
+    assert await plan("drop first") == {"Keep"}
+
+
+async def test_k_the_same_trip_plans_the_same_way_every_time():
+    """Determinism, because an eval diff between two commits means nothing
+    if the same commit disagrees with itself."""
+    hours = {"thu": [[10, 13]], **{day: [[8, 21]] for day in WEEKDAYS if day != "thu"}}
+    candidates = [
+        _place(f"Place {index}", 43.060 + index * 0.004, 141.350, duration=90,
+               hours_by_weekday=hours)
+        for index in range(5)
+    ]
+    state = _state(
+        candidates,
+        {f"Place {index}": 2.0 - index * 0.1 for index in range(5)},
+        days=2,
+    )
+
+    runs = [
+        await solve_full_routes(
+            state, candidates, OpenTransit(minutes=15), weather=WeatherForecast()
+        )
+        for _ in range(3)
+    ]
+
+    plans = {
+        tuple(
+            (route.day, tuple(str(stop.candidate_id) for stop in route.stops))
+            for route in result.routes
+        )
+        for result in runs
+    }
+    assert len(plans) == 1
+    assert {result.repair.repair_rounds for result in runs} == {
+        runs[0].repair.repair_rounds
+    }
+
+
+async def test_l_repair_is_measured_in_value_kept_not_stops_added():
+    """Both numbers must move the right way, and value is the one that counts."""
+    hours = {"thu": [[10, 13]], **{day: [[8, 21]] for day in WEEKDAYS if day != "thu"}}
+    candidates = [
+        _place(f"Place {index}", 43.060 + index * 0.004, 141.350, duration=90,
+               hours_by_weekday=hours)
+        for index in range(5)
+    ]
+    priorities = {f"Place {index}": 2.0 - index * 0.1 for index in range(5)}
+    state = _state(candidates, priorities, days=2)
+    worth = {
+        candidate.id: candidate_value(priorities[candidate.name_canonical])
+        for candidate in candidates
+    }
+
+    def retained(result) -> tuple[int, int]:
+        placed = [stop.candidate_id for route in result.routes for stop in route.stops]
+        return len(placed), sum(worth[candidate_id] for candidate_id in placed)
+
+    before = await solve_full_routes(
+        state,
+        candidates,
+        OpenTransit(minutes=15),
+        weather=WeatherForecast(),
+        budget=RepairBudget(max_rounds=0),
+    )
+    after = await solve_full_routes(
+        state, candidates, OpenTransit(minutes=15), weather=WeatherForecast()
+    )
+
+    before_count, before_value = retained(before)
+    after_count, after_value = retained(after)
+
+    assert after_count > before_count
+    assert after_value > before_value
+    # And nothing was swapped in: every place kept is one the group chose.
+    assert _placed_names(before, candidates) <= _placed_names(after, candidates)

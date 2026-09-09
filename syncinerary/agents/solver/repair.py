@@ -26,18 +26,41 @@ from syncinerary.config.solver import (
 )
 from syncinerary.domain.models import CandidatePlace, CandidateScore
 
-#: Stage 2 refusals that are facts about a day rather than about a place.
-#: Each says the candidate could not be seated in *this* day's schedule, so
-#: another day is worth trying before the trip gives up on it.
-DAY_SPECIFIC_REASON_CODES = frozenset(
-    {"no_day_fit", "closed_on_available_days", "no_meal_slot"}
-)
+#: Refusals that are already a fact about the place and the date alone, with
+#: no other candidate involved: its opening hours cannot hold a visit that
+#: day, or a restaurant's hours never meet a meal window that day. These are
+#: the only refusals that justify a unary "not on that day" block.
+UNARY_REASON_CODES = frozenset({"closed_on_available_days", "no_meal_slot"})
+
+#: A refusal that is about the day's whole combination, not about the place.
+#: Stage 2 reports it when the place was open and the clock ran out, which
+#: says nothing on its own about whether the place or its neighbours should
+#: give way. It is the case that has to be probed rather than assumed.
+COMBINATION_REASON_CODE = "no_day_fit"
 
 #: Why the repair loop, rather than a single constraint, ended up removing a
 #: place. The per-day codes above stay as they are; these two only appear when
 #: the loop itself is the reason.
 REASON_REPAIR_EXHAUSTED = "cross_day_repair_exhausted"
 REASON_LOWER_MARGINAL_UTILITY = "lower_marginal_utility_than_conflicting_place"
+
+
+class DayCapacity(BaseModel):
+    """At most `limit` of these candidates can share this day.
+
+    Measured by Stage 2 rather than inferred from which place it happened to
+    refuse. That distinction is the whole point: a refusal names a victim, and
+    a capacity names the constraint, leaving Stage 1 to choose the victim with
+    the group's scores in front of it. With two members and a limit of one it
+    is exactly the pairwise form the day-independent conflicts use.
+    """
+
+    day: int
+    members: frozenset[UUID]
+    limit: int = Field(ge=0)
+
+    def key(self) -> tuple[int, tuple[str, ...]]:
+        return (self.day, tuple(sorted(str(member) for member in self.members)))
 
 
 class RepairBudget(BaseModel):
@@ -65,6 +88,10 @@ class RepairLedger(BaseModel):
     cross_day_moves: int = 0
     cross_day_swaps: int = 0
     places_dropped_for_feasibility: int = 0
+    #: What Stage 2 taught Stage 1, counted so a plan can be argued with.
+    learned_blocked_days: int = 0
+    learned_incompatible_pairs: int = 0
+    learned_day_capacities: int = 0
     replacement_candidates_used: int = 0
     high_priority_places_preserved_by_reassignment: int = 0
     unresolved_structural_conflicts: int = 0
@@ -140,10 +167,21 @@ def learn_day_blocks(
     is the loop's termination signal: a round that learns nothing would re-run
     an identical Stage 1 and get an identical answer.
 
-    Only reason codes that are genuinely about one day are learned. A refusal
-    the transit chain caused by having no provider answer is not among them:
-    Stage 2's codes come from its schedule model, so an estimated leg produces
-    a block only when the day really does not fit around it.
+    Only the two refusals that are already about the place and the date alone
+    are learned here: its hours cannot hold a visit that day, or a restaurant
+    cannot reach a meal window that day. Neither mentions another candidate,
+    so neither can be an accident of which places shared the day.
+
+    A "no_day_fit" refusal is deliberately not among them, and that is the
+    point of this function being narrow. It means the clock ran out, which is
+    a fact about the whole combination: the place was open, and something has
+    to give, but nothing here says it should be this one. Turning it into
+    "A cannot be on Thursday" is both too strong and decided by the wrong
+    party. It is probed instead, and becomes an ExclusionGroup.
+
+    A refusal the transit chain caused by having no provider answer never
+    reaches this function at all: Stage 2's codes come from its schedule
+    model, after the chain has already applied its estimate.
 
     A candidate already known to conflict with another is never blocked, and
     that exclusion is the whole reason `conflicted_ids` exists. Stage 2 seats
@@ -158,7 +196,7 @@ def learn_day_blocks(
     conflicted = conflicted_ids or set()
     learned = False
     for candidate_id, day, reason_code in refusals:
-        if reason_code not in DAY_SPECIFIC_REASON_CODES:
+        if reason_code not in UNARY_REASON_CODES:
             continue
         if candidate_id in protected_ids or candidate_id in conflicted:
             continue
@@ -167,6 +205,26 @@ def learn_day_blocks(
             days.add(day)
             learned = True
     return blocks, learned
+
+
+def merge_day_capacities(
+    existing: Sequence[DayCapacity],
+    found: Iterable[DayCapacity],
+) -> tuple[list[DayCapacity], bool]:
+    """Accumulate capacity facts, keeping the tightest known for each day set.
+
+    A later round can only measure the same set as tight or tighter, never
+    looser, so replacing on a strictly smaller limit is safe and re-learning
+    the same limit teaches nothing and stops the loop.
+    """
+    by_key = {capacity.key(): capacity for capacity in existing}
+    learned = False
+    for capacity in found:
+        known = by_key.get(capacity.key())
+        if known is None or capacity.limit < known.limit:
+            by_key[capacity.key()] = capacity
+            learned = True
+    return sorted(by_key.values(), key=lambda item: (item.day, item.key())), learned
 
 
 def learn_incompatible_pairs(
@@ -252,9 +310,11 @@ def select_replacements(
 
 
 __all__ = [
-    "DAY_SPECIFIC_REASON_CODES",
+    "COMBINATION_REASON_CODE",
     "REASON_LOWER_MARGINAL_UTILITY",
     "REASON_REPAIR_EXHAUSTED",
+    "UNARY_REASON_CODES",
+    "DayCapacity",
     "PlanValue",
     "RepairBudget",
     "RepairLedger",
@@ -262,6 +322,7 @@ __all__ = [
     "classify_bucket_changes",
     "learn_day_blocks",
     "learn_incompatible_pairs",
+    "merge_day_capacities",
     "plan_value",
     "select_replacements",
     "value_by_candidate",

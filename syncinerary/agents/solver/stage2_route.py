@@ -21,18 +21,23 @@ from syncinerary.agents.gather.traits import opening_hours_are_binding
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
 from syncinerary.agents.solver.repair import (
+    COMBINATION_REASON_CODE,
     REASON_LOWER_MARGINAL_UTILITY,
     REASON_REPAIR_EXHAUSTED,
+    DayCapacity,
+    PlanValue,
     RepairBudget,
     RepairLedger,
     classify_bucket_changes,
     learn_day_blocks,
     learn_incompatible_pairs,
+    merge_day_capacities,
     plan_value,
     select_replacements,
     value_by_candidate,
 )
 from syncinerary.agents.solver.stage1_days import (
+    DayAssignment,
     Stage1Unplaced,
     assign_days,
     assign_days_by_city,
@@ -415,8 +420,15 @@ def solve_day(
     options: SolverOptions | None = None,
     required_candidate_ids: set[UUID] | None = None,
     fixed_start_minutes: dict[UUID, int] | None = None,
+    count_placements_only: bool = False,
 ) -> DayRoute:
-    """Solve one day's optional path with opening and transit constraints."""
+    """Solve one day's optional path with opening and transit constraints.
+
+    ``count_placements_only`` drops the meal terms from the objective. It is
+    not a planning mode: the repair loop uses it to ask how many of a day's
+    candidates can be seated at once, and the ordinary objective cannot answer
+    that, because it will trade one stop for a required meal.
+    """
     options = options or SolverOptions()
     fixed_starts = fixed_start_minutes or {}
     required = (required_candidate_ids or set()) | set(fixed_starts)
@@ -631,11 +643,12 @@ def solve_day(
     optional_meal_penalty = max_transit_cost + max_start_cost
 
     meal_terms = []
-    for meal, variable in covered.items():
-        if meal in REQUIRED_MEALS:
-            meal_terms.append(required_meal_penalty * (1 - variable))
-        elif meal in OPTIONAL_MEALS:
-            meal_terms.append(optional_meal_penalty * (1 - variable))
+    if not count_placements_only:
+        for meal, variable in covered.items():
+            if meal in REQUIRED_MEALS:
+                meal_terms.append(required_meal_penalty * (1 - variable))
+            elif meal in OPTIONAL_MEALS:
+                meal_terms.append(optional_meal_penalty * (1 - variable))
 
     model.minimize(
         unplaced_penalty * (count - sum(active.values()))
@@ -755,7 +768,28 @@ def solve_day(
     )
 
 
-async def _solve_one_day(
+class _DaySolve(NamedTuple):
+    """A routed day and the matrix it was routed against.
+
+    The matrix is kept so the repair loop can ask this day further questions
+    without paying for another lookup. Re-solving it is pure CP-SAT: the arcs
+    are already known.
+    """
+
+    route: DayRoute
+    transit: TransitMatrix
+
+
+class _Plan(NamedTuple):
+    """One complete answer, kept so a losing exploration cannot cost the trip."""
+
+    assignment: DayAssignment
+    solved: list[_DaySolve]
+    admitted: list[CandidatePlace]
+    value: PlanValue
+
+
+async def _route_day(
     bucket: list[CandidatePlace],
     *,
     day: int,
@@ -764,7 +798,7 @@ async def _solve_one_day(
     options: SolverOptions,
     required_candidate_ids: set[UUID] | None = None,
     fixed_start_minutes: dict[UUID, int] | None = None,
-) -> DayRoute:
+) -> _DaySolve:
     """Fetch this day's pairwise transit and route it."""
     timezone = ZoneInfo(options.timezone)
     departure_at = datetime.combine(trip_date, options.day_start, tzinfo=timezone)
@@ -795,15 +829,41 @@ async def _solve_one_day(
         },
     )
     assert isinstance(matrix, TransitMatrix)
-    return solve_day(
+    return _DaySolve(
+        solve_day(
+            bucket,
+            day=day,
+            trip_date=trip_date,
+            transit=matrix,
+            options=options,
+            required_candidate_ids=required_candidate_ids,
+            fixed_start_minutes=fixed_start_minutes,
+        ),
+        matrix,
+    )
+
+
+async def _solve_one_day(
+    bucket: list[CandidatePlace],
+    *,
+    day: int,
+    trip_date: date,
+    transit_provider: TransitProvider,
+    options: SolverOptions,
+    required_candidate_ids: set[UUID] | None = None,
+    fixed_start_minutes: dict[UUID, int] | None = None,
+) -> DayRoute:
+    """The route alone, for callers with no use for the matrix."""
+    solved = await _route_day(
         bucket,
         day=day,
         trip_date=trip_date,
-        transit=matrix,
+        transit_provider=transit_provider,
         options=options,
         required_candidate_ids=required_candidate_ids,
         fixed_start_minutes=fixed_start_minutes,
     )
+    return solved.route
 
 
 def _centre(candidates: list[CandidatePlace]) -> tuple[float, float]:
@@ -1044,6 +1104,7 @@ async def solve_full_routes(
     admitted: list[CandidatePlace] = []
     blocks: dict[UUID, set[int]] = {}
     conflicts: set[tuple[UUID, UUID]] = set()
+    capacities: list[DayCapacity] = []
 
     def _assign(pool: list[CandidatePlace], admitted_now: list[CandidatePlace]):
         return assign_days(
@@ -1057,14 +1118,18 @@ async def solve_full_routes(
             pinned_days=pinned,
             blocked_days=blocks,
             incompatible_pairs=sorted(conflicts, key=lambda pair: (str(pair[0]), str(pair[1]))),
+            day_capacities=[
+                (capacity.day, capacity.members, capacity.limit)
+                for capacity in capacities
+            ],
             reserve_ids={candidate.id for candidate in admitted_now},
             replacement_budget=len(admitted_now),
             day_start=options.day_start,
             day_end=options.day_end,
         )
 
-    async def _route(bucket: list[CandidatePlace], day: int) -> DayRoute:
-        return await _solve_one_day(
+    async def _route(bucket: list[CandidatePlace], day: int) -> _DaySolve:
+        return await _route_day(
             bucket,
             day=day,
             trip_date=state.trip.start_date + timedelta(days=day),
@@ -1079,9 +1144,22 @@ async def solve_full_routes(
         )
 
     assignment = _assign(list(candidates), admitted)
-    routes = [
+    solved = [
         await _route(bucket, day) for day, bucket in enumerate(assignment.buckets)
     ]
+    routes = [item.route for item in solved]
+
+    def _value(day_routes: list[DayRoute]) -> PlanValue:
+        return plan_value(
+            (stop.candidate_id for route in day_routes for stop in route.stops),
+            values,
+            sum(route.total_transit_minutes for route in day_routes),
+        )
+
+    # What the planner produced before any repair, kept so the ledger can
+    # describe the change rather than the exploration that found it.
+    first_assignment, first_routes = assignment, routes
+    best = _Plan(assignment, solved, admitted, _value(routes))
 
     for _round in range(limits.max_rounds):
         refusals = [
@@ -1101,6 +1179,34 @@ async def solve_full_routes(
             },
             existing=blocks,
         )
+
+        # Every day that reported a combination failure is asked how many of
+        # its candidates can actually share the date. One CP-SAT solve per
+        # such day, and no lookups.
+        found: list[DayCapacity] = []
+        for day_solve, bucket in zip(solved, assignment.buckets, strict=True):
+            if not any(
+                item.reason_code == COMBINATION_REASON_CODE
+                for item in day_solve.route.unplaced
+            ):
+                continue
+            capacity = _probe_day_capacity(
+                bucket,
+                day_solve,
+                day=day_solve.route.day,
+                trip_date=state.trip.start_date
+                + timedelta(days=day_solve.route.day),
+                options=options,
+                required=protected & {member.id for member in bucket},
+                fixed_starts={
+                    member.id: fixed_starts[member.id]
+                    for member in bucket
+                    if member.id in fixed_starts
+                },
+            )
+            if capacity is not None:
+                found.append(capacity)
+        capacities, found_capacity = merge_day_capacities(capacities, found)
         # A hole is a selected place no day can hold: every day has refused
         # it, or Stage 1 could not open a day to it in the first place. That is
         # a structural conflict rather than a scheduling accident, and it is
@@ -1125,7 +1231,7 @@ async def solve_full_routes(
                 limits.max_replacements - len(admitted),
             ),
         )
-        if not learned and not found_conflict and not replacements:
+        if not learned and not found_conflict and not found_capacity and not replacements:
             # Nothing new to tell Stage 1 and no hole to fill, so the next
             # round would re-solve an identical model and get the same answer.
             break
@@ -1143,38 +1249,39 @@ async def solve_full_routes(
         if ledger.day_solves + len(changed) > limits.max_day_solves:
             break
 
-        trial_routes = list(routes)
+        trial_solved = list(solved)
         for day in changed:
-            trial_routes[day] = await _route(trial_assignment.buckets[day], day)
+            trial_solved[day] = await _route(trial_assignment.buckets[day], day)
             ledger.day_solves += 1
+        trial_routes = [item.route for item in trial_solved]
+        trial_value = _value(trial_routes)
 
-        current = plan_value(
-            (stop.candidate_id for route in routes for stop in route.stops),
-            values,
-            sum(route.total_transit_minutes for route in routes),
-        )
-        trial = plan_value(
-            (stop.candidate_id for route in trial_routes for stop in route.stops),
-            values,
-            sum(route.total_transit_minutes for route in trial_routes),
-        )
-        if not trial > current:
-            # A round that does not pay for itself is discarded whole, so the
-            # repair loop can never leave the trip worse than the plain M5 run.
-            break
+        if trial_value > best.value:
+            best = _Plan(trial_assignment, trial_solved, trial_admitted, trial_value)
+            ledger.repair_rounds += 1
 
-        moves, swaps = classify_bucket_changes(
-            assignment.buckets, trial_assignment.buckets
-        )
-        ledger.cross_day_moves += moves
-        ledger.cross_day_swaps += swaps
-        ledger.same_day_reorders += _count_reorders(routes, trial_routes)
-        ledger.replacement_candidates_used += len(trial_admitted) - len(admitted)
-        ledger.high_priority_places_preserved_by_reassignment += _preserved_count(
-            routes, trial_routes, values
-        )
-        ledger.repair_rounds += 1
-        assignment, routes, admitted = trial_assignment, trial_routes, trial_admitted
+        # Carry on from the trial even when it did not pay for itself. A round
+        # that only reshuffles still tells the next probe something new: the
+        # capacity of the day it has just built. Stopping here was measurably
+        # wrong, because the arrangement that kept everybody was two rounds
+        # away and the first round looked like a waste. The trip is never at
+        # risk, because the best plan seen is the one returned.
+        assignment, solved, admitted = trial_assignment, trial_solved, trial_admitted
+        routes = trial_routes
+
+    assignment, solved, admitted = best.assignment, best.solved, best.admitted
+    routes = [item.route for item in solved]
+    moves, swaps = classify_bucket_changes(first_assignment.buckets, assignment.buckets)
+    ledger.cross_day_moves = moves
+    ledger.cross_day_swaps = swaps
+    ledger.same_day_reorders = _count_reorders(first_routes, routes)
+    ledger.replacement_candidates_used = len(admitted)
+    ledger.high_priority_places_preserved_by_reassignment = _preserved_count(
+        first_routes, routes, values
+    )
+    ledger.learned_blocked_days = sum(len(days) for days in blocks.values())
+    ledger.learned_incompatible_pairs = len(conflicts)
+    ledger.learned_day_capacities = len(capacities)
 
     placed = {stop.candidate_id for route in routes for stop in route.stops}
     ledger.places_dropped_for_feasibility = sum(
@@ -1216,6 +1323,53 @@ async def solve_full_routes(
         stage1_objective=assignment.objective_breakdown,
         repair=ledger,
     )
+
+
+def _probe_day_capacity(
+    bucket: list[CandidatePlace],
+    solved: _DaySolve,
+    *,
+    day: int,
+    trip_date: date,
+    options: SolverOptions,
+    required: set[UUID],
+    fixed_starts: dict[UUID, int],
+) -> DayCapacity | None:
+    """How many of this day's candidates can be seated at once, at most.
+
+    A "no_day_fit" refusal only says the clock ran out. It cannot say which
+    place should give way, and guessing is unsafe in a specific way: Stage 2
+    will trade one stop for a required meal, so neither "it refused this one"
+    nor "only k fitted" proves the rest could not have fitted. A unary block
+    and a cardinality cut read straight off the plan are both wrong sometimes,
+    and wrong in the direction that quietly drops a place the group wanted.
+
+    So the day is asked directly, with the meal terms removed and nothing else
+    changed. What comes back is the largest number of these candidates that
+    can share this date: a measurement rather than an inference. Stage 1 then
+    decides which of them are worth the seats. The probe costs one CP-SAT
+    solve and no lookup, because the arcs are already in hand.
+    """
+    members = [candidate.id for candidate in bucket]
+    if len(members) < 2:
+        return None
+    probe = solve_day(
+        bucket,
+        day=day,
+        trip_date=trip_date,
+        transit=solved.transit,
+        options=options,
+        required_candidate_ids=required,
+        fixed_start_minutes=fixed_starts,
+        count_placements_only=True,
+    )
+    limit = len(probe.stops)
+    if limit >= len(members):
+        # They all fit after all, and the ordinary objective simply preferred
+        # an arrangement that bought a meal with a stop. Nothing about the day
+        # is infeasible, so nothing is learned.
+        return None
+    return DayCapacity(day=day, members=frozenset(members), limit=limit)
 
 
 def _repair_reason_code(

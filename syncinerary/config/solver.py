@@ -119,10 +119,17 @@ SOLVER_TIME_LIMIT_SECONDS = 30.0
 # re-solved. The bounds exist because every re-solved day is a transit lookup
 # and a harness step, and because a repair loop that cannot terminate is worse
 # than one that gives up.
-REPAIR_MAX_ROUNDS = 3
-#: Hard ceiling on extra Stage 2 solves across the whole repair loop. Sized
-#: against the harness step cap: a long trip could otherwise spend its entire
-#: budget re-routing days that were never going to improve.
+#: Stage 1 re-solves. Higher than it first looks like it needs, because what
+#: Stage 2 can measure in one round is the capacity of the day it was just
+#: given, so a trip whose days all need re-sizing learns one at a time. Three
+#: rounds left a measured case two short of keeping everybody; six reached it
+#: and then stopped on its own. Rounds are cheap: the expensive part is the
+#: re-routing below, and that has its own ceiling.
+REPAIR_MAX_ROUNDS = 6
+#: Hard ceiling on extra Stage 2 solves across the whole repair loop, and the
+#: limit that actually binds. Each one is a transit lookup and a harness step,
+#: so a long trip could otherwise spend its whole budget re-routing days that
+#: were never going to improve.
 REPAIR_MAX_DAY_SOLVES = 12
 #: Reserve candidates admitted per trip when a selected place turns out to be
 #: structurally impossible. One hole, one replacement.
