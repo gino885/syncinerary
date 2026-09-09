@@ -3,8 +3,17 @@ import Foundation
 /// What the board says while the agent works. Each wait has its own script
 /// so the words match what the server is doing.
 struct LoadingScript: Hashable, Sendable {
-    let title: String
+    let title: LocalizedStringResource
     let lines: [LoadingLine]
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.title.key == rhs.title.key && lhs.lines == rhs.lines
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(title.key)
+        hasher.combine(lines)
+    }
 
     static func gathering(city: String) -> LoadingScript {
         LoadingScript(

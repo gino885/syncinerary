@@ -18,7 +18,7 @@ struct FunLoadingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingL) {
-            EyebrowText(script.title)
+            EyebrowText(verbatim: String(localized: script.title))
 
             VStack(alignment: .leading, spacing: AppTheme.spacingM) {
                 ForEach(previousLines, id: \.self) { line in

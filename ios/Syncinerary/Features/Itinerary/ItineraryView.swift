@@ -45,10 +45,10 @@ struct ItineraryView: View {
                             ForEach(itinerary.transitAttributions) { credit in
                                 if let url = credit.url {
                                     Link(destination: url) {
-                                        MetaLabel("\(credit.text) ↗", color: AppTheme.ink)
+                                        MetaLabel(verbatim: "\(credit.text) ↗", color: AppTheme.ink)
                                     }
                                 } else {
-                                    MetaLabel(credit.text)
+                                    MetaLabel(verbatim: credit.text)
                                 }
                             }
                         }

@@ -19,15 +19,19 @@ struct TransitLegView: View {
     /// it a traveler can act on. Same rule as the source badges: never
     /// present what was not measured as though it were.
     private var modeLabel: String {
-        guard let mode else { return "travel" }
+        guard let mode else { return String(localized: "travel") }
         let base: String =
             switch mode {
-            case "walk", "walking", "walking_estimated": "walk"
-            case "taxi": "taxi"
-            case let value where value.hasPrefix("transit"): "transit"
-            default: "travel"
+            case "walk", "walking", "walking_estimated": String(localized: "walk")
+            case "taxi": String(localized: "taxi")
+            case let value where value.hasPrefix("transit"): String(localized: "transit")
+            default: String(localized: "travel")
             }
-        return mode.hasSuffix("_estimated") ? "approx. \(base)" : base
+        // The approximate marker wraps the mode rather than being appended, so
+        // a language that puts the qualifier elsewhere can move it.
+        return mode.hasSuffix("_estimated")
+            ? String(localized: "approx. \(base)")
+            : base
     }
 }
 

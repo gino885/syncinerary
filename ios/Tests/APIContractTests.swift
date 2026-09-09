@@ -4,6 +4,7 @@ import Foundation
 enum APIContractTests {
     static func main() throws {
         try chooseTripPreferences()
+        try chooseSharedTripLanguage()
         try moveBackwardThroughTheSwipeDeck()
         try decodeCitySuggestions()
         try encodeSeveralTypedCities()
@@ -64,6 +65,17 @@ enum APIContractTests {
         )
     }
 
+    private static func chooseSharedTripLanguage() throws {
+        try require(
+            AppLanguage.outputLocaleIdentifier(for: "zh-Hant-TW") == "zh-Hant",
+            "A Traditional Chinese UI must create a Traditional Chinese trip"
+        )
+        try require(
+            AppLanguage.outputLocaleIdentifier(for: "en-US") == "en",
+            "An English UI must create an English trip"
+        )
+    }
+
     private static func moveBackwardThroughTheSwipeDeck() throws {
         var position = SwipeDeckPosition()
         position.advance(total: 3)
@@ -108,7 +120,8 @@ enum APIContractTests {
             creatorName: "Gino",
             creatorHomeCity: nil,
             creatorInterests: [],
-            creatorDietaryExcludes: []
+            creatorDietaryExcludes: [],
+            outputLocale: "zh-Hant"
         )
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
         guard let payload = object as? [String: Any] else {
@@ -143,7 +156,8 @@ enum APIContractTests {
             creatorName: "Gino",
             creatorHomeCity: nil,
             creatorInterests: ["coffee", "architecture"],
-            creatorDietaryExcludes: ["seafood"]
+            creatorDietaryExcludes: ["seafood"],
+            outputLocale: "zh-Hant"
         )
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
         guard let payload = object as? [String: Any] else {
@@ -155,6 +169,7 @@ enum APIContractTests {
         try require(payload["cities"] as? [String] == ["Sapporo"], "Trip request must encode the typed cities")
         try require(payload["creator_interests"] as? [String] == ["coffee", "architecture"], "Trip request must encode interests")
         try require(payload["creator_dietary_excludes"] as? [String] == ["seafood"], "Trip request must encode dietary exclusions")
+        try require(payload["output_locale"] as? String == "zh-Hant", "Trip request must encode the creator UI language")
     }
 
     private static func decodeTripCreatedResponse() throws {

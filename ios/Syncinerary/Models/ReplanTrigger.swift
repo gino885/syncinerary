@@ -9,17 +9,17 @@ enum ReplanTrigger: String, Decodable, Sendable {
     var label: String {
         switch self {
         case .reservationCancelled:
-            "Reservation cancelled"
+            String(localized: "Reservation cancelled")
         case .transitDelay:
-            "Transit delay"
+            String(localized: "Transit delay")
         case .overslept:
-            "Late start"
+            String(localized: "Late start")
         case .placeClosed:
-            "Place closed"
+            String(localized: "Place closed")
         case .weather:
-            "Weather change"
+            String(localized: "Weather change")
         case .other:
-            "Trip change"
+            String(localized: "Trip change")
         }
     }
 }

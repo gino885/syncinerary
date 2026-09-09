@@ -89,7 +89,9 @@ struct TripsBoardView: View {
     }
 
     private func partyLine(_ trip: TripListRow) -> String {
-        let party = trip.memberCount == 1 ? "1 traveller" : "\(trip.memberCount) travellers"
-        return "\(trip.days)d · \(party)"
+        let party = trip.memberCount == 1
+            ? String(localized: "1 traveller")
+            : String(localized: "\(trip.memberCount) travellers")
+        return String(localized: "\(trip.days)d · \(party)")
     }
 }

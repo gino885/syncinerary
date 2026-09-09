@@ -51,8 +51,10 @@ final class SwipeViewModel {
     }
 
     var progressText: String {
-        guard !candidates.isEmpty else { return "No cards" }
-        return "Card \(min(currentIndex + 1, candidates.count)) of \(candidates.count)"
+        guard !candidates.isEmpty else { return String(localized: "No cards") }
+        return String(
+            localized: "Card \(min(currentIndex + 1, candidates.count)) of \(candidates.count)"
+        )
     }
 
     func load() async {

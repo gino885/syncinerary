@@ -19,8 +19,8 @@ enum TripDate {
     /// "Sep 28 to Oct 2", falling back to the raw strings.
     static func range(_ start: String, _ end: String) -> String {
         guard let startDate = parse(start), let endDate = parse(end) else {
-            return "\(start) to \(end)"
+            return String(localized: "\(start) to \(end)")
         }
-        return "\(startDate.formatted(short)) to \(endDate.formatted(short))"
+        return String(localized: "\(startDate.formatted(short)) to \(endDate.formatted(short))")
     }
 }

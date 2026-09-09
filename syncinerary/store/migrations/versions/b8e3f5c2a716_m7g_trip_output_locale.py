@@ -6,8 +6,9 @@ one artifact the whole group reads, and deriving their language from whichever
 traveler happened to trigger the plan would make the stored text depend on
 whose phone ran it.
 
-Display language and search language stay separate concepts. This is neither:
-it is the language of content the server writes and stores.
+The creator's display language selects this value. It is the language of
+content the server writes and stores, and later search code uses its Chinese
+versus English choice when composing social queries.
 
 Revision ID: b8e3f5c2a716
 Revises: a7d2e4b91c05

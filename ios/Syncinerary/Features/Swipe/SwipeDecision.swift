@@ -47,10 +47,10 @@ enum SwipeDecision: Hashable, Sendable {
     /// Spoken after a decision so VoiceOver users hear what happened.
     var announcement: String {
         switch self {
-        case .like: "Liked"
-        case .dislike: "Passed"
-        case .mustHave: "Marked as must go"
-        case .likeWithNote: "Liked with a note"
+        case .like: String(localized: "Liked")
+        case .dislike: String(localized: "Passed")
+        case .mustHave: String(localized: "Marked as must go")
+        case .likeWithNote: String(localized: "Liked with a note")
         }
     }
 }

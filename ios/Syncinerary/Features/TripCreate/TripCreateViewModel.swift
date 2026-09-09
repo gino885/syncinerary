@@ -93,7 +93,9 @@ final class TripCreateViewModel {
             let selectedIDs = Set(selectedCities.map(\.placeID))
             citySuggestions = results.filter { !selectedIDs.contains($0.placeID) }
             if citySuggestions.isEmpty {
-                citySearchMessage = "No matching cities found. Try another spelling."
+                citySearchMessage = String(
+                    localized: "No matching cities found. Try another spelling."
+                )
             }
         } catch {
             citySuggestions = []
@@ -132,7 +134,8 @@ final class TripCreateViewModel {
             creatorInterests: interestSelection.values(in: PreferenceCatalog.interests),
             creatorDietaryExcludes: dietarySelection.values(
                 in: PreferenceCatalog.dietaryExcludes
-            )
+            ),
+            outputLocale: AppLanguage.currentOutputLocaleIdentifier
         )
 
         do {

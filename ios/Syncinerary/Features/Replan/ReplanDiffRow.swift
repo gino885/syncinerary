@@ -2,8 +2,9 @@ import SwiftUI
 
 struct ReplanDiffRow: View {
     let systemImage: String
+    /// A place name from the server, printed as it arrived.
     let title: String
-    let detail: String
+    let detail: LocalizedStringKey
     let tint: Color
 
     var body: some View {
@@ -13,7 +14,7 @@ struct ReplanDiffRow: View {
                 .frame(width: 2)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(verbatim: title)
                     .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 MetaLabel(detail)

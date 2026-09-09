@@ -30,7 +30,7 @@ struct ItineraryStopRow: View {
                     .foregroundStyle(AppTheme.ink)
 
                 if !metaLine.isEmpty {
-                    MetaLabel(metaLine)
+                    MetaLabel(verbatim: metaLine)
                 }
 
                 SourceBadgesView(badges: stop.sourceBadges)

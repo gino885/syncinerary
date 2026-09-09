@@ -71,6 +71,8 @@ final class AccountStore {
         if case let APIError.badStatus(_, detail) = error, let detail {
             return detail
         }
-        return "Could not reach the trip server. Check the connection and try again."
+        return String(
+            localized: "Could not reach the trip server. Check the connection and try again."
+        )
     }
 }

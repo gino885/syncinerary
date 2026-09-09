@@ -36,11 +36,11 @@ struct MessageLink: Codable, Sendable, Hashable {
     var failureLine: String {
         switch failureReason {
         case "place_not_found_in_trip_cities":
-            "That one isn't in this trip's cities"
+            String(localized: "That one isn't in this trip's cities")
         case "no_place_named_in_post":
-            "This \(platformLabel) post doesn't name a place"
+            String(localized: "This \(platformLabel) post doesn't name a place")
         default:
-            "\(platformLabel) won't open to us"
+            String(localized: "\(platformLabel) won't open to us")
         }
     }
 

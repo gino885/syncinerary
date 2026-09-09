@@ -379,6 +379,12 @@ Only official APIs or platform-permitted public metadata may be used.
    than steering search, so provider cost is the same whether a group listed
    two interests or twenty.
 
+   Search wording follows the group creator's app language, which is stored on
+   the trip as `output_locale`. A Chinese creator gets Chinese queries on
+   Instagram and TikTok so the discovered posts and video captions are also
+   Chinese. RedNote always uses its measured Simplified Chinese vocabulary.
+   Agent instructions and structured extraction stay in English.
+
    A search that returns nothing is retried once with fewer words before the
    question moves to another platform, because an empty result is usually an
    over-specified query rather than an empty city. The run stops when both
@@ -1069,6 +1075,7 @@ These defaults were set without explicit confirmation. If any are wrong, change 
 | First-round mined names | 100 per trip | `config/gather.py` |
 | Social searches per city | 8 maximum, a ceiling and not a target | `config/gather.py` |
 | Search intents | PLACES, FOOD, HIDDEN_GEMS | `tools/fetch/social.py` |
+| Social search language | Creator app language for Chinese versus English; RedNote always Simplified Chinese | `tools/fetch/social.py` |
 | Opening sequence | PLACES, then FOOD, then HIDDEN_GEMS | `tools/fetch/social.py` |
 | Consecutive low-yield searches before stopping | 3 | `config/gather.py` |
 | Consecutive duplicate-heavy searches before stopping | 2 | `config/gather.py` |

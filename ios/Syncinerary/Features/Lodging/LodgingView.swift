@@ -38,7 +38,13 @@ struct LodgingView: View {
                     } header: {
                         EyebrowText("Stay · \(TripDate.range(viewModel.options[0].tripStartDate, viewModel.options[0].tripEndDate))")
                     } footer: {
-                        Text(viewModel.options[0].availabilityNote)
+                        Text(
+                            String(
+                                localized: String.LocalizationValue(
+                                    viewModel.options[0].availabilityNote
+                                )
+                            )
+                        )
                             .font(.footnote)
                             .foregroundStyle(AppTheme.faded)
                     }

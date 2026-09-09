@@ -20,6 +20,7 @@ from syncinerary.config.gather import (
     SOCIAL_POST_READ_CACHE_TTL_SECONDS,
     SOCIAL_POST_READ_MAX_POSTS,
 )
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
 from syncinerary.domain.models import SocialPlatform
 from syncinerary.harness import ToolDefinition
 from syncinerary.store.redis import get_redis
@@ -389,21 +390,27 @@ def build_discovery_query(
     *,
     destination: str,
     destination_localized: str | None = None,
+    output_locale: str = DEFAULT_OUTPUT_LOCALE,
 ) -> str:
     """Word one search intent as a provider query for its platform.
 
     Deterministic on purpose: the planner decides what is missing, this decides
-    how to ask for it, and no model writes a query. RedNote is searched in the
-    destination's Mandarin name, which is a hard requirement rather than a
-    preference: the English name returns a different corpus entirely.
+    how to ask for it, and no model writes a query. Chinese trips use Chinese
+    vocabulary on every platform so discovery retrieves Chinese posts and
+    video captions. RedNote always uses Chinese because an English query
+    returns a different corpus entirely.
     """
     destination = destination.strip()
     if not destination:
         raise ValueError("destination cannot be empty")
 
-    if intent.platform is SocialPlatform.REDNOTE:
+    uses_chinese_vocabulary = (
+        intent.platform is SocialPlatform.REDNOTE
+        or normalize_output_locale(output_locale).startswith("zh-")
+    )
+    if uses_chinese_vocabulary:
         if destination_localized is None or not destination_localized.strip():
-            raise ValueError("RedNote discovery requires a localized destination")
+            raise ValueError("Chinese discovery requires a localized destination")
         name = destination_localized.strip()
         template = _MANDARIN_QUERIES[(intent.intent_type, intent.specificity)]
     else:

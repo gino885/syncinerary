@@ -111,7 +111,7 @@ struct JoinTripView: View {
             errorMessage = nil
         } catch {
             preview = nil
-            errorMessage = "No trip found for that code."
+            errorMessage = String(localized: "No trip found for that code.")
         }
     }
 
@@ -132,7 +132,7 @@ struct JoinTripView: View {
             if case let APIError.badStatus(_, detail) = error, let detail {
                 errorMessage = detail
             } else {
-                errorMessage = "Could not join. Try again."
+                errorMessage = String(localized: "Could not join. Try again.")
             }
         }
     }

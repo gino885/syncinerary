@@ -35,7 +35,7 @@ struct SwipeCardView: View {
                         .frame(minWidth: AppLayout.minimumTapHeight, minHeight: AppLayout.minimumTapHeight)
                 }
 
-                MetaLabel(metaLine, color: AppTheme.ink)
+                MetaLabel(verbatim: metaLine, color: AppTheme.ink)
 
                 SourceBadgesView(badges: candidate.sourceBadges)
 
@@ -71,9 +71,10 @@ struct SwipeCardView: View {
             parts.append(area)
         }
         if let category = candidate.category {
-            parts.append(category.replacing("_", with: " "))
+            let key = category.replacing("_", with: " ").capitalized
+            parts.append(String(localized: String.LocalizationValue(key)))
         }
-        parts.append("\(candidate.durationEstimateMin) min")
+        parts.append(String(localized: "\(candidate.durationEstimateMin) min"))
         return parts.joined(separator: " · ")
     }
 }

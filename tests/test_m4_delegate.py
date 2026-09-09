@@ -107,6 +107,24 @@ async def test_badges_are_generated_in_one_batch_for_one_traveler():
 
 
 @pytest.mark.asyncio
+async def test_badge_words_follow_the_shared_trip_language():
+    trip_id = uuid4()
+    traveler = Traveler(trip_id=trip_id, name="Gino")
+    candidate = _candidate(trip_id, "Odori Park")
+    messages = StubMessages({"decisions": []})
+
+    await generate_badges_for_traveler(
+        traveler,
+        [candidate],
+        [],
+        output_locale="zh-Hant",
+        client=messages,
+    )
+
+    assert "Output language: Traditional Chinese" in messages.calls[0]["system"]
+
+
+@pytest.mark.asyncio
 async def test_badge_batch_omits_no_badge_and_ignores_unknown_candidate_ids():
     trip_id = uuid4()
     traveler = Traveler(trip_id=trip_id, name="Gino")
@@ -178,7 +196,10 @@ async def test_badge_node_persists_different_badges_for_each_traveler(
         )
     )
 
-    async def fake_generate(traveler, candidates, constraints, **_kwargs):
+    output_locales = []
+
+    async def fake_generate(traveler, candidates, constraints, **kwargs):
+        output_locales.append(kwargs.get("output_locale"))
         badge_type = BadgeType.CONFIRM if traveler.id == ana.id else BadgeType.WARNING
         return [
             badge_module.CandidateBadge(
@@ -207,6 +228,7 @@ async def test_badge_node_persists_different_badges_for_each_traveler(
 
     assert state == before
     assert len(result["badges"]) == 2
+    assert output_locales == ["en", "en"]
     ana_badges = await CandidateBadgeRepository(session).list_for_traveler_on_trip(ana.id)
     gino_badges = await CandidateBadgeRepository(session).list_for_traveler_on_trip(gino.id)
     assert ana_badges[0].badge_type is BadgeType.CONFIRM
