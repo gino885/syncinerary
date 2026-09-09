@@ -68,6 +68,8 @@ struct CandidatePhotoView: View {
 
     private func attribution(for photo: CandidatePhoto) -> String {
         let names = photo.attributions.map(\.displayName).joined(separator: ", ")
-        return names.isEmpty ? "Google Places" : "Google Places · \(names)"
+        return names.isEmpty
+            ? String(localized: "Google Places")
+            : String(localized: "Google Places · \(names)")
     }
 }

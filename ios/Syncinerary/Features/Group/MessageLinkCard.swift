@@ -95,8 +95,8 @@ struct MessageLinkCard: View {
     /// the original question as though nothing happened.
     private var placeholder: String {
         link.failureReason == "place_not_found_in_trip_cities"
-            ? "Try another name"
-            : "What place is it?"
+            ? String(localized: "Try another name")
+            : String(localized: "What place is it?")
     }
 
     private var canSubmit: Bool {

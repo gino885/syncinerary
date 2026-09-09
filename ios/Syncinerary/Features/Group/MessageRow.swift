@@ -12,7 +12,7 @@ struct MessageRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingS) {
             HStack(alignment: .firstTextBaseline, spacing: AppTheme.spacingS) {
-                Text(message.authorName ?? "Someone")
+                Text(message.authorName ?? String(localized: "Someone"))
                     .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
                 if let sentAt = message.sentAt {

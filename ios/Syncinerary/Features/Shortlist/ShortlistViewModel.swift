@@ -33,7 +33,9 @@ final class ShortlistViewModel {
 
     var confirmationText: String {
         guard let confirmation else { return "" }
-        return "\(confirmation.confirmedBy.count) of \(confirmation.confirmationsRequired) confirmations"
+        return String(
+            localized: "\(confirmation.confirmedBy.count) of \(confirmation.confirmationsRequired) confirmations"
+        )
     }
 
     func load() async {
@@ -69,7 +71,9 @@ final class ShortlistViewModel {
             return
         }
         guard mustGoIDs.count < session.trip.days else {
-            errorMessage = "You can mark up to \(session.trip.days) must-go places for this trip."
+            errorMessage = String(
+                localized: "You can mark up to \(session.trip.days) must-go places for this trip."
+            )
             isShowingError = true
             return
         }

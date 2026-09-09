@@ -3,7 +3,7 @@ import SwiftUI
 /// The circular buttons under the deck: ink outlines on paper, with the
 /// like button filled in stamp ink so one thing on the screen is loud.
 struct RoundActionButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
     var ink: Color = AppTheme.ink
     var isProminent = false

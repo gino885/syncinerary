@@ -13,7 +13,7 @@ struct ShortlistCandidateRow: View {
                 Text(candidate.nameCanonical)
                     .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
-                MetaLabel(metaLine)
+                MetaLabel(verbatim: metaLine)
                 SourceBadgesView(badges: candidate.sourceBadges)
             }
 
@@ -21,7 +21,9 @@ struct ShortlistCandidateRow: View {
 
             if isSelected {
                 Button(
-                    isMustGo ? "Remove must-go" : "Mark must-go",
+                    isMustGo
+                        ? String(localized: "Remove must-go")
+                        : String(localized: "Mark must-go"),
                     systemImage: isMustGo ? "star.fill" : "star",
                     action: onToggleMustGo
                 )
@@ -32,7 +34,9 @@ struct ShortlistCandidateRow: View {
             }
 
             Button(
-                isSelected ? "Remove from shortlist" : "Add to shortlist",
+                isSelected
+                    ? String(localized: "Remove from shortlist")
+                    : String(localized: "Add to shortlist"),
                 systemImage: isSelected ? "minus" : "plus",
                 action: onToggleSelection
             )
@@ -45,12 +49,20 @@ struct ShortlistCandidateRow: View {
         .buttonStyle(.borderless)
         .swipeActions(edge: .leading) {
             if isSelected {
-                Button(isMustGo ? "Not must-go" : "Must-go", systemImage: isMustGo ? "star.slash" : "star.fill", action: onToggleMustGo)
+                Button(
+                    isMustGo ? String(localized: "Not must-go") : String(localized: "Must-go"),
+                    systemImage: isMustGo ? "star.slash" : "star.fill",
+                    action: onToggleMustGo
+                )
                     .tint(AppTheme.violet)
             }
         }
         .swipeActions(edge: .trailing) {
-            Button(isSelected ? "Remove" : "Add", systemImage: isSelected ? "minus" : "plus", action: onToggleSelection)
+            Button(
+                isSelected ? String(localized: "Remove") : String(localized: "Add"),
+                systemImage: isSelected ? "minus" : "plus",
+                action: onToggleSelection
+            )
                 .tint(isSelected ? AppTheme.stamp : AppTheme.jade)
         }
     }
@@ -61,7 +73,8 @@ struct ShortlistCandidateRow: View {
             parts.append(area)
         }
         if let category = candidate.category {
-            parts.append(category.replacing("_", with: " "))
+            let key = category.replacing("_", with: " ").capitalized
+            parts.append(String(localized: String.LocalizationValue(key)))
         }
         return parts.joined(separator: " · ")
     }

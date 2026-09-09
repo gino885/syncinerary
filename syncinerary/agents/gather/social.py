@@ -61,6 +61,7 @@ from syncinerary.config.gather import (
     lane_slots,
     social_verify_budget,
 )
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -909,6 +910,7 @@ async def mine_city(
     interests: list[str],
     target_candidates: int,
     max_searches: int = MAX_SEARCHES_PER_CITY,
+    output_locale: str = DEFAULT_OUTPUT_LOCALE,
     **thresholds: int,
 ) -> SocialSearchState:
     """Search one city adaptively until it is covered, dry, or out of budget.
@@ -938,6 +940,7 @@ async def mine_city(
             intent,
             destination=destination,
             destination_localized=destination_local_name,
+            output_locale=output_locale,
         )
         span.add_event(
             "social_search_iteration",
@@ -1076,6 +1079,7 @@ async def discover_social_candidates(
             destination_local_name=local_name,
             interests=interests,
             target_candidates=city_budget,
+            output_locale=trip.output_locale,
         )
         mined = state.discovered_places
 

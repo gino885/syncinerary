@@ -1,10 +1,8 @@
-"""M7g: the three languages this product runs on, kept apart.
+"""M7g: locale follows the group creator across the shared trip.
 
-Display language, output language, and search language are different things,
-and the failure mode worth testing is any two of them merging. A Traditional
-Chinese UI must not turn RedNote's Simplified search vocabulary into
-Traditional, and a trip's narrative must not depend on whose phone asked for
-it.
+The creator's display language chooses the language of shared trip output and
+social discovery. The agent's instructions stay in English, and RedNote keeps
+the Simplified Chinese vocabulary that retrieves its note corpus.
 """
 from __future__ import annotations
 
@@ -12,6 +10,9 @@ from datetime import date
 
 import pytest
 
+from syncinerary.agents.gather import social as social_module
+from syncinerary.agents.gather.social import discover_social_candidates
+from syncinerary.agents.gather.social_search import initialize_social_search_state
 from syncinerary.config.locales import (
     DEFAULT_OUTPUT_LOCALE,
     SUPPORTED_OUTPUT_LOCALES,
@@ -24,6 +25,7 @@ from syncinerary.tools.fetch.social import (
     SearchIntentType,
     build_discovery_query,
 )
+from syncinerary.tools.places import ResolvedCity
 
 
 @pytest.mark.parametrize(
@@ -74,30 +76,85 @@ def test_a_trip_carries_its_own_output_language():
     ).output_locale == "en"
 
 
-@pytest.mark.parametrize("locale", ["en", "zh-Hant", "zh-Hans", "ja"])
-def test_search_vocabulary_never_follows_the_output_language(locale):
-    """The one that would quietly break retrieval.
-
-    RedNote is searched in Simplified Chinese whoever is reading the result,
-    and the English platforms stay English. build_discovery_query takes no
-    locale at all, which is the enforcement: there is nothing to pass.
-    """
+@pytest.mark.parametrize("locale", ["zh-Hant", "zh-Hans"])
+def test_chinese_creator_uses_chinese_social_searches(locale):
+    """Chinese queries retrieve Chinese posts and video captions."""
     rednote = build_discovery_query(
         SearchIntent(
             platform=SocialPlatform.REDNOTE, intent_type=SearchIntentType.FOOD
         ),
         destination="Sapporo",
         destination_localized="札幌",
+        output_locale=locale,
     )
     tiktok = build_discovery_query(
         SearchIntent(
             platform=SocialPlatform.TIKTOK, intent_type=SearchIntentType.FOOD
         ),
         destination="Sapporo",
+        destination_localized="札幌",
+        output_locale=locale,
     )
 
     assert rednote == "札幌 美食推荐 餐厅 咖啡店 探店"
+    assert tiktok == "札幌 美食推荐 餐厅 咖啡店 探店"
+
+
+def test_english_creator_keeps_english_searches_off_rednote():
+    tiktok = build_discovery_query(
+        SearchIntent(
+            platform=SocialPlatform.TIKTOK, intent_type=SearchIntentType.FOOD
+        ),
+        destination="Sapporo",
+        destination_localized="札幌",
+        output_locale="en",
+    )
+
     assert tiktok == "Sapporo best local food restaurants cafes must eat"
+
+
+async def test_discovery_uses_the_creator_language_saved_on_the_trip(monkeypatch):
+    seen: dict[str, object] = {}
+
+    async def fake_translate(destination: str, **_kwargs) -> str:
+        return "札幌"
+
+    async def fake_mine_city(**kwargs):
+        seen.update(kwargs)
+        return initialize_social_search_state(
+            destination=kwargs["destination"],
+            destination_local_name=kwargs["destination_local_name"],
+            interests=kwargs["interests"],
+            target_candidates=kwargs["target_candidates"],
+        )
+
+    monkeypatch.setattr(
+        social_module, "translate_destination_to_mandarin", fake_translate
+    )
+    monkeypatch.setattr(social_module, "mine_city", fake_mine_city)
+
+    trip = Trip(
+        destination="Sapporo",
+        cities=["Sapporo"],
+        country="Japan",
+        start_date=date(2026, 10, 1),
+        end_date=date(2026, 10, 4),
+        days=4,
+        output_locale="zh-Hant",
+    )
+    city = ResolvedCity(
+        query="Sapporo",
+        name="Sapporo",
+        place_id="sapporo",
+        country="Japan",
+        lat=43.0618,
+        lng=141.3545,
+        radius_km=25,
+    )
+
+    await discover_social_candidates(trip, [], [city])
+
+    assert seen["output_locale"] == "zh-Hant"
 
 
 def test_place_names_keep_their_canonical_and_original_forms():

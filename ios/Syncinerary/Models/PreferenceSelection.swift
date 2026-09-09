@@ -20,11 +20,11 @@ struct PreferenceSelection: Hashable, Sendable {
     }
 
     func summary(in catalog: [PreferenceTag], empty: String) -> String {
-        let titles = catalog.compactMap { selected.contains($0.value) ? $0.title : nil }
+        let titles = catalog.compactMap { selected.contains($0.value) ? $0.localizedTitle : nil }
         guard !titles.isEmpty else { return empty }
-        let visible = titles.prefix(2).joined(separator: ", ")
+        let visible = titles.prefix(2).joined(separator: String(localized: ", "))
         let remaining = titles.count - 2
-        return remaining > 0 ? "\(visible) +\(remaining)" : visible
+        return remaining > 0 ? String(localized: "\(visible) +\(remaining)") : visible
     }
 
     static func tripSummary(
@@ -33,9 +33,11 @@ struct PreferenceSelection: Hashable, Sendable {
     ) -> String {
         let interestSummary = interests.summary(
             in: PreferenceCatalog.interests,
-            empty: "Choose interests"
+            empty: String(localized: "Choose interests")
         )
         let avoids = dietary.values(in: PreferenceCatalog.dietaryExcludes)
-        return avoids.isEmpty ? interestSummary : "\(interestSummary) · \(avoids.count) to avoid"
+        return avoids.isEmpty
+            ? interestSummary
+            : String(localized: "\(interestSummary) · \(avoids.count) to avoid")
     }
 }

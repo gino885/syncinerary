@@ -66,7 +66,9 @@ struct InvitePreviewView: View {
         do {
             preview = try await APIClient.shared.invitePreview(code: code)
         } catch {
-            errorMessage = "That invite code doesn't match a trip. Ask for a new one."
+            errorMessage = String(
+                localized: "That invite code doesn't match a trip. Ask for a new one."
+            )
         }
     }
 }

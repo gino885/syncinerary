@@ -73,12 +73,12 @@ struct InviteView: View {
                 invite = try await APIClient.shared.createInvite(tripID: trip.id)
             }
         } catch {
-            errorMessage = "Could not make an invite code. Try again."
+            errorMessage = String(localized: "Could not make an invite code. Try again.")
         }
     }
 
     private func usesLine(_ invite: TripInvite) -> String {
-        "\(invite.usesRemaining) of \(invite.maxUses) left"
+        String(localized: "\(invite.usesRemaining) of \(invite.maxUses) left")
     }
 
     /// Shares a tappable link with the code alongside it. The link is what
@@ -86,11 +86,9 @@ struct InviteView: View {
     /// screenshotted.
     private func shareText(_ invite: TripInvite) -> String {
         let link = InviteLink.url(for: invite.code)?.absoluteString ?? ""
-        return """
-        Join my \(trip.destination) trip on Syncinerary
-        \(link)
-        or enter code \(invite.code)
-        """
+        return String(
+            localized: "Join my \(trip.destination) trip on Syncinerary\n\(link)\nor enter code \(invite.code)"
+        )
     }
 
     /// A code read by VoiceOver has to be spelled, or it is heard as a word.

@@ -77,7 +77,10 @@ struct ReplanReviewView: View {
                     Section("Why this works") {
                         ForEach(chosen) { alternative in
                             Label {
-                                Text(alternative.reason ?? "Fits the updated day.")
+                                Text(
+                                    alternative.reason
+                                        ?? String(localized: "Fits the updated day.")
+                                )
                             } icon: {
                                 Image(systemName: "sparkles")
                                     .accessibilityHidden(true)

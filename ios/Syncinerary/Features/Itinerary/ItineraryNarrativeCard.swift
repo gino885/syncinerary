@@ -16,7 +16,10 @@ struct ItineraryNarrativeCard: View {
             Text(narrative)
                 .lineLimit(isExpanded || !isLong ? nil : 5)
             if isLong {
-                Button(isExpanded ? "Less" : "Read it all", action: toggle)
+                Button(
+                    isExpanded ? String(localized: "Less") : String(localized: "Read it all"),
+                    action: toggle
+                )
                     .font(AppType.mono)
                     .textCase(.uppercase)
                     .foregroundStyle(AppTheme.ink)

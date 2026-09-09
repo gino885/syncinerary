@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from syncinerary.config import settings
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, language_name
 from syncinerary.domain.models import (
     BadgeType,
     CandidateBadge,
@@ -109,6 +110,7 @@ async def generate_badges_for_traveler(
     candidates: list[CandidatePlace],
     constraints: list[Constraint],
     *,
+    output_locale: str = DEFAULT_OUTPUT_LOCALE,
     client: MessagesClient | None = None,
 ) -> list[CandidateBadge]:
     """Generate zero or one badge per card using one call for the traveler."""
@@ -119,7 +121,11 @@ async def generate_badges_for_traveler(
         LLMRequest(
             model=settings.sync_cheap_model,
             max_tokens=BADGE_MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=(
+                f"{SYSTEM_PROMPT}\n\n"
+                f"Output language: {language_name(output_locale)}. "
+                "Write badge_text and reasoning in that language."
+            ),
             output_config=LLMOutputConfig(
                 format=LLMJSONSchemaFormat(
                     schema_=strict_json_schema(BadgeDecisionBatch)
@@ -196,6 +202,7 @@ async def badge_node(state: TripState) -> dict[str, Any]:
                     traveler,
                     candidates,
                     constraints,
+                    output_locale=trip.output_locale,
                 )
             )
 

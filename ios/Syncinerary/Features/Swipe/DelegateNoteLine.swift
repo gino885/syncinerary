@@ -21,6 +21,10 @@ struct DelegateNoteLine: View {
                 .lineLimit(2)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(badge.type == "warning" ? "Warning: \(badge.text)" : badge.text)
+        .accessibilityLabel(
+            badge.type == "warning"
+                ? String(localized: "Warning: \(badge.text)")
+                : badge.text
+        )
     }
 }

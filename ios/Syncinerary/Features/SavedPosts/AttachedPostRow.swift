@@ -9,9 +9,13 @@ struct AttachedPostRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppTheme.spacingM) {
-            MetaLabel(platformName, color: AppTheme.ink)
+            MetaLabel(verbatim: platformName, color: AppTheme.ink)
                 .frame(minWidth: 84, alignment: .leading)
-            Text(isReady ? "Added to the deck" : "Add the place name, then add again")
+            Text(
+                isReady
+                    ? String(localized: "Added to the deck")
+                    : String(localized: "Add the place name, then add again")
+            )
                 .font(.subheadline)
                 .foregroundStyle(isReady ? AppTheme.ink : AppTheme.faded)
             Spacer()

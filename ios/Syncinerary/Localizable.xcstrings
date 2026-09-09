@@ -1,6 +1,315 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ +%lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ +%lld"
+          }
+        }
+      }
+    },
+    "%@ by %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，作者 %@"
+          }
+        }
+      }
+    },
+    "%@ source, opens the original post": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 來源，開啟原始貼文"
+          }
+        }
+      }
+    },
+    "%@ to %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 至 %@"
+          }
+        }
+      }
+    },
+    "%@ won't open to us": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取這則 %@ 貼文"
+          }
+        }
+      }
+    },
+    "%@ · %lld days": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld 天"
+          }
+        }
+      }
+    },
+    "%@ · %lld to avoid": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld 項不吃"
+          }
+        }
+      }
+    },
+    "%@, opens Google Maps": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，開啟 Google 地圖"
+          }
+        }
+      }
+    },
+    "%@, opens the post": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，開啟貼文"
+          }
+        }
+      }
+    },
+    "%lld %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld %@"
+          }
+        }
+      }
+    },
+    "%lld min": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘"
+          }
+        }
+      }
+    },
+    "%lld min %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘 %@"
+          }
+        }
+      }
+    },
+    "%lld minutes %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘 %@"
+          }
+        }
+      }
+    },
+    "%lld of %lld confirmations": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已確認 %lld/%lld"
+          }
+        }
+      }
+    },
+    "%lld of %lld left": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩餘 %lld 次，共 %lld 次"
+          }
+        }
+      }
+    },
+    "%lld of %lld must-go · %lld of %lld confirmed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必去 %lld/%lld · 已確認 %lld/%lld"
+          }
+        }
+      }
+    },
+    "%lld places going": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個地點會去"
+          }
+        }
+      }
+    },
+    "%lld stops": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個地點"
+          }
+        }
+      }
+    },
+    "%lld travellers": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 位旅伴"
+          }
+        }
+      }
+    },
+    "%lldd · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天 · %@"
+          }
+        }
+      }
+    },
+    ", ": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、"
+          }
+        }
+      }
+    },
+    "1 traveller": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 位旅伴"
+          }
+        }
+      }
+    },
+    "@%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%@"
+          }
+        }
+      }
+    },
+    "@handle": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@handle"
+          }
+        }
+      }
+    },
+    "Active": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中"
+          }
+        }
+      }
+    },
+    "Add": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入"
+          }
+        }
+      }
+    },
+    "Add %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入 %@"
+          }
+        }
+      }
+    },
+    "Add post": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增貼文"
+          }
+        }
+      }
+    },
+    "Add the place name, then add again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "補上地點名稱後再加入一次"
+          }
+        }
+      }
+    },
+    "Add to shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入候選"
+          }
+        }
+      }
+    },
     "Added": {
       "extractionState": "manual",
       "localizations": {
@@ -14,6 +323,37 @@
           "stringUnit": {
             "state": "translated",
             "value": "已加入"
+          }
+        }
+      }
+    },
+    "Added to the deck": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加入卡片"
+          }
+        }
+      }
+    },
+    "Adding your friends' finds": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入朋友分享的口袋名單"
+          }
+        }
+      }
+    },
+    "Alcohol": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "酒精"
           }
         }
       }
@@ -35,6 +375,185 @@
         }
       }
     },
+    "Anime": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動漫"
+          }
+        }
+      }
+    },
+    "Aquarium": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水族館"
+          }
+        }
+      }
+    },
+    "Architecture": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建築"
+          }
+        }
+      }
+    },
+    "Art": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "藝術"
+          }
+        }
+      }
+    },
+    "Art Gallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "美術館"
+          }
+        }
+      }
+    },
+    "Attached by you": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由你加入"
+          }
+        }
+      }
+    },
+    "Beef": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "牛肉"
+          }
+        }
+      }
+    },
+    "Breakfast": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早餐"
+          }
+        }
+      }
+    },
+    "Building your %@ days": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安排你的 %@ 行程"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "Card %lld of %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 張，共 %lld 張"
+          }
+        }
+      }
+    },
+    "Changed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更動"
+          }
+        }
+      }
+    },
+    "Check for confirmations": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看確認狀態"
+          }
+        }
+      }
+    },
+    "Checking each place on the map": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在地圖上確認每個地點"
+          }
+        }
+      }
+    },
+    "Checking the forecast": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看天氣預報"
+          }
+        }
+      }
+    },
+    "Choose and build the days": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選好並開始排行程"
+          }
+        }
+      }
+    },
+    "Choose interests": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇興趣"
+          }
+        }
+      }
+    },
     "Choose what sounds like you": {
       "extractionState": "manual",
       "localizations": {
@@ -48,6 +567,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇你喜歡的類型"
+          }
+        }
+      }
+    },
+    "City name, for example Tokyo": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "城市名稱，例如 東京"
           }
         }
       }
@@ -86,6 +615,47 @@
         }
       }
     },
+    "Coffee": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "咖啡"
+          }
+        }
+      }
+    },
+    "Comparing places to stay": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較住宿選項"
+          }
+        }
+      }
+    },
+    "Confirm shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認候選清單"
+          }
+        }
+      }
+    },
+    "Confirmed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已確認"
+          }
+        }
+      }
+    },
     "Continue": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +669,327 @@
           "stringUnit": {
             "state": "translated",
             "value": "繼續"
+          }
+        }
+      }
+    },
+    "Continues this trip where it left off": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從上次的進度繼續"
+          }
+        }
+      }
+    },
+    "Could not add that place.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法加入這個地點。"
+          }
+        }
+      }
+    },
+    "Could not join. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法加入，請再試一次。"
+          }
+        }
+      }
+    },
+    "Could not load the thread.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入對話。"
+          }
+        }
+      }
+    },
+    "Could not make an invite code. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立邀請碼，請再試一次。"
+          }
+        }
+      }
+    },
+    "Could not reach the trip server. Check the connection and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線至行程伺服器。請檢查網路後再試一次。"
+          }
+        }
+      }
+    },
+    "Couldn't add this post": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法加入這則貼文"
+          }
+        }
+      }
+    },
+    "Couldn't choose the stay": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法選擇住宿"
+          }
+        }
+      }
+    },
+    "Couldn't create the trip": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立行程"
+          }
+        }
+      }
+    },
+    "Couldn't find places": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到地點"
+          }
+        }
+      }
+    },
+    "Couldn't load the itinerary": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入行程"
+          }
+        }
+      }
+    },
+    "Couldn't reopen this trip": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新開啟這個行程"
+          }
+        }
+      }
+    },
+    "Couldn't update the shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新候選清單"
+          }
+        }
+      }
+    },
+    "Counting the votes": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "統計投票"
+          }
+        }
+      }
+    },
+    "Counting where posts agree": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找出貼文都推薦的地方"
+          }
+        }
+      }
+    },
+    "Country, for example Japan": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "國家，例如 日本"
+          }
+        }
+      }
+    },
+    "Dairy": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "乳製品"
+          }
+        }
+      }
+    },
+    "Day %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 天"
+          }
+        }
+      }
+    },
+    "Day %lld to day %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 天移到第 %lld 天"
+          }
+        }
+      }
+    },
+    "Day %lld, %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 天，%@"
+          }
+        }
+      }
+    },
+    "Day trips": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一日遊"
+          }
+        }
+      }
+    },
+    "Dealing your cards": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發牌中"
+          }
+        }
+      }
+    },
+    "Design": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設計"
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細資訊"
+          }
+        }
+      }
+    },
+    "Dietary details are unverified. Confirm with the restaurant.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "飲食資訊尚未確認，請向餐廳確認。"
+          }
+        }
+      }
+    },
+    "Dietary information: %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "飲食資訊：%@"
+          }
+        }
+      }
+    },
+    "Dinner": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晚餐"
+          }
+        }
+      }
+    },
+    "Dislike": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不喜歡"
+          }
+        }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "Double tap to like. Long press to mark as must go.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點兩下表示喜歡，長按標記為必去。"
+          }
+        }
+      }
+    },
+    "Eggs": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "蛋"
           }
         }
       }
@@ -120,6 +1011,17 @@
         }
       }
     },
+    "Family activities": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "親子活動"
+          }
+        }
+      }
+    },
     "Find places": {
       "extractionState": "manual",
       "localizations": {
@@ -133,6 +1035,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "尋找地點"
+          }
+        }
+      }
+    },
+    "Finding a base near the action": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找方便的落腳處"
+          }
+        }
+      }
+    },
+    "Finding places in %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在尋找 %@ 的地點"
+          }
+        }
+      }
+    },
+    "Finding what everyone agreed on": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找出大家的共識"
+          }
+        }
+      }
+    },
+    "Finish by": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束時間"
           }
         }
       }
@@ -154,6 +1096,27 @@
         }
       }
     },
+    "Fits the updated day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "符合更新後的當日行程。"
+          }
+        }
+      }
+    },
+    "Fitting the day together": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把一天拼起來"
+          }
+        }
+      }
+    },
     "For You": {
       "extractionState": "manual",
       "localizations": {
@@ -167,6 +1130,101 @@
           "stringUnit": {
             "state": "translated",
             "value": "為你推薦"
+          }
+        }
+      }
+    },
+    "Forget": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "Found on Google Maps": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Google 地圖上找到"
+          }
+        }
+      }
+    },
+    "From": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出發日"
+          }
+        }
+      }
+    },
+    "From %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 %@"
+          }
+        }
+      }
+    },
+    "Gallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "藝廊"
+          }
+        }
+      }
+    },
+    "Garden": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花園"
+          }
+        }
+      }
+    },
+    "Gardens": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "庭園"
+          }
+        }
+      }
+    },
+    "Gathering": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "蒐集中"
+          }
+        }
+      }
+    },
+    "Gluten": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麩質"
           }
         }
       }
@@ -201,6 +1259,103 @@
           "stringUnit": {
             "state": "translated",
             "value": "Google 地圖"
+          }
+        }
+      }
+    },
+    "Google Places": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 地點"
+          }
+        }
+      }
+    },
+    "Google Places · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 地點 · %@"
+          }
+        }
+      }
+    },
+    "Half the group has to confirm before planning. Stars are must-go, up to %lld.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要有一半的人確認才能開始排行程。星號代表必去，最多 %lld 個。"
+          }
+        }
+      }
+    },
+    "Hidden gems": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私房景點"
+          }
+        }
+      }
+    },
+    "Hiking": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健行"
+          }
+        }
+      }
+    },
+    "Historic": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歷史景點"
+          }
+        }
+      }
+    },
+    "History": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歷史"
+          }
+        }
+      }
+    },
+    "Home city, optional": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "居住城市，可不填"
+          }
+        }
+      }
+    },
+    "Hot springs": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "溫泉"
           }
         }
       }
@@ -273,6 +1428,97 @@
         }
       }
     },
+    "In the deck": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在卡片中"
+          }
+        }
+      }
+    },
+    "Instagram, TikTok, or RedNote link": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instagram、TikTok 或小紅書連結"
+          }
+        }
+      }
+    },
+    "Invite code": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請碼"
+          }
+        }
+      }
+    },
+    "Join": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入"
+          }
+        }
+      }
+    },
+    "Join my %@ trip on Syncinerary\n%@\nor enter code %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入我在 Syncinerary 的 %@ 行程\n%@\n或輸入邀請碼 %@"
+          }
+        }
+      }
+    },
+    "Join trip": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入行程"
+          }
+        }
+      }
+    },
+    "Join with code": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用邀請碼加入"
+          }
+        }
+      }
+    },
+    "Keep current plan": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "維持目前的行程"
+          }
+        }
+      }
+    },
+    "Keeping your must-gos safe": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確保必去的都排進去"
+          }
+        }
+      }
+    },
     "Known conflicts are hidden. Always confirm dietary needs with the restaurant.": {
       "extractionState": "manual",
       "localizations": {
@@ -280,6 +1526,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Known conflicts are hidden. Always confirm dietary needs with the restaurant."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已隱藏明確衝突的餐廳。用餐前請務必再向店家確認。"
+          }
+        }
+      }
+    },
+    "Late start": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延後出發"
+          }
+        }
+      }
+    },
+    "Laying out the deck": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理卡片"
+          }
+        }
+      }
+    },
+    "Leaving disliked places out": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除大家不喜歡的地點"
+          }
+        }
+      }
+    },
+    "Less": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收合"
+          }
+        }
+      }
+    },
+    "Like": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喜歡"
+          }
+        }
+      }
+    },
+    "Like with a note": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喜歡並備註"
+          }
+        }
+      }
+    },
+    "Like with note": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喜歡並備註"
+          }
+        }
+      }
+    },
+    "Liked": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已喜歡"
+          }
+        }
+      }
+    },
+    "Liked with a note": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已喜歡並加上備註"
+          }
+        }
+      }
+    },
+    "Live updates reconnecting": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時更新重新連線中"
+          }
+        }
+      }
+    },
+    "Local food": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在地美食"
           }
         }
       }
@@ -301,6 +1666,112 @@
         }
       }
     },
+    "Lunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "午餐"
+          }
+        }
+      }
+    },
+    "Making time for meals": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留出吃飯時間"
+          }
+        }
+      }
+    },
+    "Mark must-go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記為必去"
+          }
+        }
+      }
+    },
+    "Marked as must go": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已標記為必去"
+          }
+        }
+      }
+    },
+    "Market": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "市場"
+          }
+        }
+      }
+    },
+    "Markets": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "市集"
+          }
+        }
+      }
+    },
+    "Measuring every walk": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計算每段步行時間"
+          }
+        }
+      }
+    },
+    "Meat": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "肉類"
+          }
+        }
+      }
+    },
+    "Message not sent. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息未送出，請再試一次。"
+          }
+        }
+      }
+    },
+    "Message the group": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳訊息給大家"
+          }
+        }
+      }
+    },
     "More ideas": {
       "extractionState": "manual",
       "localizations": {
@@ -314,6 +1785,101 @@
           "stringUnit": {
             "state": "translated",
             "value": "更多靈感"
+          }
+        }
+      }
+    },
+    "Moved": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移動"
+          }
+        }
+      }
+    },
+    "Museum": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "博物館"
+          }
+        }
+      }
+    },
+    "Museums": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "博物館"
+          }
+        }
+      }
+    },
+    "Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音樂"
+          }
+        }
+      }
+    },
+    "Must go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必去"
+          }
+        }
+      }
+    },
+    "Must-go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必去"
+          }
+        }
+      }
+    },
+    "Natural Feature": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然景觀"
+          }
+        }
+      }
+    },
+    "Nature": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然"
+          }
+        }
+      }
+    },
+    "New times": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的時間"
           }
         }
       }
@@ -335,6 +1901,80 @@
         }
       }
     },
+    "Nightlife": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夜生活"
+          }
+        }
+      }
+    },
+    "No cards": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有卡片"
+          }
+        }
+      }
+    },
+    "No itinerary": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無行程"
+          }
+        }
+      }
+    },
+    "No matching cities found. Try another spelling.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到符合的城市。請試試其他拼法。"
+          }
+        }
+      }
+    },
+    "No places yet": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有地點"
+          }
+        }
+      }
+    },
+    "No stays found": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到住宿"
+          }
+        }
+      }
+    },
+    "No trip found for that code.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到這個邀請碼的行程。"
+          }
+        }
+      }
+    },
     "No trips yet. Start one, or join with a code.": {
       "extractionState": "manual",
       "localizations": {
@@ -348,6 +1988,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "還沒有行程。建立一個，或用邀請碼加入。"
+          }
+        }
+      }
+    },
+    "Not must-go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非必去"
+          }
+        }
+      }
+    },
+    "Not now": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先不要"
+          }
+        }
+      }
+    },
+    "Not selected": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選取"
+          }
+        }
+      }
+    },
+    "Note": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "備註"
+          }
+        }
+      }
+    },
+    "Noted": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已備註"
           }
         }
       }
@@ -386,6 +2076,16 @@
         }
       }
     },
+    "Nothing to shortlist yet": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有可以選的地點"
+          }
+        }
+      }
+    },
     "Now see what the group agreed on.": {
       "extractionState": "manual",
       "localizations": {
@@ -420,6 +2120,26 @@
         }
       }
     },
+    "Only if the weather holds. I'd skip the queue.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天氣好再去。我不想排隊。"
+          }
+        }
+      }
+    },
+    "Opens preference choices": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟偏好設定"
+          }
+        }
+      }
+    },
     "Optional. The places already gathered are waiting either way.": {
       "extractionState": "manual",
       "localizations": {
@@ -427,6 +2147,43 @@
           "stringUnit": {
             "state": "translated",
             "value": "Optional. The places already gathered are waiting either way."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可不填。已經蒐集到的地點都還在。"
+          }
+        }
+      }
+    },
+    "Park": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公園"
+          }
+        }
+      }
+    },
+    "Pass": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過"
+          }
+        }
+      }
+    },
+    "Passed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過"
           }
         }
       }
@@ -444,6 +2201,101 @@
           "stringUnit": {
             "state": "translated",
             "value": "把大家分享的連結貼進來。"
+          }
+        }
+      }
+    },
+    "Peanuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花生"
+          }
+        }
+      }
+    },
+    "Performing Arts Theater": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表演藝術場館"
+          }
+        }
+      }
+    },
+    "Photo of %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的照片"
+          }
+        }
+      }
+    },
+    "Photography": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "攝影"
+          }
+        }
+      }
+    },
+    "Place closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地點臨時關閉"
+          }
+        }
+      }
+    },
+    "Place name, if the link doesn't say": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地點名稱，如果連結沒有寫"
+          }
+        }
+      }
+    },
+    "Planned": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排定"
+          }
+        }
+      }
+    },
+    "Polishing your days": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "微調每天的行程"
+          }
+        }
+      }
+    },
+    "Pork": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "豬肉"
           }
         }
       }
@@ -482,6 +2334,16 @@
         }
       }
     },
+    "Previous": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一張"
+          }
+        }
+      }
+    },
     "Pull to try again.": {
       "extractionState": "manual",
       "localizations": {
@@ -495,6 +2357,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "下拉重試。"
+          }
+        }
+      }
+    },
+    "Putting trending finds first": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把熱門的排前面"
+          }
+        }
+      }
+    },
+    "Ramen": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉麵"
+          }
+        }
+      }
+    },
+    "Read it all": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看全部"
+          }
+        }
+      }
+    },
+    "Reading public captions": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取公開貼文內容"
+          }
+        }
+      }
+    },
+    "Reading the %@ post": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取 %@ 貼文"
+          }
+        }
+      }
+    },
+    "Remove": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "Remove %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@"
+          }
+        }
+      }
+    },
+    "Remove from shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從候選中移除"
+          }
+        }
+      }
+    },
+    "Remove must-go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消必去"
+          }
+        }
+      }
+    },
+    "Removed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除"
+          }
+        }
+      }
+    },
+    "Removing weak matches": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剔除不合適的結果"
+          }
+        }
+      }
+    },
+    "Reservation cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預約已取消"
+          }
+        }
+      }
+    },
+    "Restaurant": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "餐廳"
+          }
+        }
+      }
+    },
+    "Review last card": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回看上一張"
+          }
+        }
+      }
+    },
+    "Review the trip update": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看行程調整"
+          }
+        }
+      }
+    },
+    "Review trip update": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看行程調整"
+          }
+        }
+      }
+    },
+    "Room availability is not verified. Confirm dates with the hotel before booking.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未確認房況，訂房前請向飯店確認日期。"
           }
         }
       }
@@ -516,6 +2552,67 @@
         }
       }
     },
+    "Saving…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存中…"
+          }
+        }
+      }
+    },
+    "Seafood": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "海鮮"
+          }
+        }
+      }
+    },
+    "Search cities": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋城市"
+          }
+        }
+      }
+    },
+    "Searching Instagram, TikTok, and RedNote": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋 Instagram、TikTok 和小紅書"
+          }
+        }
+      }
+    },
+    "See the shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看候選清單"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已選取"
+          }
+        }
+      }
+    },
     "Selected cities": {
       "extractionState": "manual",
       "localizations": {
@@ -533,6 +2630,16 @@
         }
       }
     },
+    "Send message": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送訊息"
+          }
+        }
+      }
+    },
     "Share code": {
       "extractionState": "manual",
       "localizations": {
@@ -546,6 +2653,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "分享邀請碼"
+          }
+        }
+      }
+    },
+    "Shellfish": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帶殼海鮮"
+          }
+        }
+      }
+    },
+    "Shopping": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購物"
+          }
+        }
+      }
+    },
+    "Shortlist": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候選清單"
+          }
+        }
+      }
+    },
+    "Show details": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示詳細資訊"
+          }
+        }
+      }
+    },
+    "Shrine": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "神社"
+          }
+        }
+      }
+    },
+    "Slow travel": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "慢遊"
+          }
+        }
+      }
+    },
+    "Someone": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "某位成員"
+          }
+        }
+      }
+    },
+    "Something went wrong": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發生錯誤"
           }
         }
       }
@@ -584,6 +2776,236 @@
         }
       }
     },
+    "Start swiping": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始滑卡"
+          }
+        }
+      }
+    },
+    "Start the day": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始時間"
+          }
+        }
+      }
+    },
+    "Stay": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "住宿"
+          }
+        }
+      }
+    },
+    "Stay · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "住宿 · %@"
+          }
+        }
+      }
+    },
+    "Street food": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "街頭小吃"
+          }
+        }
+      }
+    },
+    "Swipe left to pass, right to like, up for must go.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左滑略過，右滑喜歡，上滑標記必去。"
+          }
+        }
+      }
+    },
+    "Swipe progress": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑卡進度"
+          }
+        }
+      }
+    },
+    "Swipe right to like, left to dislike, up for must go.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右滑喜歡，左滑不喜歡，上滑標記必去。"
+          }
+        }
+      }
+    },
+    "Swiping": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑卡中"
+          }
+        }
+      }
+    },
+    "Syncinerary": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncinerary"
+          }
+        }
+      }
+    },
+    "Tallying the votes": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計算票數"
+          }
+        }
+      }
+    },
+    "Temple": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寺廟"
+          }
+        }
+      }
+    },
+    "That invite code doesn't match a trip. Ask for a new one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個邀請碼找不到行程。請對方提供新的邀請碼。"
+          }
+        }
+      }
+    },
+    "That one isn't in this trip's cities": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個地點不在這趟行程的城市中"
+          }
+        }
+      }
+    },
+    "The server returned status %lld.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "伺服器回傳狀態 %lld。"
+          }
+        }
+      }
+    },
+    "This %@ post doesn't name a place": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這則 %@ 貼文沒有寫出地點名稱"
+          }
+        }
+      }
+    },
+    "To": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束日"
+          }
+        }
+      }
+    },
+    "Tourist Attraction": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "觀光景點"
+          }
+        }
+      }
+    },
+    "Transit delay": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交通延誤"
+          }
+        }
+      }
+    },
+    "Tree nuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "堅果"
+          }
+        }
+      }
+    },
+    "Trending": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "熱門"
+          }
+        }
+      }
+    },
+    "Trending on %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 熱門推薦"
+          }
+        }
+      }
+    },
     "Trip": {
       "extractionState": "manual",
       "localizations": {
@@ -597,6 +3019,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "行程"
+          }
+        }
+      }
+    },
+    "Trip change": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行程變動"
           }
         }
       }
@@ -618,6 +3051,16 @@
         }
       }
     },
+    "Try again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        }
+      }
+    },
     "Try another city.": {
       "extractionState": "manual",
       "localizations": {
@@ -635,6 +3078,37 @@
         }
       }
     },
+    "Try another name": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "換個名稱試試"
+          }
+        }
+      }
+    },
+    "Unrolling the map": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "攤開地圖"
+          }
+        }
+      }
+    },
+    "Use this plan": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "採用這個版本"
+          }
+        }
+      }
+    },
     "Votes in": {
       "extractionState": "manual",
       "localizations": {
@@ -648,6 +3122,49 @@
           "stringUnit": {
             "state": "translated",
             "value": "已投票"
+          }
+        }
+      }
+    },
+    "Voting": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "投票中"
+          }
+        }
+      }
+    },
+    "Warning: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：%@"
+          }
+        }
+      }
+    },
+    "Weather change": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天氣變化"
+          }
+        }
+      }
+    },
+    "What place is it?": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是哪個地點？"
           }
         }
       }
@@ -686,6 +3203,36 @@
         }
       }
     },
+    "Who are you?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是誰？"
+          }
+        }
+      }
+    },
+    "Why this works": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為什麼這樣安排"
+          }
+        }
+      }
+    },
+    "Writing your trip story": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寫下你的行程故事"
+          }
+        }
+      }
+    },
     "You": {
       "extractionState": "manual",
       "localizations": {
@@ -720,6 +3267,17 @@
         }
       }
     },
+    "You can mark up to %lld must-go places for this trip.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這趟行程最多可標記 %lld 個必去地點。"
+          }
+        }
+      }
+    },
     "You're invited to": {
       "extractionState": "manual",
       "localizations": {
@@ -733,6 +3291,139 @@
           "stringUnit": {
             "state": "translated",
             "value": "你受邀加入"
+          }
+        }
+      }
+    },
+    "Your name": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的名字"
+          }
+        }
+      }
+    },
+    "approx. %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@"
+          }
+        }
+      }
+    },
+    "approx. public transit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約搭大眾運輸"
+          }
+        }
+      }
+    },
+    "approx. walk": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約步行"
+          }
+        }
+      }
+    },
+    "public transit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大眾運輸"
+          }
+        }
+      }
+    },
+    "taxi": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計程車"
+          }
+        }
+      }
+    },
+    "transit": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大眾運輸"
+          }
+        }
+      }
+    },
+    "travel": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交通"
+          }
+        }
+      }
+    },
+    "via %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經由 %@"
+          }
+        }
+      }
+    },
+    "walk": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "步行"
+          }
+        }
+      }
+    },
+    "“%@”": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」"
+          }
+        }
+      }
+    },
+    "← pass · like → · ↑ must go": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "← 略過 · 喜歡 → · ↑ 必去"
+          }
+        }
+      }
+    },
+    "★ Must go ★": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "★ 必去 ★"
           }
         }
       }

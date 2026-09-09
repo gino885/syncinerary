@@ -1,14 +1,13 @@
 """Languages the server can write shared trip content in.
 
-Three different languages run through this product and conflating any two of
-them is a bug:
+Three related language choices run through this product:
 
-- display language, which the iOS app resolves from the device
+- display language, which the iOS app resolves from its selected localization
 - output language, which is what the server writes narratives and reasons in,
   persisted per trip because a group reads one artifact
-- search language, which is whatever retrieves the most from a given platform
-  and belongs nowhere near either of the above. RedNote is searched in
-  Simplified Chinese whoever is looking at it.
+- search language, which follows Chinese versus English from the creator's
+  stored output locale so returned social content matches the UI. RedNote is
+  always searched in its measured Simplified Chinese vocabulary.
 """
 
 #: Locale tag to the name the model is asked to write in. Traditional and

@@ -11,7 +11,7 @@ struct PreferenceTagButton: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: AppTheme.spacingS) {
-                Text(tag.title)
+                Text(tag.localizedTitle)
                     .lineLimit(2)
                 Spacer(minLength: 0)
                 Image(systemName: "checkmark")
@@ -29,7 +29,9 @@ struct PreferenceTagButton: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityValue(
+            isSelected ? String(localized: "Selected") : String(localized: "Not selected")
+        )
     }
 
     private func toggle() {

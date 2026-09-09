@@ -11,7 +11,7 @@ struct SwipeProgressHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingS) {
             HStack(spacing: AppTheme.spacingM) {
-                MetaLabel(progressText, color: AppTheme.ink)
+                MetaLabel(verbatim: progressText, color: AppTheme.ink)
                 Spacer(minLength: 0)
                 Button("Previous", systemImage: "arrow.uturn.backward", action: onPrevious)
                     .font(.subheadline)

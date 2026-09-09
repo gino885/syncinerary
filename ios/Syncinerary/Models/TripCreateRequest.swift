@@ -15,6 +15,9 @@ struct TripCreateRequest: Encodable, Sendable {
     let creatorHomeCity: String?
     let creatorInterests: [String]
     let creatorDietaryExcludes: [String]
+    /// The group creator's app language. Shared search and generated trip
+    /// content follow this value for the lifetime of the trip.
+    let outputLocale: String
 
     enum CodingKeys: String, CodingKey {
         case cities
@@ -26,5 +29,6 @@ struct TripCreateRequest: Encodable, Sendable {
         case creatorHomeCity = "creator_home_city"
         case creatorInterests = "creator_interests"
         case creatorDietaryExcludes = "creator_dietary_excludes"
+        case outputLocale = "output_locale"
     }
 }

@@ -66,7 +66,11 @@ struct SwipeDeckView: View {
                     .accessibilityAction(named: "Dislike") { throwCard(.dislike, from: .zero) }
                     .accessibilityAction(named: "Must go") { throwCard(.mustHave, from: .zero) }
                     .accessibilityAction(named: "Show details") { onDetails(card) }
-                    .accessibilityHint(index == 0 ? "Swipe right to like, left to dislike, up for must go." : "")
+                    .accessibilityHint(
+                        index == 0
+                            ? String(localized: "Swipe right to like, left to dislike, up for must go.")
+                            : ""
+                    )
             }
         }
         // Room under the top card for the two behind it to peek out.

@@ -47,9 +47,12 @@ at the search snippet. Automated tests use local stubs and do not spend
 provider requests.
 
 One useful post can introduce a place. RedNote is searched on its note path
-with the Mandarin destination name. Explicit post likes and comments rank a
-result higher when the public snippet includes them. Results without visible
-metrics are labelled "Found on" rather than presented as popular.
+with the Mandarin destination name. When the group creator uses the Chinese
+app localization, Instagram and TikTok searches also use Chinese vocabulary,
+so the returned posts and video captions match the group's language. Explicit
+post likes and comments rank a result higher when the public snippet includes
+them. Results without visible metrics are labelled "Found on" rather than
+presented as popular.
 
 Source badges on swipe cards and itinerary stops link out to the post that
 named the place (or to the place's Google Maps page), the platform's own app

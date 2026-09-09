@@ -10,7 +10,7 @@ enum APIError: LocalizedError, Sendable {
         case .invalidResponse:
             "The server returned an invalid response."
         case let .badStatus(code, detail):
-            detail ?? "The server returned status \(code)."
+            detail ?? String(localized: "The server returned status \(code).")
         case let .decoding(detail):
             "The app could not read the server response: \(detail)"
         }

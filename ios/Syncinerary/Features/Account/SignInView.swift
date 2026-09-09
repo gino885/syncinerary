@@ -28,7 +28,11 @@ struct SignInView: View {
                 if invitedTo != nil {
                     EyebrowText("One more thing")
                 }
-                Text(invitedTo == nil ? "Syncinerary" : "Who are you?")
+                Text(
+                    invitedTo == nil
+                        ? String(localized: "Syncinerary")
+                        : String(localized: "Who are you?")
+                )
                     .font(AppType.title)
                     .foregroundStyle(AppTheme.ink)
             }
@@ -77,7 +81,7 @@ struct SignInView: View {
     }
 
     private func ruledField(
-        _ placeholder: String,
+        _ placeholder: LocalizedStringKey,
         text: Binding<String>,
         field: Field,
         mono: Bool

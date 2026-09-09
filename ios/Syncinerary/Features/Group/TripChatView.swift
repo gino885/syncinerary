@@ -81,7 +81,7 @@ struct TripChatView: View {
             messages = try await APIClient.shared.messages(tripID: trip.id)
             errorMessage = nil
         } catch {
-            errorMessage = "Could not load the thread."
+            errorMessage = String(localized: "Could not load the thread.")
         }
     }
 
@@ -99,7 +99,7 @@ struct TripChatView: View {
                 messages[index] = updated
             }
         } catch {
-            errorMessage = "Could not add that place."
+            errorMessage = String(localized: "Could not add that place.")
         }
     }
 
@@ -116,7 +116,7 @@ struct TripChatView: View {
         } catch {
             // Put the text back rather than losing what they typed.
             draft = body
-            errorMessage = "Message not sent. Try again."
+            errorMessage = String(localized: "Message not sent. Try again.")
         }
     }
 }

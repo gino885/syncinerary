@@ -2,7 +2,9 @@ import Foundation
 
 struct ReplanDiffStop: Decodable, Identifiable, Sendable {
     var id: UUID { nodeID }
-    var timeRange: String { "\(startTime.prefix(5)) to \(endTime.prefix(5))" }
+    var timeRange: String {
+        String(localized: "\(startTime.prefix(5)) to \(endTime.prefix(5))")
+    }
 
     let candidateID: UUID
     let name: String

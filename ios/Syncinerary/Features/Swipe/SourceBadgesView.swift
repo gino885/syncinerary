@@ -26,7 +26,7 @@ struct SourceBadgesView: View {
             if let url = badge.linkURL {
                 Link(destination: url) {
                     HStack(spacing: AppTheme.spacingXS) {
-                        Text(shortLabel(for: badge))
+                        Text(badge.localizedLabel)
                             .underline()
                         Image(systemName: "arrow.up.right")
                             .accessibilityHidden(true)
@@ -42,29 +42,16 @@ struct SourceBadgesView: View {
                     // render everywhere the deck does, and emoji do not.
                     Image(systemName: "sparkles")
                         .accessibilityHidden(true)
-                    Text(shortLabel(for: badge))
+                    Text(badge.localizedLabel)
                 }
                 .font(AppType.mono)
                 .textCase(.uppercase)
                 .foregroundStyle(tint(for: badge.kind))
                 .accessibilityLabel(badge.accessibilityLabel)
             } else {
-                MetaLabel(shortLabel(for: badge), color: tint(for: badge.kind))
+                MetaLabel(verbatim: badge.localizedLabel, color: tint(for: badge.kind))
                     .accessibilityLabel(badge.accessibilityLabel)
             }
-        }
-    }
-
-    /// The margin has no room for sentences: "Google Maps", "TikTok",
-    /// "From Ana".
-    private func shortLabel(for badge: SourceBadge) -> String {
-        switch badge.kind {
-        case "discovered": "Google Maps"
-        case "trending": badge.platform ?? "Trending"
-        case "classic": "Classic"
-        case "attached_by_you": "You added this"
-        case "for_you": "For You"
-        default: badge.contributorName.map { "From \($0)" } ?? badge.label
         }
     }
 

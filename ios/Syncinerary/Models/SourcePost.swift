@@ -15,7 +15,7 @@ struct SourcePost: Decodable, Hashable, Sendable {
     /// "TikTok by Travel Notes", or just the platform when the author is unknown.
     var title: String {
         if let authorName, !authorName.isEmpty {
-            return "\(label) by \(authorName)"
+            return String(localized: "\(label) by \(authorName)")
         }
         return label
     }

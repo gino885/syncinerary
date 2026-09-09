@@ -10,7 +10,7 @@ struct LodgingOptionRow: View {
                 Text(option.name)
                     .font(AppType.rowTitle)
                     .foregroundStyle(AppTheme.ink)
-                MetaLabel(metaLine)
+                MetaLabel(verbatim: metaLine)
                 if let address = option.address {
                     Text(address)
                         .font(.footnote)
@@ -29,7 +29,9 @@ struct LodgingOptionRow: View {
         .padding(.vertical, AppTheme.spacingXS)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityValue(
+            isSelected ? String(localized: "Selected") : String(localized: "Not selected")
+        )
     }
 
     private var metaLine: String {

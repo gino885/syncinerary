@@ -25,7 +25,7 @@ struct CandidateDetailView: View {
                             .foregroundStyle(AppTheme.faded)
                     }
 
-                    MetaLabel(metaLine)
+                    MetaLabel(verbatim: metaLine)
 
                     SourceBadgesView(badges: candidate.sourceBadges)
 
@@ -55,13 +55,17 @@ struct CandidateDetailView: View {
                                 .fill(AppTheme.stamp)
                                 .frame(width: 2)
                                 .accessibilityHidden(true)
-                            Text(notice)
+                            Text(String(localized: String.LocalizationValue(notice)))
                                 .font(.subheadline)
                                 .italic()
                                 .foregroundStyle(AppTheme.stamp)
                         }
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("Dietary information: \(notice)")
+                        .accessibilityLabel(
+                            String(
+                                localized: "Dietary information: \(String(localized: String.LocalizationValue(notice)))"
+                            )
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,9 +88,10 @@ struct CandidateDetailView: View {
             parts.append(area)
         }
         if let category = candidate.category {
-            parts.append(category.replacing("_", with: " "))
+            let key = category.replacing("_", with: " ").capitalized
+            parts.append(String(localized: String.LocalizationValue(key)))
         }
-        parts.append("\(candidate.durationEstimateMin) min")
+        parts.append(String(localized: "\(candidate.durationEstimateMin) min"))
         parts.append(String(repeating: "$", count: max(1, candidate.priceTier)))
         return parts.joined(separator: " · ")
     }

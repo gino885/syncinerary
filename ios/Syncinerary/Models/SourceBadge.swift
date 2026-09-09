@@ -23,13 +23,39 @@ struct SourceBadge: Decodable, Hashable, Sendable {
         return URL(string: url)
     }
 
+    /// Localized app-owned badge wording. Platform and contributor names stay
+    /// verbatim because they are names, not interface copy.
+    var localizedLabel: String {
+        switch kind {
+        case "discovered": String(localized: "Google Maps")
+        case "trending": platform ?? String(localized: "Trending")
+        case "classic": String(localized: "Classic")
+        case "attached_by_you": String(localized: "You added this")
+        case "for_you": String(localized: "For You")
+        default: contributorName.map { String(localized: "From \($0)") } ?? label
+        }
+    }
+
+    private var localizedAccessibilityBaseLabel: String {
+        switch kind {
+        case "discovered": String(localized: "Found on Google Maps")
+        case "trending": platform.map { String(localized: "Trending on \($0)") } ?? label
+        case "attached_by_you": String(localized: "Attached by you")
+        case "attached_by_group": contributorName.map { String(localized: "From \($0)") } ?? label
+        case "classic": String(localized: "Classic")
+        case "for_you": String(localized: "For You")
+        default: label
+        }
+    }
+
     /// Names the destination so VoiceOver says what a tap does.
     var accessibilityLabel: String {
-        guard linkURL != nil else { return label }
+        let baseLabel = localizedAccessibilityBaseLabel
+        guard linkURL != nil else { return baseLabel }
         if platform == "Google Maps" {
-            return "\(label), opens Google Maps"
+            return String(localized: "\(baseLabel), opens Google Maps")
         }
-        return "\(label), opens the post"
+        return String(localized: "\(baseLabel), opens the post")
     }
 
     enum CodingKeys: String, CodingKey {
