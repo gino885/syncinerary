@@ -286,19 +286,28 @@ def test_closed_candidate_is_unplaced_with_specific_reason():
 
 
 def test_day_duration_cap_can_force_a_shortlisted_card_out():
-    first = _place("Long A", 43.06, 141.35, duration=600)
-    second = _place("Long B", 43.07, 141.36, duration=600)
+    first = _place("Long A", 43.06, 141.35, duration=180)
+    second = _place("Long B", 43.07, 141.36, duration=180)
 
     route = solve_day(
         [first, second],
         day=0,
         trip_date=date(2026, 5, 21),
         transit=_matrix([first, second]),
+        options=SolverOptions(day_end=time(16), day_duration_cap_hours=6),
     )
 
     assert len(route.stops) == 1
     assert len(route.unplaced) == 1
     assert route.unplaced[0].reason_code == "no_day_fit"
+    # Six hours of visits plus lunch and transit exceed the cap, but fit the
+    # same opening/day windows when only the active-duration cap is relaxed.
+    relaxed = solve_day(
+        [first, second], day=0, trip_date=date(2026, 5, 21),
+        transit=_matrix([first, second]),
+        options=SolverOptions(day_end=time(16), day_duration_cap_hours=8),
+    )
+    assert len(relaxed.stops) == 2
 
 
 def test_user_adjustable_window_is_an_explicit_solver_option():

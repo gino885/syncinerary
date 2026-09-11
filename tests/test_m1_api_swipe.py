@@ -120,14 +120,16 @@ async def test_create_trip_uses_the_city_place_id_selected_by_the_traveler(
         "/trips",
         json={
             **TRIP_BODY,
+            "country": "JP",
             "cities": ["Tokyo"],
             "city_place_ids": ["ChIJ-tokyo-city"],
         },
     )
 
     assert response.status_code == 201, response.text
-    assert seen == [(["Tokyo"], ["ChIJ-tokyo-city"], "Japan")]
+    assert seen == [(["Tokyo"], ["ChIJ-tokyo-city"], "JP")]
     assert response.json()["trip"]["cities"] == ["Tokyo"]
+    assert response.json()["trip"]["country"] == "Japan"
 
 
 async def test_create_trip_returns_trip_and_traveler_identity(client):
@@ -247,6 +249,7 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
         "area",
         "address",
         "category",
+        "category_label",
         "price_tier",
         "duration_estimate_min",
         "dietary_tags",

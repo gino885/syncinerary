@@ -24,8 +24,9 @@ tracked, and the app targets iOS 17 or later.
 - Swipe records like/dislike votes and builds the itinerary when complete.
 - ItineraryView renders each day, transit legs, the narrative, and any
   wishlist-not-placed reasons.
-- The planner aims for lunch and dinner when suitable selected restaurants are
-  open inside the user's day window.
+- The planner schedules selected restaurants at meal times, or reserves lunch
+  and dinner breaks with nearby restaurant search links inside the day window.
+  Breakfast is optional. Transit legs link to Google Maps directions.
 - Thin days are topped up only with nearby cards the group selected. Excluded
   swipe cards never reappear in the itinerary.
 
@@ -42,8 +43,11 @@ lists twenty interests costs no more than one that lists two. Each query and
 platform is cached for 24 hours. TikTok posts are then read through the
 official embed API (caption, creator, cover frame) in one batched call per
 search, and the text on the cover frames is transcribed in one vision call;
-both are capped in `config/gather.py` and cached. Instagram and RedNote stay
-at the search snippet. Automated tests use local stubs and do not spend
+both are capped in `config/gather.py` and cached. Instagram and RedNote use
+the indexed description and additional search snippets when available. Discovery
+prefers Instagram, then RedNote, then TikTok; Google Places discovery fills
+remaining quantity or category gaps after the social search budget. Google
+still verifies locations and provides place details and lodging. Automated tests use local stubs and do not spend
 provider requests.
 
 One useful post can introduce a place. RedNote is searched on its note path
@@ -56,9 +60,12 @@ presented as popular.
 
 Source badges on swipe cards and itinerary stops link out to the post that
 named the place (or to the place's Google Maps page), the platform's own app
-when installed and Safari otherwise. The post is never rendered in the app. A
-card also lists every post behind it under "From the posts", with what each
-one said.
+when installed and Safari otherwise. Public Instagram Reels can also load in
+Instagram's own embedded player after a tap; availability depends on Instagram.
+The embed does not extract or transcribe the video's audio or frames. A card
+also lists every post behind it under "From the posts", with its evidence summary.
+Cards translate display text into the trip's output language while retaining
+the original evidence, including cards attached or gathered earlier.
 
 For the full product, city combinations should be suggested from trip length
 and real transit time: one city for 1 to 3 days, up to two nearby cities for 4

@@ -5,6 +5,7 @@ enum APIContractTests {
     static func main() throws {
         try chooseTripPreferences()
         try chooseSharedTripLanguage()
+        try canonicalizeCountryAcrossDisplayLanguages()
         try moveBackwardThroughTheSwipeDeck()
         try decodeCitySuggestions()
         try encodeSeveralTypedCities()
@@ -15,6 +16,7 @@ enum APIContractTests {
         try decodeSourceAttachmentResponse()
         try decodeCandidateCard()
         try summarizeSourcePostLinks()
+        try validateReelEmbedURL()
         try decodeCandidatePhoto()
         try decodeLodgingOptions()
         try encodeLodgingSelection()
@@ -31,6 +33,15 @@ enum APIContractTests {
         try buildReplanWebSocketURL()
         try decodeReplanProposal()
         print("iOS API contract tests passed")
+    }
+
+    private static func validateReelEmbedURL() throws {
+        let post = SourcePost(platform: "instagram", label: "Instagram",
+                              url: "https://www.instagram.com/reel/AbC_123/", authorName: nil, highlight: nil)
+        try require(post.instagramReelURL?.absoluteString == post.url, "Public Reels support embedding")
+        let unsafe = SourcePost(platform: "instagram", label: "Instagram",
+                                url: "https://evil.example/reel/AbC_123/", authorName: nil, highlight: nil)
+        try require(unsafe.instagramReelURL == nil, "Only canonical Instagram URLs may embed")
     }
 
     private static func chooseTripPreferences() throws {
@@ -73,6 +84,21 @@ enum APIContractTests {
         try require(
             AppLanguage.outputLocaleIdentifier(for: "en-US") == "en",
             "An English UI must create an English trip"
+        )
+    }
+
+    private static func canonicalizeCountryAcrossDisplayLanguages() throws {
+        try require(
+            CountryIdentifier.canonicalCode(for: "日本") == "JP",
+            "A localized country name must match the provider's ISO country"
+        )
+        try require(
+            CountryIdentifier.canonicalCode(for: "Japan") == "JP",
+            "An English country name must resolve in a Chinese app too"
+        )
+        try require(
+            CountryIdentifier.canonicalCode(for: "jp") == "JP",
+            "An ISO country code must be normalized before it is sent"
         )
     }
 
@@ -137,8 +163,8 @@ enum APIContractTests {
             "A trip must send the exact city choices"
         )
         try require(
-            payload["country"] as? String == "Japan",
-            "A trip must name the one country its cities are in"
+            payload["country"] as? String == "JP",
+            "A trip must identify the one country its cities are in"
         )
         try require(
             payload["destination"] == nil,
@@ -150,7 +176,7 @@ enum APIContractTests {
         let request = TripCreateRequest(
             cities: ["Sapporo"],
             cityPlaceIDs: ["ChIJ-sapporo"],
-            country: "Japan",
+            country: "日本",
             startDate: "2026-09-25",
             endDate: "2026-09-29",
             creatorName: "Gino",
@@ -167,6 +193,7 @@ enum APIContractTests {
         try require(payload["start_date"] as? String == "2026-09-25", "Trip request must encode start_date")
         try require(payload["creator_name"] as? String == "Gino", "Trip request must encode creator_name")
         try require(payload["cities"] as? [String] == ["Sapporo"], "Trip request must encode the typed cities")
+        try require(payload["country"] as? String == "JP", "Trip request must encode a stable country identity")
         try require(payload["creator_interests"] as? [String] == ["coffee", "architecture"], "Trip request must encode interests")
         try require(payload["creator_dietary_excludes"] as? [String] == ["seafood"], "Trip request must encode dietary exclusions")
         try require(payload["output_locale"] as? String == "zh-Hant", "Trip request must encode the creator UI language")

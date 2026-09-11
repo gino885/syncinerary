@@ -10,11 +10,15 @@ from datetime import date, time
 from typing import Self
 from uuid import uuid4
 
+import pytest
+
 from syncinerary.agents.solver import stage2_route as solver_module
+from syncinerary.agents.solver.meal_breaks import available_meal_breaks
 from syncinerary.agents.solver.stage1_days import (
     allocate_days,
     assign_days_by_city,
     cluster_nearby_evenly,
+    required_meals_on,
 )
 from syncinerary.agents.solver.stage2_route import (
     DayRoute,
@@ -596,3 +600,137 @@ def test_a_trip_with_no_cities_recorded_falls_back_to_plain_clustering():
     candidates = [_place(f"Sight {i}", 43.06 + i * 0.002, 141.35) for i in range(6)]
 
     assert len(assign_days_by_city(candidates, 2, [])) == 2
+
+
+def test_missing_restaurants_reserve_time_for_lunch_and_dinner():
+    places = [_place(f"Sight {i}", 43.06 + i * .001, 141.35, duration=120)
+              for i in range(6)]
+    route = solve_day(day=0, trip_date=THURSDAY, candidates=places,
+                      transit=_matrix(places))
+    from syncinerary.agents.solver.meal_breaks import available_meal_breaks
+    breaks = available_meal_breaks(route.stops, day_start=480, day_end=1260)
+    assert {b.meal for b in breaks} == {"lunch", "dinner"}
+    for b in breaks:
+        assert b.end_minute - b.start_minute == 60
+        assert all(b.end_minute <= s.start_minute - s.transit_from_prev_min
+                   or b.start_minute >= s.end_minute for s in route.stops)
+
+
+def test_reconstructed_meals_share_the_duration_cap_with_a_late_pin():
+    sight = _place("Late observatory", 43.06, 141.35)
+    route = solve_day(
+        [sight], day=0, trip_date=THURSDAY, transit=_matrix([sight]),
+        options=SolverOptions(day_duration_cap_hours=8),
+        fixed_start_minutes={sight.id: 20 * 60},
+    )
+    breaks = available_meal_breaks(
+        route.stops, day_start=480, day_end=1260, duration_cap_minutes=480,
+    )
+    assert {item.meal for item in breaks} == {"lunch", "dinner"}
+    assert route.stops[0].start_minute == 1200
+    assert max([s.end_minute for s in route.stops] + [b.end_minute for b in breaks]) - min(
+        [s.start_minute for s in route.stops] + [b.start_minute for b in breaks]
+    ) <= 480
+
+
+@pytest.mark.parametrize("count_only", [False, True])
+def test_the_cap_also_applies_between_two_reserved_meals(count_only):
+    sight = _place("Afternoon museum", 43.06, 141.35)
+    # Lunch cannot finish later than 15:00 and dinner cannot start before
+    # 17:00. Two hour-long meals cannot share a three-hour active day.
+    with pytest.raises(RuntimeError, match="Required candidates"):
+        solve_day(
+            [sight], day=0, trip_date=THURSDAY, transit=_matrix([sight]),
+            options=SolverOptions(day_duration_cap_hours=3),
+            fixed_start_minutes={sight.id: 15 * 60},
+            count_placements_only=count_only,
+        )
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_a_required_food_without_a_meal_slot_is_never_silently_dropped(fixed):
+    food = _food("Pinned tearoom", 43.06, 141.35, hours=[[15, 17]])
+    with pytest.raises(RuntimeError, match="Required candidate.*meal"):
+        solve_day(
+            [food], day=0, trip_date=THURSDAY, transit=_matrix([food]),
+            required_candidate_ids=set() if fixed else {food.id},
+            fixed_start_minutes={food.id: 15 * 60} if fixed else {},
+        )
+
+
+def test_top_up_cannot_buy_a_restaurant_by_losing_a_selected_stop():
+    def stop(index, meal=None):
+        return ScheduledStop(
+            candidate_id=uuid4(), day=0, start_minute=480 + index * 90,
+            end_minute=540 + index * 90, meal_slot=meal,
+        )
+
+    current = DayRoute(day=0, stops=[stop(i) for i in range(4)])
+    trial = DayRoute(
+        day=0, stops=[stop(0), stop(1), stop(2, "lunch")],
+        meals_covered=["lunch"],
+    )
+    assert not _is_better(trial, current)
+
+
+def test_top_up_retains_sights_before_improving_restaurant_coverage():
+    stops = [ScheduledStop(candidate_id=uuid4(), day=0, start_minute=480,
+                           end_minute=540) for _ in range(3)]
+    current = DayRoute(day=0, stops=stops)
+    trial = DayRoute(
+        day=0,
+        stops=[*stops[:2], stops[2].model_copy(update={"meal_slot": "lunch"})],
+        meals_covered=["lunch"],
+    )
+    assert not _is_better(trial, current)
+
+
+@pytest.mark.parametrize("category", ["bar", "night_club"])
+def test_drinks_only_nightlife_is_a_visit_and_does_not_replace_dinner(category):
+    bar = _food("Lowkey drinks", 43.06, 141.35, hours=[[18, 22]]).model_copy(
+        update={"category": category},
+    )
+    assert required_meals_on(bar, THURSDAY, time(8), time(21)) == frozenset()
+    route = solve_day(
+        [bar], day=0, trip_date=THURSDAY, transit=_matrix([bar]),
+        fixed_start_minutes={bar.id: 18 * 60},
+    )
+    assert len(route.stops) == 1
+    assert route.stops[0].meal_slot is None
+    assert route.meals_covered == []
+    breaks = available_meal_breaks(route.stops, day_start=480, day_end=1260)
+    assert {item.meal for item in breaks} == {"lunch", "dinner"}
+
+
+def test_default_break_cap_does_not_extend_a_late_day_to_fourteen_hours():
+    stop = ScheduledStop(candidate_id=uuid4(), day=0, start_minute=1380,
+                         end_minute=1439)
+    breaks = available_meal_breaks([stop], day_start=480, day_end=1439)
+    assert {item.meal for item in breaks} == {"lunch", "dinner"}
+    assert stop.end_minute - min(item.start_minute for item in breaks) <= 720
+
+
+def test_reconstruction_moves_lunch_later_to_keep_both_meals_within_the_cap():
+    stop = ScheduledStop(candidate_id=uuid4(), day=0, start_minute=900,
+                         end_minute=960)
+    breaks = available_meal_breaks(
+        [stop], day_start=480, day_end=1260, duration_cap_minutes=240,
+    )
+    assert [(b.meal, b.start_minute, b.end_minute) for b in breaks] == [
+        ("lunch", 840, 900), ("dinner", 1020, 1080),
+    ]
+
+
+@pytest.mark.parametrize("count_only", [False, True])
+def test_required_pins_cannot_hide_lunch_inside_their_incoming_transit(count_only):
+    first = _place("Morning pin", 43.06, 141.35)
+    second = _place("Afternoon pin", 43.07, 141.36, duration=120)
+    # The second visit occupies 13:00-15:00, and its incoming journey occupies
+    # 11:00-13:00. Lunch has no free hour, even though the visits alone do.
+    with pytest.raises(RuntimeError, match="Required candidates"):
+        solve_day(
+            [first, second], day=0, trip_date=THURSDAY,
+            transit=_matrix([first, second], minutes=120),
+            fixed_start_minutes={first.id: 540, second.id: 780},
+            count_placements_only=count_only,
+        )

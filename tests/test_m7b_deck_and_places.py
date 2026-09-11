@@ -343,3 +343,12 @@ def test_a_row_with_no_sources_counts_as_a_pool():
     )
 
     assert _pool_already_discovered([sourceless])
+
+
+def test_deck_retains_platform_priority_within_a_lane():
+    cards = [_card(name, lane="trending", buzz=score).model_copy(update={
+        "enrichment": {"social_platforms": [platform]}
+    }) for name, platform, score in [("TikTok", "tiktok", 100),
+                                    ("RedNote", "rednote", 10),
+                                    ("Instagram", "instagram", 1)]]
+    assert [c.name_canonical for c in order_deck(cards)] == ["Instagram", "RedNote", "TikTok"]

@@ -19,6 +19,30 @@ struct TripCreateRequest: Encodable, Sendable {
     /// content follow this value for the lifetime of the trip.
     let outputLocale: String
 
+    init(
+        cities: [String],
+        cityPlaceIDs: [String],
+        country: String,
+        startDate: String,
+        endDate: String,
+        creatorName: String,
+        creatorHomeCity: String?,
+        creatorInterests: [String],
+        creatorDietaryExcludes: [String],
+        outputLocale: String
+    ) {
+        self.cities = cities
+        self.cityPlaceIDs = cityPlaceIDs
+        self.country = CountryIdentifier.canonicalCode(for: country)
+        self.startDate = startDate
+        self.endDate = endDate
+        self.creatorName = creatorName
+        self.creatorHomeCity = creatorHomeCity
+        self.creatorInterests = creatorInterests
+        self.creatorDietaryExcludes = creatorDietaryExcludes
+        self.outputLocale = outputLocale
+    }
+
     enum CodingKeys: String, CodingKey {
         case cities
         case cityPlaceIDs = "city_place_ids"

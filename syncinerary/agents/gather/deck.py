@@ -8,6 +8,7 @@ evidence rather than on spelling.
 """
 from __future__ import annotations
 
+from syncinerary.config.gather import SOCIAL_PLATFORM_PRIORITY
 from syncinerary.domain.models import CandidatePlace
 
 # Why a card is in the deck, best-attention-first on a tie. A traveler's own
@@ -36,13 +37,16 @@ def deck_lane(candidate: CandidatePlace) -> str:
     return "foundation"
 
 
-def _evidence_rank(candidate: CandidatePlace) -> tuple[float, str]:
+def _evidence_rank(candidate: CandidatePlace) -> tuple[int, float, str]:
     """Strongest evidence first inside a group; the name only breaks ties."""
     buzz = 0.0
     for source in candidate.sources:
         if source.type == "buzz" and source.score is not None:
             buzz = max(buzz, float(source.score))
-    return (-buzz, candidate.name_canonical.casefold())
+    platforms = candidate.enrichment.get("social_platforms", [])
+    priority = min((i for i, platform in enumerate(SOCIAL_PLATFORM_PRIORITY)
+                    if platform in platforms), default=len(SOCIAL_PLATFORM_PRIORITY))
+    return (priority, -buzz, candidate.name_canonical.casefold())
 
 
 def order_deck(candidates: list[CandidatePlace]) -> list[CandidatePlace]:

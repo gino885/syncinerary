@@ -545,7 +545,7 @@ async def _search_brave(
     cache_digest = hashlib.sha256(
         f"{scoped_query}\n{value.max_results}".encode()
     ).hexdigest()
-    cache_key = f"social:brave:v3:{cache_digest}"
+    cache_key = f"social:brave:v4:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -559,7 +559,7 @@ async def _search_brave(
             "Accept": "application/json",
             "X-Subscription-Token": api_key,
         },
-        params={"q": scoped_query, "count": value.max_results},
+        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true"},
     )
     response.raise_for_status()
     rows = response.json().get("web", {}).get("results", [])
@@ -576,7 +576,9 @@ async def _search_brave(
             continue
         seen.add(reference.canonical_url)
         title = clean_snippet(row.get("title"))
-        description = post_snippet(row.get("description"))
+        excerpts = [row.get("description"), *(row.get("extra_snippets") or [])[:5]]
+        readable = [post_snippet(part) for part in excerpts if isinstance(part, str)]
+        description = "\n".join(dict.fromkeys(part for part in readable if part)) or None
         engagement_text = "\n".join(
             part for part in (title, description) if isinstance(part, str)
         )

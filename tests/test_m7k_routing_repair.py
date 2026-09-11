@@ -402,12 +402,12 @@ async def test_d_two_places_that_cannot_coexist_cost_the_cheaper_one():
     them is going, and which one is a question about their worth to the group.
 
     Stage 2 cannot answer it: with no arc between two candidates its circuit
-    seats one of them by position, and it has no notion of what either is
-    worth. Left alone it keeps the one the group scored at minus one and drops
-    the one they scored at two.
+    has no notion of what either is worth. Drop opens earlier, so its start
+    cost wins before repair considers the group's scores.
     """
     thursday = {"thu": [[8, 21]], **{day: [] for day in WEEKDAYS if day != "thu"}}
-    keep = _place("Keep", 43.060, 141.350, hours_by_weekday=thursday)
+    keep = _place("Keep", 43.060, 141.350,
+                  hours_by_weekday={**thursday, "thu": [[9, 21]]})
     drop = _place("Drop", 43.600, 141.350, hours_by_weekday=thursday)
     candidates = [keep, drop]
     state = _state(candidates, {"Keep": 2.0, "Drop": -1.0}, days=2)
@@ -1072,17 +1072,12 @@ def _matrix_for(candidates: list[CandidatePlace], minutes: int) -> TransitMatrix
 
 
 def test_the_probe_counts_seats_and_ignores_what_stage_2_would_prefer():
-    """The guard against a future objective weight breaking repair silently.
+    """Count-only repair must reserve meals without counting breaks as seats."""
+    from syncinerary.agents.solver.meal_breaks import available_meal_breaks
 
-    Stage 2 will give up one stop to seat a required meal, so on this day its
-    plan holds fewer places than the day can physically take. The probe must
-    report what fits, not what Stage 2 would choose, because the number
-    becomes a constraint on Stage 1 and an under-count would forbid an
-    arrangement that works.
-    """
-    # Three sights of three and a half hours each fit the day. A four hour
-    # lunch sitting can only start inside its window, which leaves room for
-    # one sight after it and none before, so seating the meal costs a seat.
+    # Three sights plus two breaks and transit need 770 minutes, over the
+    # 720-minute cap. Two sights plus Long Lunch, dinner and transit need
+    # 740. No triple fits; two sights with real meal breaks do fit.
     sights = [
         _place(f"Sight {index}", 43.060 + index * 0.004, 141.350, duration=210)
         for index in range(3)
@@ -1107,11 +1102,21 @@ def test_the_probe_counts_seats_and_ignores_what_stage_2_would_prefer():
         count_placements_only=True,
     )
 
-    # The plan bought a meal with a seat; the probe reports the seats.
-    assert "lunch" in planned.meals_covered
+    # Planning retains activities before buying approved restaurant coverage.
+    assert {stop.candidate_id for stop in planned.stops} <= {sight.id for sight in sights}
     assert len(planned.stops) == 2
-    assert len(probed.stops) == 3
+    assert len(probed.stops) == 2
     assert probed.proven is True
+    for route in (planned, probed):
+        breaks = available_meal_breaks(route.stops, day_start=480, day_end=1260)
+        assert set(route.meals_covered) | {b.meal for b in breaks} >= {"lunch", "dinner"}
+        for gap in breaks:
+            assert gap.end_minute - gap.start_minute == 60
+            assert all(
+                gap.end_minute <= stop.start_minute - stop.transit_from_prev_min
+                or gap.start_minute >= stop.end_minute
+                for stop in route.stops
+            )
 
 
 def test_a_capacity_is_scoped_to_the_set_that_was_probed():

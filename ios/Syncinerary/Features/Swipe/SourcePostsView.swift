@@ -24,7 +24,7 @@ struct SourcePostsView: View {
                                 .textCase(.uppercase)
                                 .foregroundStyle(AppTheme.stamp)
                                 if let highlight = post.highlight {
-                                    Text("\u{201C}\(highlight)\u{201D}")
+                                    Text(highlight)
                                         .font(.subheadline)
                                         .italic()
                                         .foregroundStyle(AppTheme.faded)

@@ -191,7 +191,7 @@ def test_explicit_post_engagement_strengthens_a_place_score():
     assert popular["popular"].has_explicit_engagement is True
 
 
-def test_the_highest_engagement_post_becomes_the_candidate_source_link():
+def test_the_preferred_platform_post_becomes_the_candidate_source_link():
     mined: dict[str, MinedPlace] = {}
     quiet = _post("https://www.instagram.com/reel/AbCdEfG1/")
     popular = _tiktok(2).model_copy(
@@ -225,9 +225,10 @@ def test_the_highest_engagement_post_becomes_the_candidate_source_link():
     candidate = to_candidate(place, mined["ramen yokocho"], _trip())
 
     assert candidate.enrichment["social_post_urls"][0] == (
-        popular.reference.canonical_url
+        quiet.reference.canonical_url
     )
-    assert candidate.enrichment["social_posts"][0]["like_count"] == 12_400
+    assert candidate.enrichment["social_posts"][0]["like_count"] is None
+    assert candidate.enrichment["social_posts"][1]["like_count"] == 12_400
 
 
 def test_the_same_post_is_never_counted_twice_for_one_place():
@@ -423,8 +424,8 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
     assert candidate.sources[0].sources_count == 3
     assert candidate.enrichment["social_platforms"] == [
         "instagram",
-        "tiktok",
         "rednote",
+        "tiktok",
     ]
     assert len(candidate.enrichment["social_post_urls"]) == 3
     assert geocode_queries == ["Hakodate Morning Market"]
@@ -685,7 +686,7 @@ def test_two_posts_do_not_need_cross_platform_confirmation():
     )
 
 
-def test_more_independent_posts_rank_ahead_without_cross_platform_requirement():
+def test_preferred_platform_ranks_before_raw_post_count():
     mined = {
         "one": MinedPlace(name="One platform", platforms=["tiktok"], post_urls=["a", "b", "c", "d"]),
         "two": MinedPlace(
@@ -696,8 +697,8 @@ def test_more_independent_posts_rank_ahead_without_cross_platform_requirement():
     }
 
     assert [place.name for place in score_places(mined)] == [
-        "One platform",
         "Two platforms",
+        "One platform",
     ]
 
 
@@ -989,3 +990,10 @@ def test_the_three_intents_ask_different_questions():
 
     assert len(set(queries)) == len(queries)
     assert all("Sapporo" in query for query in queries)
+
+
+def test_platform_preference_keeps_instagram_then_rednote_then_tiktok():
+    places = [MinedPlace(name=name, platforms=[platform])
+              for name, platform in (("A", "tiktok"), ("B", "rednote"), ("C", "instagram"))]
+    selected = select_social_candidates(places, budget=3)
+    assert [p.place.platforms[0] for p in selected] == ["instagram", "rednote", "tiktok"]

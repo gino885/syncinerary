@@ -8,6 +8,22 @@ struct SourcePost: Decodable, Hashable, Sendable {
     let authorName: String?
     let highlight: String?
 
+    var instagramReelURL: URL? {
+        guard platform == "instagram", let parsed = URL(string: url),
+              parsed.scheme == "https", parsed.user == nil, parsed.password == nil,
+              parsed.port == nil,
+              ["instagram.com", "www.instagram.com"].contains(parsed.host ?? "")
+        else { return nil }
+        let parts = parsed.path.split(separator: "/")
+        guard parts.count == 2, parts[0] == "reel",
+              !parts[1].isEmpty,
+              parts[1].utf8.allSatisfy({
+                  (65...90).contains($0) || (97...122).contains($0)
+                  || (48...57).contains($0) || $0 == 45 || $0 == 95
+              }) else { return nil }
+        return URL(string: "https://www.instagram.com/reel/\(parts[1])/")
+    }
+
     var linkURL: URL? {
         URL(string: url)
     }

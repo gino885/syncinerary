@@ -239,6 +239,7 @@ class MinedPlace(BaseModel):
         return sorted(
             self.posts,
             key=lambda post: (
+                _source_priority([post.platform]),
                 -(post.like_count is not None or post.comment_count is not None),
                 -((post.like_count or 0) + 4 * (post.comment_count or 0)),
                 post.rank,
@@ -682,7 +683,12 @@ def score_places(mined: dict[str, MinedPlace]) -> list[MinedPlace]:
     return kept[:MINED_NAMES_MAX]
 
 
-def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, str]:
+def _source_priority(platforms: list[str]) -> int:
+    return min((i for i, p in enumerate(DISCOVERY_PLATFORMS)
+                if p.value in platforms), default=len(DISCOVERY_PLATFORMS))
+
+
+def _trending_rank(place: MinedPlace) -> tuple[int, float, int, int, int, str]:
     """Strongest social evidence first.
 
     Independent sources sit above raw buzz_score because a place named by two
@@ -696,6 +702,7 @@ def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, str]:
     and this ranks on evidence alone, which is what the lane means.
     """
     return (
+        _source_priority(place.platforms),
         -place.buzz_score,
         -place.independent_source_count,
         -place.independent_author_count,
@@ -704,7 +711,7 @@ def _trending_rank(place: MinedPlace) -> tuple[float, int, int, int, str]:
     )
 
 
-def _for_you_rank(place: MinedPlace) -> tuple[int, float, int, str]:
+def _for_you_rank(place: MinedPlace) -> tuple[int, int, float, int, str]:
     """Preference fit first, then whether the evidence holds up.
 
     Fit ranks rather than gates, so a group that listed no interests still
@@ -713,6 +720,7 @@ def _for_you_rank(place: MinedPlace) -> tuple[int, float, int, str]:
     still has to be worth recommending. Least popular is not the goal.
     """
     return (
+        _source_priority(place.platforms),
         -place.interest_score,
         -place.buzz_score,
         -place.independent_source_count,

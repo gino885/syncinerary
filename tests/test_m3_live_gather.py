@@ -328,6 +328,96 @@ async def test_gather_node_reuses_existing_rows_without_searching_again(session,
     assert [candidate.id for candidate in result["candidates"]] == [existing.id]
 
 
+async def test_gather_node_localizes_and_persists_a_reused_pool(session, monkeypatch):
+    trip = await TripRepository(session).add(
+        Trip(
+            destination="Tokyo",
+            start_date=date(2026, 9, 27),
+            end_date=date(2026, 9, 27),
+            days=1,
+            output_locale="zh-Hant",
+        )
+    )
+    existing = await CandidatePlaceRepository(session).add(
+        _candidate("Art Center", 35.665, 139.727).model_copy(
+            update={"trip_id": trip.id}
+        )
+    )
+
+    @asynccontextmanager
+    async def test_scope():
+        yield session
+
+    async def fake_localize(candidates, locale):
+        assert locale == "zh-Hant"
+        return [candidate.model_copy(update={
+            "name_canonical": "國立新美術館",
+            "name_original_lang": candidate.name_canonical,
+            "enrichment": {**candidate.enrichment, "content_locale": locale},
+        }) for candidate in candidates]
+
+    monkeypatch.setattr(live_module, "session_scope", test_scope)
+    monkeypatch.setattr(live_module, "localize_candidates", fake_localize)
+
+    result = await gather_node(TripState(trip=trip))
+
+    assert result["candidates"][0].name_canonical == "國立新美術館"
+    persisted = await CandidatePlaceRepository(session).get(existing.id)
+    assert persisted is not None
+    assert persisted.name_canonical == "國立新美術館"
+    assert persisted.enrichment["content_locale"] == "zh-Hant"
+
+
+async def test_gather_node_localizes_a_traveler_attached_card(session, monkeypatch):
+    trip = await TripRepository(session).add(
+        Trip(
+            destination="Tokyo",
+            start_date=date(2026, 9, 27),
+            end_date=date(2026, 9, 27),
+            days=1,
+            output_locale="zh-Hant",
+        )
+    )
+    attached = await CandidatePlaceRepository(session).add(
+        _candidate("Attached bar", 35.66, 139.72).model_copy(update={
+            "trip_id": trip.id,
+            "sources": [Source(type="personal", subtype="user_paste")],
+            "enrichment": {"google_place_id": "attached"},
+        })
+    )
+    discovered = _candidate("Temple", 35.67, 139.73).model_copy(
+        update={"trip_id": trip.id, "enrichment": {"google_place_id": "temple"}}
+    )
+
+    @asynccontextmanager
+    async def test_scope():
+        yield session
+
+    async def fake_discover(_trip, _travelers=None):
+        return [discovered]
+
+    async def fake_localize(candidates, locale):
+        names = {"Attached bar": "旅客收藏的酒吧", "Temple": "寺廟"}
+        return [candidate.model_copy(update={
+            "name_canonical": names[candidate.name_canonical],
+            "name_original_lang": candidate.name_canonical,
+            "enrichment": {**candidate.enrichment, "content_locale": locale},
+        }) for candidate in candidates]
+
+    monkeypatch.setattr(live_module, "session_scope", test_scope)
+    monkeypatch.setattr(live_module, "discover_candidates", fake_discover)
+    monkeypatch.setattr(live_module, "localize_candidates", fake_localize)
+
+    result = await gather_node(TripState(trip=trip))
+
+    assert {candidate.name_canonical for candidate in result["candidates"]} == {
+        "旅客收藏的酒吧", "寺廟",
+    }
+    persisted = await CandidatePlaceRepository(session).get(attached.id)
+    assert persisted is not None
+    assert persisted.name_canonical == "旅客收藏的酒吧"
+
+
 def test_one_cluster_serving_every_day_still_reserves_every_day_a_meal():
     """A city destination collapses to a single cluster that covers all days."""
     attractions = [
@@ -514,7 +604,7 @@ async def test_a_buzz_card_survives_even_when_it_stands_alone_geographically(mon
 
 def test_automatic_social_discovery_is_the_majority_pool_target():
     """Traveler attachments add to a pool led by posts the app discovers."""
-    assert 0.5 < live_module.BUZZ_RATIO <= 0.7
+    assert live_module.BUZZ_RATIO == 1.0
 
 
 def test_gather_budget_reserves_a_reality_check_for_each_social_place():
@@ -541,3 +631,61 @@ def test_gather_budget_tracks_trip_size_not_city_count():
     The old per-city reservation scaled the spend to the wrong thing.
     """
     assert social_verify_budget(days=3) < social_verify_budget(days=7)
+
+async def test_sufficient_social_pool_does_not_search_google_for_attractions(monkeypatch):
+    trip = Trip(destination="Sapporo", start_date=date(2026, 9, 27),
+                end_date=date(2026, 9, 27), days=1)
+    _stub_cities(monkeypatch)
+    social = [
+        _candidate(f"Social {i}", 43.061 + i * .001, 141.354).model_copy(update={
+            "trip_id": trip.id,
+            "type": CandidateType.FOOD if i >= 5 else CandidateType.ATTRACTION,
+            "sources": [Source(type="buzz")],
+            "enrichment": {"google_place_id": f"social-{i}", "city": "Sapporo"},
+        }) for i in range(8)
+    ]
+    async def discover(*args):
+        return social
+    async def places(_tool, arguments, **kwargs):
+        assert arguments.included_type == "hotel", arguments.query
+        return PlaceSearchOutput(matches=[])
+    monkeypatch.setattr(live_module, "discover_social_candidates", discover)
+    monkeypatch.setattr(live_module, "run_tool", places)
+    result = await discover_candidates(trip)
+    assert {c.id for c in result} == {c.id for c in social}
+
+
+def test_final_deck_keeps_hidden_gems_after_verification_overselects():
+    from syncinerary.agents.gather.live import limit_social_pool
+    places = [_candidate(str(i), 43 + i * .001, 141).model_copy(update={
+        "trending_signals": {"selection_lane": "for_you" if i >= 8 else "trending"}
+    }) for i in range(12)]
+    selected = limit_social_pool(places, 8)
+    assert len(selected) == 8
+    assert sum(c.trending_signals["selection_lane"] == "for_you" for c in selected) >= 2
+
+
+async def test_social_sights_do_not_displace_every_meal_option(monkeypatch):
+    trip = Trip(destination="Sapporo", start_date=date(2026, 9, 27),
+                end_date=date(2026, 9, 27), days=1)
+    _stub_cities(monkeypatch)
+    social = [_candidate(f"Social {i}", 43.061 + i * .001, 141.354).model_copy(update={
+        "trip_id": trip.id, "sources": [Source(type="buzz")],
+        "enrichment": {"google_place_id": f"social-{i}", "city": "Sapporo"},
+    }) for i in range(8)]
+    async def discover(*args):
+        return social
+    async def places(_tool, arguments, **kwargs):
+        if arguments.included_type == "hotel":
+            return PlaceSearchOutput(matches=[])
+        return PlaceSearchOutput(matches=[PlaceMatch(
+            place_id=f"restaurant-{i}", display_name=f"Restaurant {i}",
+            lat=43.062 + i * .001, lng=141.354, primary_type="restaurant",
+            types=["restaurant"], hours_by_weekday={day: [[11, 21]] for day in _WEEKDAYS},
+        ) for i in range(3)])
+    monkeypatch.setattr(live_module, "discover_social_candidates", discover)
+    monkeypatch.setattr(live_module, "run_tool", places)
+    result = await discover_candidates(trip)
+    assert len(result) == 8
+    assert sum(c.type is CandidateType.FOOD for c in result) >= 2
+    assert sum(any(s.type == "buzz" for s in c.sources) for c in result) >= 5

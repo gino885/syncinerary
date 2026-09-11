@@ -13,12 +13,19 @@ from syncinerary.agents.gather.dietary import (
     dietary_tags_from_place_types,
     filter_dietary_conflicts,
 )
+from syncinerary.agents.gather.localization import localize_candidates
 from syncinerary.agents.gather.personal import discover_profile_candidates
-from syncinerary.agents.gather.social import discover_social_candidates, merge_into_pool
+from syncinerary.agents.gather.social import (
+    allocate_city_budget,
+    discover_social_candidates,
+    merge_into_pool,
+)
 from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
-from syncinerary.config.gather import BUZZ_RATIO, POOL_PER_DAY
+from syncinerary.config.gather import BUZZ_RATIO, POOL_PER_DAY, lane_slots
 from syncinerary.config.solver import (
+    ATTRACTIONS_PER_DAY_MIN,
     FOOD_PER_DAY_TARGET,
+    MEALS_PER_DAY_MIN,
     MIN_STOPS_PER_DAY,
     NEARBY_WALKING_KM,
 )
@@ -303,6 +310,20 @@ def _mix_day_types(
     return mixed
 
 
+def limit_social_pool(candidates: list[CandidatePlace], limit: int) -> list[CandidatePlace]:
+    """Preserve both discovery lanes when verification returns surplus cards."""
+    gems = [c for c in candidates if c.trending_signals.get("selection_lane") == "for_you"]
+    trending = [c for c in candidates if c.trending_signals.get("selection_lane") != "for_you"]
+    trending_count, gem_count = lane_slots(max(0, min(limit, len(candidates))))
+    if len(gems) < gem_count:
+        trending_count += gem_count - len(gems)
+        gem_count = len(gems)
+    if len(trending) < trending_count:
+        gem_count += trending_count - len(trending)
+        trending_count = len(trending)
+    return trending[:trending_count] + gems[:gem_count]
+
+
 async def discover_candidates(
     trip: Trip,
     travelers: list[Traveler] | None = None,
@@ -316,9 +337,23 @@ async def discover_candidates(
     source rows (section 8.4).
     """
     cities = await resolve_trip_cities(trip)
+    target = trip.days * POOL_PER_DAY
+    social = await discover_social_candidates(trip, list(travelers or []), cities)
     by_place_id: dict[str, CandidatePlace] = {}
-    for city in cities:
+    merge_into_pool(by_place_id, social)
+    city_targets = allocate_city_budget([1] * len(cities), target)
+    city_days = allocate_city_budget([1] * len(cities), trip.days)
+    for city, city_target, day_count in zip(cities, city_targets, city_days, strict=True):
         for query in build_search_queries(city.name):
+            city_pool = [c for c in by_place_id.values()
+                         if c.enrichment.get("city") == city.name
+                         and c.type is not CandidateType.LODGING]
+            if social and len(city_pool) >= city_target and "hotel" not in query.lower():
+                food_query = "restaurant" in query.lower() or "breakfast" in query.lower()
+                kind = CandidateType.FOOD if food_query else CandidateType.ATTRACTION
+                needed = MEALS_PER_DAY_MIN if food_query else ATTRACTIONS_PER_DAY_MIN
+                if sum(c.type is kind for c in city_pool) >= day_count * needed:
+                    continue
             included_type = None
             if "restaurant" in query.lower():
                 included_type = "restaurant"
@@ -338,6 +373,10 @@ async def discover_candidates(
             for place in result.matches:
                 existing = by_place_id.get(place.place_id)
                 if existing is not None:
+                    if not any(source.type == "discovery" for source in existing.sources):
+                        existing = existing.model_copy(update={
+                            "sources": [*existing.sources, Source(type="discovery", subtype="google_places")]
+                        })
                     queries = list(existing.enrichment.get("discovery_queries", []))
                     if query not in queries:
                         queries.append(query)
@@ -374,6 +413,11 @@ async def discover_candidates(
             ),
         )
         city = _nearest_city(center_lat, center_lng, cities)
+        nearby_food = [c for c in by_place_id.values()
+                       if c.type is CandidateType.FOOD
+                       and _distance_km(c, anchor) <= _DENSE_CLUSTER_RADIUS_KM]
+        if len(nearby_food) >= FOOD_PER_DAY_TARGET and social:
+            continue
         for query_template, included_type in CLUSTER_FOOD_QUERIES:
             query = query_template.format(anchor=anchor.name_canonical)
             result = await run_tool(
@@ -393,15 +437,16 @@ async def discover_candidates(
                         place, trip, query, city=city
                     )
 
-    target = trip.days * POOL_PER_DAY
-
-    # Social buzz enters the same pool, capped at its configured share so a
-    # loud destination cannot crowd out the places the region is known for.
-    social = await discover_social_candidates(trip, list(travelers or []), cities)
+    # Verification can overselect. Keep both lanes when sizing the final deck;
+    # social may fill every automatic slot. Lodging is outside the swipe pool.
     social_quota = max(0, round(target * BUZZ_RATIO))
-    social = social[:social_quota]
-    merge_into_pool(by_place_id, social)
+    social = limit_social_pool(
+        [c for c in social if c.type is not CandidateType.LODGING], social_quota
+    )
     social_ids = {candidate.enrichment["google_place_id"] for candidate in social}
+    by_place_id = {key: value for key, value in by_place_id.items()
+                   if key in social_ids or value.type is CandidateType.LODGING
+                   or not any(s.type == "buzz" for s in value.sources)}
 
     profile = await discover_profile_candidates(trip, list(travelers or []))
     profile_ids: set[str] = set()
@@ -462,11 +507,38 @@ async def discover_candidates(
             for source in candidate.sources
         )
     ]
-    priority_ids = {candidate.id for candidate in priority}
-    selected = priority + select_dense_pool(
-        [candidate for candidate in swipeable if candidate.id not in priority_ids],
-        days=trip.days,
-        limit=max(0, target - len(priority)),
+    personal = [c for c in priority if any(s.type == "personal" for s in c.sources)]
+    personal_ids = {c.id for c in personal}
+    automatic = [c for c in priority if c.id not in personal_ids]
+    priority_ids = {c.id for c in priority}
+    fallback = [c for c in swipeable if c.id not in priority_ids]
+    food_needed = max(0, trip.days * MEALS_PER_DAY_MIN
+                      - sum(c.type is CandidateType.FOOD for c in priority))
+    meal_options = select_dense_pool(
+        [c for c in fallback if c.type is CandidateType.FOOD],
+        days=trip.days, limit=food_needed,
+    )
+    sight_needed = max(0, trip.days * ATTRACTIONS_PER_DAY_MIN
+                       - sum(c.type is CandidateType.ATTRACTION for c in priority))
+    sight_options = select_dense_pool(
+        [c for c in fallback if c.type is CandidateType.ATTRACTION],
+        days=trip.days, limit=sight_needed,
+    )
+    social_food = [c for c in automatic if c.type is CandidateType.FOOD]
+    social_sights = [c for c in automatic if c.type is CandidateType.ATTRACTION]
+    essentials = social_food[:trip.days * MEALS_PER_DAY_MIN] + limit_social_pool(
+        social_sights, trip.days * ATTRACTIONS_PER_DAY_MIN
+    )
+    essential_ids = {c.id for c in essentials}
+    automatic = essentials + limit_social_pool(
+        [c for c in automatic if c.id not in essential_ids],
+        max(0, target - len(meal_options) - len(sight_options) - len(essentials)),
+    )
+    selected = personal + automatic + meal_options + sight_options
+    selected_ids = {c.id for c in selected}
+    selected += select_dense_pool(
+        [c for c in fallback if c.id not in selected_ids],
+        days=trip.days, limit=max(0, target + len(personal) - len(selected)),
     )
     if len(selected) < minimum:
         raise LiveDiscoveryInsufficient(
@@ -480,7 +552,7 @@ async def discover_candidates(
             candidate.name_canonical,
         )
     )
-    return selected + lodging[:3]
+    return await localize_candidates(selected + lodging[:3], trip.output_locale)
 
 
 def _pool_already_discovered(candidates: list[CandidatePlace]) -> bool:
@@ -507,6 +579,18 @@ def _is_personal_only(candidate: CandidatePlace) -> bool:
     )
 
 
+async def _localize_saved_candidates(
+    candidates: list[CandidatePlace], locale: str,
+) -> list[CandidatePlace]:
+    """Translate both new and reused cards, then retain that shared wording."""
+    localized = await localize_candidates(candidates, locale)
+    if localized == candidates:
+        return localized
+    async with session_scope() as session:
+        await CandidatePlaceRepository(session).update_localized_display(localized)
+    return localized
+
+
 async def gather_node(state: TripState) -> dict[str, Any]:
     """LangGraph node that persists a live pool and safely reuses it on resume."""
     trip = state.trip
@@ -519,12 +603,15 @@ async def gather_node(state: TripState) -> dict[str, Any]:
         async with session_scope() as session:
             repo = CandidatePlaceRepository(session)
             existing = await repo.list_for_trip(trip.id)
-            if _pool_already_discovered(existing):
-                existing = filter_dietary_conflicts(existing, state.constraints)
-                span.set_attribute("gather.reused_existing", True)
-                span.set_attribute("gather.candidate_count", len(existing))
-                return {"candidates": existing}
+            pool_exists = _pool_already_discovered(existing)
             attached = list(existing)
+
+        if pool_exists:
+            existing = filter_dietary_conflicts(existing, state.constraints)
+            existing = await _localize_saved_candidates(existing, trip.output_locale)
+            span.set_attribute("gather.reused_existing", True)
+            span.set_attribute("gather.candidate_count", len(existing))
+            return {"candidates": existing}
 
         candidates = filter_dietary_conflicts(
             await discover_candidates(trip, state.travelers),
@@ -554,6 +641,8 @@ async def gather_node(state: TripState) -> dict[str, Any]:
                 ]
                 saved = [*attached, *await repo.add_many(fresh)]
                 reused = False
+
+        saved = await _localize_saved_candidates(saved, trip.output_locale)
 
         span.set_attribute("gather.reused_existing", reused)
         span.set_attribute("gather.candidate_count", len(saved))
