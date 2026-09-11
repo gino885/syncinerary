@@ -461,7 +461,7 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
     assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v3:")
+    assert cache.last_key.startswith("social:brave:v4:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():
@@ -536,3 +536,16 @@ async def test_tiktok_oembed_rejects_discovery_pages_before_network_call():
             )
 
     assert calls == 0
+
+
+async def test_instagram_retains_places_in_extra_index_snippets():
+    def respond(request):
+        assert request.url.params["extra_snippets"] == "true"
+        return httpx.Response(200, json={"web": {"results": [{
+            "url": "https://www.instagram.com/reel/AbCdEfG1/", "title": "Tokyo favourites",
+            "description": "", "extra_snippets": ["Try <strong>Quiet Bar</strong> by the canal."]
+        }]}})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await run_tool(make_brave_social_search_tool(client=client, api_key="test"),
+            BraveSocialSearchInput(platform=SocialPlatform.INSTAGRAM, query="Tokyo bars"))
+    assert "Quiet Bar" in result.results[0].evidence_text

@@ -87,7 +87,9 @@ struct CandidateDetailView: View {
         if let area = candidate.area {
             parts.append(area)
         }
-        if let category = candidate.category {
+        if let label = candidate.categoryLabel {
+            parts.append(label)
+        } else if let category = candidate.category {
             let key = category.replacing("_", with: " ").capitalized
             parts.append(String(localized: String.LocalizationValue(key)))
         }

@@ -1,6 +1,7 @@
 import Foundation
 
 struct CandidateCard: Decodable, Identifiable, Sendable {
+    var categoryLabel: String? = nil
     let id: UUID
     let type: String
     let nameCanonical: String
@@ -21,6 +22,7 @@ struct CandidateCard: Decodable, Identifiable, Sendable {
     let delegateBadge: DelegateBadge?
 
     enum CodingKeys: String, CodingKey {
+        case categoryLabel = "category_label"
         case id
         case type
         case nameCanonical = "name_canonical"

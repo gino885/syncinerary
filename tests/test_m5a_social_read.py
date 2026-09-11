@@ -506,7 +506,9 @@ def test_the_card_keeps_every_post_and_the_best_ranked_quote():
 
     assert candidate.type is CandidateType.FOOD
     assert candidate.enrichment["social_highlight"] == "Miso broth worth the queue."
-    assert [post["url"] for post in candidate.enrichment["social_posts"]] == mined.post_urls
+    assert [post["url"] for post in candidate.enrichment["social_posts"]] == [
+        "https://www.instagram.com/reel/DcbEs5IpTCt/", _video(1)
+    ]
 
     pool = {
         "ChIJ-shingen": CandidatePlace(

@@ -11,6 +11,7 @@ from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field
 
 from syncinerary.agents.gather.traits import opening_hours_are_binding, opens_on
+from syncinerary.agents.solver.meal_breaks import is_meal_candidate
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.config.solver import (
     ATTRACTIONS_PER_DAY_MIN,
@@ -751,6 +752,8 @@ def required_meals_on(
     does. Counting restaurants per day cannot see that; this is what Stage 1
     needs instead.
     """
+    if not is_meal_candidate(candidate):
+        return frozenset()
     windows = open_windows_on(candidate, trip_date, day_start, day_end)
     if not windows:
         return frozenset()

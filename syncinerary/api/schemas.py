@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator, model
 
 from syncinerary.agents.gather.cities import MAX_CITIES_PER_TRIP
 from syncinerary.agents.gather.dietary import dietary_notice
+from syncinerary.agents.solver.meal_breaks import is_meal_candidate
 from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
@@ -735,6 +736,7 @@ class CandidateCardOut(BaseModel):
 
     id: UUID
     type: CandidateType
+    category_label: str | None = None
     name_canonical: str
     name_original_lang: str | None
     lat: float
@@ -781,6 +783,7 @@ class CandidateCardOut(BaseModel):
             area=candidate.area,
             address=candidate.address,
             category=candidate.category,
+            category_label=candidate.enrichment.get("category_label"),
             price_tier=candidate.price_tier,
             duration_estimate_min=candidate.duration_estimate_min,
             dietary_tags=candidate.dietary_tags,
@@ -1140,6 +1143,7 @@ class ReplanProposalOut(BaseModel):
 
 
 class ItineraryStopOut(BaseModel):
+    directions_url: str | None = None
     candidate_id: UUID
     name: str
     area: str | None
@@ -1195,7 +1199,7 @@ def _meal_slot(candidate: CandidatePlace | None, start_time: time) -> str | None
     section 7) and a new column would be a migration for a value that is a
     function of two columns already present.
     """
-    if candidate is None or candidate.type is not CandidateType.FOOD:
+    if candidate is None or not is_meal_candidate(candidate):
         return None
     minute = start_time.hour * 60 + start_time.minute
     for name, (start_hour, end_hour) in MEAL_WINDOWS.items():
@@ -1223,6 +1227,9 @@ def _itinerary_description(
     raw_description = candidate.enrichment.get("source_description")
     if isinstance(raw_description, str) and raw_description.strip():
         return _brief(raw_description), _description_source(candidate)
+
+    if candidate.enrichment.get("content_locale") not in (None, "en"):
+        return None, None
 
     if candidate.type is CandidateType.FOOD:
         description = "A local food stop worth arriving hungry for."
@@ -1287,7 +1294,15 @@ def _brief(value: str, limit: int = 120) -> str:
     return f"{shortened}..."
 
 
+class MealBreakOut(BaseModel):
+    meal: str
+    start_time: time
+    end_time: time
+    nearby_url: str
+
+
 class ItineraryDayOut(BaseModel):
+    meal_breaks: list[MealBreakOut] = Field(default_factory=list)
     day: int
     date: date
     stops: list[ItineraryStopOut]

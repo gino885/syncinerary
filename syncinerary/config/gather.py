@@ -2,10 +2,10 @@
 
 import math
 
-# Automatic social share. The app aims for a social-majority deck, then fills
-# any evidence shortfall from the Google Places foundation. Personal links are
-# additive and never displaced.
-BUZZ_RATIO = 0.60
+# Social-first discovery. Google verifies places and fills remaining coverage
+# gaps after social search. Personal links are additive and never displaced.
+SOCIAL_PLATFORM_PRIORITY = ("instagram", "rednote", "tiktok")
+BUZZ_RATIO = 1.0
 
 # Pool size: days * POOL_PER_DAY. Acceptable range: 5 to 8.
 # At the top of that range so the shortlist can fill complete days.

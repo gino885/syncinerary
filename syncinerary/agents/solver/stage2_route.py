@@ -18,6 +18,7 @@ from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 
 from syncinerary.agents.gather.traits import opening_hours_are_binding
+from syncinerary.agents.solver.meal_breaks import MEAL_BREAK_MINUTES, is_meal_candidate
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
 from syncinerary.agents.solver.planning_context import forecast_for_solver, pinned_days
 from syncinerary.agents.solver.repair import (
@@ -60,7 +61,6 @@ from syncinerary.config.solver import (
 )
 from syncinerary.domain.models import (
     CandidatePlace,
-    CandidateType,
     ItineraryNode,
     ItineraryStatus,
     ItineraryVersion,
@@ -431,14 +431,9 @@ def solve_day(
     ``count_placements_only`` replaces the objective with the one question the
     repair loop needs answered: how many of these candidates can physically
     share this day. It is not a planning mode, and it deliberately optimizes
-    nothing else. The ordinary objective cannot answer it, because it will
-    trade one stop for a required meal.
-
-    A dedicated objective rather than a reweighted one. Seated count does
-    dominate the planning objective today, by an arithmetic accident of how
-    unplaced_penalty is sized against the transit and start terms, but nothing
-    in the code enforces that and a future weight would break the repair
-    loop's soundness silently. Maximizing the count outright cannot.
+    nothing else. It keeps the same meal-break feasibility constraints. A
+    dedicated objective protects repair's capacity measurement from future
+    changes to planning preferences.
     """
     options = options or SolverOptions()
     fixed_starts = fixed_start_minutes or {}
@@ -480,7 +475,7 @@ def solve_day(
     eligible_meals: dict[UUID, list[str]] = {}
     routable: list[CandidatePlace] = []
     for candidate in open_candidates:
-        if candidate.type is not CandidateType.FOOD:
+        if not is_meal_candidate(candidate):
             routable.append(candidate)
             continue
         eligible = _eligible_meal_slots(
@@ -489,6 +484,11 @@ def solve_day(
             meal_slots,
         )
         if not eligible:
+            if candidate.id in required:
+                raise RuntimeError(
+                    f"Required candidate {candidate.name_canonical} has no meal slot "
+                    f"on {trip_date}"
+                )
             unplaced.append(
                 UnplacedCandidate(
                     candidate_id=candidate.id,
@@ -640,18 +640,70 @@ def solve_day(
         covered[meal] = model.new_bool_var(f"covered_{meal}")
         model.add(covered[meal] == sum(terms))
 
+    # An uncovered meal reserves an hour, including finding food nearby.
+    # Model this with the visits and incoming transit, never overlay it later.
+    reserved_breaks = []
+    for meal in REQUIRED_MEALS:
+        if meal not in meal_slots:
+            continue
+        window_start, window_end = meal_slots[meal]
+        if window_end - window_start < MEAL_BREAK_MINUTES:
+            continue
+        needed = model.new_bool_var(f"break_{meal}")
+        if meal in covered:
+            model.add(needed + covered[meal] == 1)
+        else:
+            model.add(needed == 1)
+        break_start = model.new_int_var(
+            window_start, window_end - MEAL_BREAK_MINUTES, f"break_start_{meal}"
+        )
+        break_end = break_start + MEAL_BREAK_MINUTES
+        for other_needed, other_start, other_end in reserved_breaks:
+            model.add(break_end - other_start <= cap_minutes).only_enforce_if(
+                [needed, other_needed]
+            )
+            model.add(other_end - break_start <= cap_minutes).only_enforce_if(
+                [needed, other_needed]
+            )
+        reserved_breaks.append((needed, break_start, break_end))
+        for index, selected in active.items():
+            before = model.new_bool_var(f"before_break_{meal}_{index}")
+            model.add(ends[index] <= break_start).only_enforce_if(
+                [needed, selected, before]
+            )
+            model.add(starts[index] >= break_end).only_enforce_if(
+                [needed, selected, before.Not()]
+            )
+            model.add(break_end - starts[index] <= cap_minutes).only_enforce_if(
+                [needed, selected]
+            )
+            model.add(ends[index] - break_start <= cap_minutes).only_enforce_if(
+                [needed, selected]
+            )
+            for (origin, destination), arc in arcs.items():
+                if destination != index or origin == 0:
+                    continue
+                left = open_candidates[origin - 1].id
+                right = open_candidates[index - 1].id
+                model.add(starts[index] - leg_by_pair[(left, right)].minutes >= break_end
+                          ).only_enforce_if([needed, arc, before.Not()])
+
     max_start_cost = (day_end - day_start) * count
     transit_weight = max_start_cost + 1
     max_transit_cost = cap_minutes * max(0, count - 1) * transit_weight
-    unplaced_penalty = max_transit_cost + max_start_cost + 1
-    # Lunch and dinner are worth exactly one ordinary stop plus a tiebreak, so
-    # a day will swap one sight for a meal and never two. At three times the
-    # placement penalty the solver was dropping four sights to seat two meals,
-    # which is how days came back holding nothing but restaurants.
-    required_meal_penalty = unplaced_penalty + max_transit_cost + max_start_cost
-    # Breakfast sits just under a single placement: it is taken when it is
-    # free, and never at the cost of another stop.
-    optional_meal_penalty = max_transit_cost + max_start_cost
+    # Reserved breaks cover meals even when restaurants cannot fit. Prefer a
+    # fuller day, then retain sights, then use approved restaurants for meals.
+    # Each tier dominates every possible contribution from the tiers below it.
+    optional_meal_penalty = max_transit_cost + max_start_cost + 1
+    required_meal_penalty = optional_meal_penalty + max_transit_cost + max_start_cost + 1
+    sight_miss_penalty = (
+        len(REQUIRED_MEALS) * required_meal_penalty + optional_meal_penalty
+        + max_transit_cost + max_start_cost + 1
+    )
+    unplaced_penalty = count * sight_miss_penalty + sight_miss_penalty
+    sight_terms = [sight_miss_penalty * (1 - active[index])
+                   for index, candidate in enumerate(open_candidates, start=1)
+                   if not is_meal_candidate(candidate)]
 
     meal_terms = []
     if not count_placements_only:
@@ -669,6 +721,7 @@ def solve_day(
     else:
         model.minimize(
             unplaced_penalty * (count - sum(active.values()))
+            + sum(sight_terms)
             + sum(meal_terms)
             + transit_weight * sum(transit_terms)
             + sum(start_costs.values())
@@ -927,7 +980,7 @@ def _offers_for_day(
         windows = _open_windows(candidate, trip_date, options)
         if not windows:
             continue
-        is_food = candidate.type is CandidateType.FOOD
+        is_food = is_meal_candidate(candidate)
         if is_food:
             eligible = set(_eligible_meal_slots(candidate, windows, meal_slots))
             if not eligible:
@@ -950,11 +1003,12 @@ def _offers_for_day(
 
 
 def _is_better(trial: DayRoute, current: DayRoute) -> bool:
-    """A required meal may trade for one stop, never two."""
-    def key(route: DayRoute) -> tuple[int, int, int, int]:
+    """Match routing: retain stops, then activities, then approved meals."""
+    def key(route: DayRoute) -> tuple[int, int, int, int, int]:
         meals = sum(1 for meal in REQUIRED_MEALS if meal in route.meals_covered)
-        stops = len(route.stops)
-        return (stops + meals, meals, stops, -route.total_transit_minutes)
+        optional = sum(1 for meal in OPTIONAL_MEALS if meal in route.meals_covered)
+        activities = sum(stop.meal_slot is None for stop in route.stops)
+        return (len(route.stops), activities, meals, optional, -route.total_transit_minutes)
 
     return key(trial) > key(current)
 
@@ -1323,6 +1377,16 @@ async def solve_full_routes(
         if (left in placed) != (right in placed)
     }
     name_of = {candidate.id: candidate.name_canonical for candidate in candidates}
+    # Repair can confirm the initial plan without improving its value. Keep
+    # its learned explanation even when the retained Stage 1 assignment still
+    # contains a place Stage 2 refused, rather than losing that refusal here.
+    final_unplaced = {item.candidate_id: item for item in assignment.unplaced}
+    for route in routes:
+        for item in route.unplaced:
+            if item.candidate_id not in placed:
+                final_unplaced.setdefault(
+                    item.candidate_id, Stage1Unplaced(**item.model_dump())
+                )
     return SolverResult(
         routes=routes,
         stage1_unplaced=[
@@ -1335,7 +1399,7 @@ async def solve_full_routes(
                     item, blocks, outranked, conflicts, placed, name_of
                 ),
             )
-            for item in assignment.unplaced
+            for item in final_unplaced.values()
             # A reserve that was offered and not used is not a place the group
             # chose and then lost, so it does not belong on their wishlist.
             if item.candidate_id not in {candidate.id for candidate in admitted}
@@ -1358,11 +1422,10 @@ def _probe_day_capacity(
     """How many of this day's candidates can be seated at once, at most.
 
     A "no_day_fit" refusal only says the clock ran out. It cannot say which
-    place should give way, and guessing is unsafe in a specific way: Stage 2
-    will trade one stop for a required meal, so neither "it refused this one"
-    nor "only k fitted" proves the rest could not have fitted. A unary block
-    and a cardinality cut read straight off the plan are both wrong sometimes,
-    and wrong in the direction that quietly drops a place the group wanted.
+    place should give way. Neither "it refused this one" nor an unfinished
+    planning solve proves the rest could not have fitted. A unary block and
+    a cardinality cut read straight off such a plan can quietly drop a place
+    the group wanted.
 
     So the day is asked directly, under an objective that maximizes seated
     count and optimizes nothing else. What comes back is the largest number of
@@ -1396,9 +1459,8 @@ def _probe_day_capacity(
         return None
     limit = len(probe.stops)
     if limit >= len(members):
-        # They all fit after all, and the ordinary objective simply preferred
-        # an arrangement that bought a meal with a stop. Nothing about the day
-        # is infeasible, so nothing is learned.
+        # They all fit after all. An incomplete planning search or future
+        # preference change must not become a false feasibility constraint.
         return None
     return DayCapacity(day=day, members=frozenset(members), limit=limit)
 
@@ -1559,6 +1621,9 @@ async def solver_node(state: TripState) -> dict[str, Any]:
                     parent_version_id=previous.id if previous else None,
                     objective_breakdown={
                         **result.stage1_objective,
+                        "day_start_minute": float(_minute_of_day(options.day_start)),
+                        "day_end_minute": float(_minute_of_day(options.day_end)),
+                        "day_duration_cap_minutes": float(options.day_duration_cap_hours * 60),
                         "placed_count": float(result.placed_count),
                         "total_transit_minutes": float(result.total_transit_minutes),
                         "required_meals_covered": float(result.meal_coverage_count),

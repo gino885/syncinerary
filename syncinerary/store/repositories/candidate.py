@@ -4,8 +4,9 @@ from __future__ import annotations
 from typing import ClassVar
 from uuid import UUID
 
+from sqlalchemy import bindparam, select
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from syncinerary.domain.models import CandidateBadge, CandidatePlace, CandidateType, Vote
@@ -68,6 +69,34 @@ class CandidatePlaceRepository(BaseRepository[tables.CandidatePlace, CandidatePl
 
     async def count_for_trip(self, trip_id: UUID) -> int:
         return len(await self.list_for_trip(trip_id))
+
+    async def update_localized_display(
+        self, candidates: list[CandidatePlace]
+    ) -> None:
+        """Persist translated display fields without changing place identity."""
+        if not candidates:
+            return
+        table = tables.CandidatePlace.__table__
+        statement = (
+            sa_update(table)
+            .where(table.c.id == bindparam("candidate_id"))
+            .values(
+                name_canonical=bindparam("localized_name"),
+                name_original_lang=bindparam("original_name"),
+                area=bindparam("localized_area"),
+                enrichment=bindparam("localized_enrichment"),
+            )
+        )
+        await self.session.execute(statement, [
+            {
+                "candidate_id": candidate.id,
+                "localized_name": candidate.name_canonical,
+                "original_name": candidate.name_original_lang,
+                "localized_area": candidate.area,
+                "localized_enrichment": candidate.enrichment,
+            }
+            for candidate in candidates
+        ])
 
 
 class VoteRepository(BaseRepository[tables.Vote, Vote]):

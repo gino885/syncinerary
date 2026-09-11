@@ -48,7 +48,11 @@ struct SourcePlatformLinksView: View {
     }
 
     private var postCount: some View {
-        MetaLabel("\(posts.count) \(posts.count == 1 ? "post" : "posts")")
+        if posts.count == 1 {
+            MetaLabel("1 post")
+        } else {
+            MetaLabel("\(posts.count) posts")
+        }
     }
 }
 

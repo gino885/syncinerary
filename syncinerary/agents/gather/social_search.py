@@ -33,6 +33,7 @@ from syncinerary.config.gather import (
     MAX_CONSECUTIVE_PROVIDER_ERRORS,
     MAX_SEARCHES_PER_CITY,
     PLATFORM_PROBE_MIN,
+    SOCIAL_PLATFORM_PRIORITY,
     lane_slots,
 )
 from syncinerary.domain.models import SocialPlatform
@@ -50,11 +51,7 @@ from syncinerary.tools.fetch.social import (
 if TYPE_CHECKING:  # pragma: no cover - annotation only, avoids a cycle
     from syncinerary.agents.gather.social import MinedPlace
 
-DISCOVERY_PLATFORMS = (
-    SocialPlatform.INSTAGRAM,
-    SocialPlatform.TIKTOK,
-    SocialPlatform.REDNOTE,
-)
+DISCOVERY_PLATFORMS = tuple(SocialPlatform(name) for name in SOCIAL_PLATFORM_PRIORITY)
 
 # An interest with this many places behind it is covered well enough that
 # preference fit stops being the scarce thing. Reported for the trace and used
@@ -459,7 +456,7 @@ def platform_priority(
     platform: SocialPlatform,
     intent_type: SearchIntentType | None = None,
 ) -> tuple[int, int, float, int]:
-    """Least-spent first, with proven duds pushed to the back.
+    """Preferred platform first, with proven unproductive pairs last.
 
     Spreading the early budget across platforms is what tells the run which of
     them are indexed for this city, and one platform's silence says nothing
@@ -479,7 +476,7 @@ def platform_priority(
         if platform in state.platforms
         else len(state.platforms)
     )
-    return (unproductive, stats.searches, -stats.yield_per_search, base_index)
+    return (unproductive, base_index, -stats.yield_per_search, stats.searches)
 
 
 def platforms_by_priority(
@@ -509,6 +506,8 @@ def _first_available(
     order = platforms_by_priority(
         state, intent_type=intent_type if by_pair else None
     )
+    if not by_pair:
+        order.sort(key=lambda p: state.platform_stats[p].searches)
     for platform in order:
         intent = SearchIntent(platform=platform, intent_type=intent_type)
         if is_available(state, intent):

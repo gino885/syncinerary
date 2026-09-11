@@ -29,6 +29,8 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
         return String(localized: String.LocalizationValue(mealSlot.capitalized))
     }
 
+    var directionsURL: URL? = nil
+
     let candidateID: UUID
     let name: String
     let area: String?
@@ -43,6 +45,7 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     let sourcePosts: [SourcePost]
 
     enum CodingKeys: String, CodingKey {
+        case directionsURL = "directions_url"
         case candidateID = "candidate_id"
         case name
         case area

@@ -38,6 +38,7 @@ from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
 from syncinerary.agents.solver.lodging import rank_lodging_options
 from syncinerary.api.deps import OptionalAccount, Session
+from syncinerary.api.itinerary_details import directions_url, meal_breaks_for_day
 from syncinerary.api.schemas import (
     AttachmentLinkRequest,
     CandidateCardOut,
@@ -225,11 +226,22 @@ async def create_trip(
     except TimezoneUnavailable as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
+    # The client sends an ISO code so localized names such as 日本 and Japan
+    # compare as one country. Persist Google's canonical name for readable
+    # trip summaries and country-based provider selection downstream.
+    canonical_country = next(
+        (
+            city.country.strip()
+            for city in resolved
+            if city.country is not None and city.country.strip()
+        ),
+        payload.country,
+    )
     trip = await TripRepository(session).add(
         Trip(
             destination=destination_label([city.name for city in resolved]),
             cities=[city.name for city in resolved],
-            country=payload.country,
+            country=canonical_country,
             resolved_cities=[city.model_dump(mode="json") for city in resolved],
             timezone=timezone,
             output_locale=payload.output_locale,
@@ -933,20 +945,32 @@ async def get_itinerary(
     nodes_by_day: dict[int, list[ItineraryStopOut]] = {}
     travelers = await TravelerRepository(session).list_for_trip(trip_id)
     contributor_names = {traveler.id: traveler.name for traveler in travelers}
-    for node in nodes:
+    previous_by_day = {}
+    for node in sorted(nodes, key=lambda n: (n.day, n.start_time)):
+        previous = previous_by_day.get(node.day)
+        candidate = by_id.get(node.candidate_id)
         nodes_by_day.setdefault(node.day, []).append(
             ItineraryStopOut.of(
                 node,
                 by_id.get(node.candidate_id),
                 viewer_id=traveler_id,
                 contributor_names=contributor_names,
-            )
+            ).model_copy(update={"directions_url": directions_url(
+                previous, candidate, node.transit_from_prev_mode
+            ) if previous is not None and candidate is not None else None})
         )
+        previous_by_day[node.day] = candidate
 
     narrative = None
     snapshot = await get_graph().aget_state(graph_config(trip_id))
     if snapshot.values:
         narrative = TripState.model_validate(snapshot.values).narrative
+
+    city_labels = trip.cities or [trip.destination]
+
+    def meal_search_city(day: int) -> str:
+        city_index = min(day * len(city_labels) // trip.days, len(city_labels) - 1)
+        return city_labels[city_index]
 
     return ItineraryOut(
         version_id=version.id,
@@ -957,6 +981,15 @@ async def get_itinerary(
                 day=day,
                 date=trip.start_date + timedelta(days=day),
                 stops=nodes_by_day.get(day, []),
+                meal_breaks=meal_breaks_for_day(
+                    nodes_by_day.get(day, []), by_id,
+                    day_start=int(version.objective_breakdown.get("day_start_minute", 480)),
+                    day_end=int(version.objective_breakdown.get("day_end_minute", 1260)),
+                    duration_cap_minutes=int(version.objective_breakdown.get(
+                        "day_duration_cap_minutes", 720
+                    )),
+                    fallback_query=meal_search_city(day),
+                ),
             )
             for day in range(trip.days)
         ],

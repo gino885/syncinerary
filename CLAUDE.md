@@ -333,6 +333,22 @@ eval_result(
 
 ## 8. Gather strategy: three inputs
 
+**Owner update, September 11, 2026:** Automatic discovery prioritizes Instagram,
+then RedNote, then TikTok. Social candidates may fill the entire swipe pool;
+Google place discovery fills only shortages after social discovery. Google
+verification and lodging lookup remain available. Keep a dedicated hidden-gem
+lane for less obvious scenery, neighborhood spots and bars. Card prose must
+follow the trip output locale. Official public Reel embeds may be displayed
+on cards; embedding does not authorize downloading video or transcribing it.
+These requirements supersede the earlier 60/40 split and link-only display
+rules below.
+
+For scheduling, reserve lunch and dinner breaks with nearby restaurant options
+when approved restaurants cannot cover a meal. Breakfast remains optional.
+Breaks must occupy real time, and transit rows must link to Google Maps
+with their origin, destination and travel mode.
+
+
 The candidate pool combines a Google Places foundation, automatic social buzz,
 and traveler attachments. Automatic social content comes from **Instagram,
 TikTok, and RedNote only**. Reddit, YouTube, Wikivoyage, and Dcard are not data

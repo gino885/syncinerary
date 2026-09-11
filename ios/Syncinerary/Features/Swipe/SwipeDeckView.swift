@@ -12,6 +12,7 @@ struct SwipeDeckView: View {
     let onDecision: (SwipeDecision) -> Void
     let onDetails: (CandidateCard) -> Void
 
+    @State private var playingCandidateID: UUID?
     @State private var dragOffset = CGSize.zero
     @State private var topOpacity = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -23,7 +24,8 @@ struct SwipeDeckView: View {
     var body: some View {
         ZStack {
             ForEach(Array(cards.prefix(visibleCards).enumerated()), id: \.element.id) { index, card in
-                SwipeCardView(candidate: card, photo: photos[card.id], onDetails: { onDetails(card) })
+                SwipeCardView(candidate: card, photo: photos[card.id], onDetails: { onDetails(card) },
+                              onPlaybackChange: { playingCandidateID = $0 ? card.id : nil })
                     // The stamps ride in with the drag: further you pull,
                     // more solid the stamp, and it shrinks onto the card as
                     // if being pressed down.
@@ -59,8 +61,8 @@ struct SwipeDeckView: View {
                     .opacity(index == 0 ? topOpacity : 1)
                     .zIndex(Double(visibleCards - index))
                     .allowsHitTesting(index == 0)
-                    .gesture(drag, including: index == 0 ? .all : .none)
-                    .accessibilityElement(children: index == 0 ? .combine : .ignore)
+                    .gesture(drag, including: index == 0 && playingCandidateID != card.id ? .all : .subviews)
+                    .accessibilityElement(children: index == 0 ? .contain : .ignore)
                     .accessibilityHidden(index != 0)
                     .accessibilityAction(named: "Like") { throwCard(.like, from: .zero) }
                     .accessibilityAction(named: "Dislike") { throwCard(.dislike, from: .zero) }

@@ -8,10 +8,11 @@ struct SwipeCardView: View {
     let candidate: CandidateCard
     let photo: CandidatePhoto?
     let onDetails: () -> Void
+    var onPlaybackChange: (Bool) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
-            SwipeCardHeroView(candidate: candidate, photo: photo)
+            SwipeCardHeroView(candidate: candidate, photo: photo, onPlaybackChange: onPlaybackChange)
 
             VStack(alignment: .leading, spacing: AppTheme.spacingS) {
                 HStack(alignment: .firstTextBaseline, spacing: AppTheme.spacingS) {
@@ -70,7 +71,9 @@ struct SwipeCardView: View {
         if let area = candidate.area {
             parts.append(area)
         }
-        if let category = candidate.category {
+        if let label = candidate.categoryLabel {
+            parts.append(label)
+        } else if let category = candidate.category {
             let key = category.replacing("_", with: " ").capitalized
             parts.append(String(localized: String.LocalizationValue(key)))
         }

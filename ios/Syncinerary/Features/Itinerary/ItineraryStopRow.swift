@@ -4,6 +4,7 @@ import SwiftUI
 /// got here and what you do once you arrive.
 struct ItineraryStopRow: View {
     let stop: ItineraryStop
+    @ScaledMetric(relativeTo: .body) private var timeColumnWidth = 56
 
     var body: some View {
         HStack(alignment: .top, spacing: AppTheme.spacingL) {
@@ -18,11 +19,20 @@ struct ItineraryStopRow: View {
                     .monospacedDigit()
                     .foregroundStyle(AppTheme.faded)
             }
-            .frame(width: 56, alignment: .leading)
+            .frame(width: timeColumnWidth, alignment: .leading)
 
             VStack(alignment: .leading, spacing: AppTheme.spacingS) {
                 if stop.transitFromPrevMin > 0 {
-                    TransitLegView(minutes: stop.transitFromPrevMin, mode: stop.transitFromPrevMode)
+                    if let url = stop.directionsURL {
+                        Link(destination: url) {
+                            TransitLegView(minutes: stop.transitFromPrevMin, mode: stop.transitFromPrevMode)
+                                .underline()
+                                .frame(minHeight: AppLayout.minimumTapHeight, alignment: .leading)
+                        }
+                        .accessibilityLabel("Open directions in Google Maps")
+                    } else {
+                        TransitLegView(minutes: stop.transitFromPrevMin, mode: stop.transitFromPrevMode)
+                    }
                 }
 
                 Text(stop.name)
@@ -52,7 +62,7 @@ struct ItineraryStopRow: View {
     }
 
     private var hasLinks: Bool {
-        !stop.sourcePosts.isEmpty || stop.sourceBadges.contains { $0.linkURL != nil }
+        stop.directionsURL != nil || !stop.sourcePosts.isEmpty || stop.sourceBadges.contains { $0.linkURL != nil }
     }
 
     private var metaLine: String {
