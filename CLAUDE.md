@@ -333,6 +333,17 @@ eval_result(
 
 ## 8. Gather strategy: three inputs
 
+**Owner update, September 30, 2026, Chinese source content:** A Chinese-created
+group expects original Chinese social content, not English posts with translated
+card copy. Admit automatic social posts only when permitted public text contains
+meaningful Chinese evidence; hashtags, city labels and translated highlights
+alone do not qualify. Preserve that evidence separately from localized copy.
+Sparse Reel yield must leave searches for unprobed RedNote lanes inside the
+existing eight-search ceiling. Search both public note URL paths and normalize
+specific shared-note URLs, while excluding topic and profile pages. Preserve
+votes when repairing source evidence on an existing deck, and report real source
+shortfalls without inventing links or shrinking the deck to meet a percentage.
+
 **Owner update, September 11, 2026:** Automatic discovery prioritizes Instagram,
 then RedNote, then TikTok. Social candidates may fill the entire swipe pool;
 Google place discovery fills only shortages after social discovery. Google

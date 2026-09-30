@@ -6,8 +6,8 @@ Three related language choices run through this product:
 - output language, which is what the server writes narratives and reasons in,
   persisted per trip because a group reads one artifact
 - search language, which follows Chinese versus English from the creator's
-  stored output locale so returned social content matches the UI. RedNote is
-  always searched in its measured Simplified Chinese vocabulary.
+  stored output locale. Chinese discovery also checks the original public
+  post text; translating a card does not qualify an English source as Chinese.
 """
 
 #: Locale tag to the name the model is asked to write in. Traditional and

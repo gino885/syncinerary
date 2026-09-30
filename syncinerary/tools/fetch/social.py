@@ -69,6 +69,7 @@ class BraveSocialSearchInput(BaseModel):
     # enough posts for a genuinely popular place to recur, and a larger page
     # costs the same one request as a small one.
     max_results: int = Field(default=20, ge=1, le=20)
+    search_lang: Literal["en", "zh-hans", "zh-hant", "ja"] = "en"
 
 
 class DiscoveredSocialURL(BaseModel):
@@ -202,7 +203,7 @@ def normalize_social_url(url: str) -> SocialReference:
         )
 
     if host == "xiaohongshu.com":
-        note = re.fullmatch(r"/(?:discovery/item|explore)/([A-Za-z0-9]+)", path)
+        note = re.fullmatch(r"/(?:discovery/item/(?:sgh/)?|explore/)([A-Za-z0-9]+)", path)
         if note is None:
             raise _unsupported()
         note_id = note.group(1)
@@ -518,13 +519,13 @@ def parse_public_engagement(text: str) -> tuple[int | None, int | None]:
 # returns 20 rows of which 12 to 15 are /mobile/question/ Q&A pages plus
 # /mobile/tags/, /user/profile/ and the bare /explore/ feed, and 0 to 5 are
 # actual notes; the note-path scope returns 6 to 20 rows that are all notes.
-# Discovery therefore searches the note path. normalize_social_url still
-# accepts /explore/<id> as well, so a traveler pasting either shape is
-# unaffected: this narrows what discovery searches, not what the app accepts.
+# Search both public note paths. Boston coverage exposed newer /explore/
+# notes and older /discovery/item/sgh/ shares; host-wide searches still admit
+# too many Q&A and topic pages before the result-page limit.
 _SEARCH_SCOPE = {
     SocialPlatform.INSTAGRAM: "site:instagram.com/reel",
     SocialPlatform.TIKTOK: "site:tiktok.com",
-    SocialPlatform.REDNOTE: "site:xiaohongshu.com/discovery/item",
+    SocialPlatform.REDNOTE: "(site:xiaohongshu.com/explore OR site:xiaohongshu.com/discovery/item)",
 }
 
 
@@ -543,9 +544,9 @@ async def _search_brave(
     # produced it. A given query costs the provider once however many
     # iterations ago the planner decided to ask it.
     cache_digest = hashlib.sha256(
-        f"{scoped_query}\n{value.max_results}".encode()
+        f"{scoped_query}\n{value.max_results}\n{value.search_lang}".encode()
     ).hexdigest()
-    cache_key = f"social:brave:v4:{cache_digest}"
+    cache_key = f"social:brave:v5:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -559,7 +560,8 @@ async def _search_brave(
             "Accept": "application/json",
             "X-Subscription-Token": api_key,
         },
-        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true"},
+        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true",
+                "search_lang": value.search_lang, "country": "ALL"},
     )
     response.raise_for_status()
     rows = response.json().get("web", {}).get("results", [])

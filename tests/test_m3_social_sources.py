@@ -290,7 +290,7 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
     # /mobile/question/ and /mobile/tags/ pages, which are not posts, so
     # RedNote contributed nothing at all through it.
     assert seen_queries == [
-        "site:xiaohongshu.com/discovery/item 北海道 必去景点 旅游攻略"
+        "(site:xiaohongshu.com/explore OR site:xiaohongshu.com/discovery/item) 北海道 必去景点 旅游攻略"
     ]
     # Mandarin only: an English angle here would return the wrong internet.
     assert not any("must visit" in q for q in seen_queries)
@@ -461,7 +461,7 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
     assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v4:")
+    assert cache.last_key.startswith("social:brave:v5:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():

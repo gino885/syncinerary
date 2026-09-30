@@ -190,6 +190,7 @@ class SocialSearchState:
 
     destination: str
     destination_local_name: str | None = None
+    output_locale: str = "en"
     interests: list[str] = field(default_factory=list)
     # What the downstream pool wants, not a promise. Section 55: stopping short
     # of it on a saturated search space is a correct outcome.
@@ -301,6 +302,7 @@ def initialize_social_search_state(
     target_candidates: int = 0,
     max_searches: int = MAX_SEARCHES_PER_CITY,
     platforms: Sequence[SocialPlatform] = DISCOVERY_PLATFORMS,
+    output_locale: str = "en",
     **thresholds: int,
 ) -> SocialSearchState:
     return SocialSearchState(
@@ -310,6 +312,7 @@ def initialize_social_search_state(
         target_candidates=target_candidates,
         max_searches=max_searches,
         platforms=tuple(platforms),
+        output_locale=output_locale,
         **thresholds,
     )
 
@@ -655,6 +658,30 @@ def _any_remaining_intent(state: SocialSearchState) -> SearchIntent | None:
     return None
 
 
+def _chinese_rednote_recovery(state: SocialSearchState) -> SearchIntent | None:
+    """Use the existing budget on unprobed notes when Reel yield stays low.
+
+    A Reel percentage target must not starve the other source the group can
+    read. Probe RedNote's remaining intent lanes before more Reel retries,
+    after two low-yield Instagram searches. English discovery is unchanged.
+    """
+    if not state.output_locale.startswith("zh") or SocialPlatform.REDNOTE not in state.platforms:
+        return None
+    reels = [action for action in state.searched_queries
+             if action.intent.platform is SocialPlatform.INSTAGRAM
+             and action.outcome.provider_error is None]
+    if len(reels) < state.platform_probe_min or any(
+        action.outcome.new_unique_places_count > state.low_yield_new_places
+        for action in reels[-state.platform_probe_min:]
+    ):
+        return None
+    for kind in OPENING_SEQUENCE:
+        intent = SearchIntent(platform=SocialPlatform.REDNOTE, intent_type=kind)
+        if is_available(state, intent):
+            return intent
+    return None
+
+
 def plan_next_search(state: SocialSearchState) -> SearchIntent | None:
     """The one next search most likely to add candidates, or None to stop.
 
@@ -678,6 +705,10 @@ def plan_next_search(state: SocialSearchState) -> SearchIntent | None:
     opening = _opening_intent(state)
     if opening is not None:
         return opening
+
+    recovery = _chinese_rednote_recovery(state)
+    if recovery is not None:
+        return recovery
 
     if (
         not state.discovered_places
