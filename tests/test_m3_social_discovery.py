@@ -296,7 +296,7 @@ async def test_discovery_drops_names_google_cannot_resolve(monkeypatch):
     trip = _trip()
     posts = [_tiktok(index) for index in range(3)]
 
-    async def fake_search(_platform, *, query, destination):
+    async def fake_search(_platform, *, query, destination, output_locale="en"):
         return posts
 
     async def fake_extract(
@@ -377,7 +377,7 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
         SocialPlatform.REDNOTE: "函館朝市",
     }
 
-    async def fake_search(platform, *, query, destination):
+    async def fake_search(platform, *, query, destination, output_locale="en"):
         return posts_by_platform[platform]
 
     async def fake_extract(
@@ -434,7 +434,7 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
 async def test_a_platform_failure_is_not_hidden_as_an_empty_result(monkeypatch):
     trip = _trip()
 
-    async def exploding_search(platform, *, query, destination):
+    async def exploding_search(platform, *, query, destination, output_locale="en"):
         raise RuntimeError("BRAVE_SEARCH_API_KEY is required for social discovery")
 
     monkeypatch.setattr(social_module, "_search_platform", exploding_search)
@@ -452,7 +452,7 @@ async def test_rednote_searches_use_the_mandarin_destination_name(monkeypatch):
     """
     queries: list[tuple[SocialPlatform, str]] = []
 
-    async def fake_search(platform, *, query, destination):
+    async def fake_search(platform, *, query, destination, output_locale="en"):
         queries.append((platform, query))
         return []
 
@@ -472,7 +472,7 @@ async def test_rednote_is_skipped_when_no_mandarin_name_is_available(monkeypatch
     searching it at all."""
     queries: list[SocialPlatform] = []
 
-    async def fake_search(platform, *, query, destination):
+    async def fake_search(platform, *, query, destination, output_locale="en"):
         queries.append(platform)
         return []
 

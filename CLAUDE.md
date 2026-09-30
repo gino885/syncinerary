@@ -333,6 +333,12 @@ eval_result(
 
 ## 8. Gather strategy: three inputs
 
+**Owner update, September 30, 2026, Chinese source content:** A Chinese-created
+group expects original Chinese social content, not English posts with translated
+card copy. Admit automatic social posts only when permitted public text contains
+meaningful Chinese evidence; hashtags, city labels and translated highlights
+alone do not qualify. Preserve that evidence separately from localized copy.
+
 **Owner update, September 11, 2026:** Automatic discovery prioritizes Instagram,
 then RedNote, then TikTok. Social candidates may fill the entire swipe pool;
 Google place discovery fills only shortages after social discovery. Google

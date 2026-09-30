@@ -461,7 +461,7 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
     assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v4:")
+    assert cache.last_key.startswith("social:brave:v5:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():

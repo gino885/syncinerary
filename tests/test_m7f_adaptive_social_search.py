@@ -102,7 +102,7 @@ class FakeSocialWorld:
 
         return planned
 
-    async def search(self, platform, *, query, destination):
+    async def search(self, platform, *, query, destination, output_locale="en"):
         intent_type = self._pending.intent_type
         self._intent_by_query[query] = intent_type
         index = len(self.searches)

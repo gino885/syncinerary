@@ -48,6 +48,7 @@ from syncinerary.agents.gather.social_search import (
     plan_next_search,
     update_search_state,
 )
+from syncinerary.agents.gather.source_language import chinese_source_evidence
 from syncinerary.agents.gather.traits import (
     fatigue_cost,
     is_visitable_place,
@@ -61,7 +62,7 @@ from syncinerary.config.gather import (
     lane_slots,
     social_verify_budget,
 )
-from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE
+from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -220,6 +221,8 @@ class MinedPost(BaseModel):
     # from this rather than from its score, so provenance has to survive the
     # merge: a place both a broad and a hidden-gem search named carries both.
     intent_type: str = SearchIntentType.PLACES.value
+    content_language: str | None = None
+    language_evidence: str | None = None
 
 
 class MinedPlace(BaseModel):
@@ -356,6 +359,7 @@ async def _search_platform(
     *,
     query: str,
     destination: str,
+    output_locale: str = DEFAULT_OUTPUT_LOCALE,
 ) -> list[DiscoveredSocialURL]:
     """Run one already-worded query and read what the platform permits.
 
@@ -365,7 +369,10 @@ async def _search_platform(
     """
     result = await run_tool(
         make_brave_social_search_tool(),
-        BraveSocialSearchInput(platform=platform, query=query),
+        BraveSocialSearchInput(
+            platform=platform, query=query,
+            search_lang=normalize_output_locale(output_locale).lower(),
+        ),
         state={
             "node": "gather_social",
             "platform": platform.value,
@@ -379,6 +386,15 @@ async def _search_platform(
         # the cover frame. At most two more harness steps per search, bounded
         # in config/gather.py; the others stay at the index snippet.
         posts = await read_tiktok_posts(posts, destination=destination, query=query)
+    if normalize_output_locale(output_locale).startswith("zh-"):
+        accepted = [post for post in posts if chinese_source_evidence(post)]
+        trace.get_current_span().add_event("social_source_language", {
+            "platform": platform.value, "locale": output_locale,
+            "accepted": len(accepted), "rejected": len(posts) - len(accepted),
+        })
+        logger.info("social.language platform=%s locale=%s accepted=%s rejected=%s",
+                    platform.value, output_locale, len(accepted), len(posts) - len(accepted))
+        posts = accepted
     return posts
 
 
@@ -560,6 +576,8 @@ def merge_mentions(
                 matched_interests=list(mention.matched_interests),
                 thumbnail_url=post.thumbnail_url,
                 intent_type=intent_type.value,
+                content_language="zh" if chinese_source_evidence(post) else None,
+                language_evidence=chinese_source_evidence(post),
             )
         )
         if platform.value not in place.platforms:
@@ -867,6 +885,7 @@ async def _run_one_search(
             intent.platform,
             query=query,
             destination=state.destination,
+            output_locale=state.output_locale,
         )
     except httpx.HTTPError as exc:
         # Section 38: a timeout or a 5xx is a failed request, not an empty
@@ -935,6 +954,7 @@ async def mine_city(
         interests=interests,
         target_candidates=target_candidates,
         max_searches=max_searches,
+        output_locale=output_locale,
         **thresholds,
     )
 

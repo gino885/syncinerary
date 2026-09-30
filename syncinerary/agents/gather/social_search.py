@@ -190,6 +190,7 @@ class SocialSearchState:
 
     destination: str
     destination_local_name: str | None = None
+    output_locale: str = "en"
     interests: list[str] = field(default_factory=list)
     # What the downstream pool wants, not a promise. Section 55: stopping short
     # of it on a saturated search space is a correct outcome.
@@ -301,6 +302,7 @@ def initialize_social_search_state(
     target_candidates: int = 0,
     max_searches: int = MAX_SEARCHES_PER_CITY,
     platforms: Sequence[SocialPlatform] = DISCOVERY_PLATFORMS,
+    output_locale: str = "en",
     **thresholds: int,
 ) -> SocialSearchState:
     return SocialSearchState(
@@ -310,6 +312,7 @@ def initialize_social_search_state(
         target_candidates=target_candidates,
         max_searches=max_searches,
         platforms=tuple(platforms),
+        output_locale=output_locale,
         **thresholds,
     )
 

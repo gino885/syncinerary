@@ -69,6 +69,7 @@ class BraveSocialSearchInput(BaseModel):
     # enough posts for a genuinely popular place to recur, and a larger page
     # costs the same one request as a small one.
     max_results: int = Field(default=20, ge=1, le=20)
+    search_lang: Literal["en", "zh-hans", "zh-hant", "ja"] = "en"
 
 
 class DiscoveredSocialURL(BaseModel):
@@ -543,9 +544,9 @@ async def _search_brave(
     # produced it. A given query costs the provider once however many
     # iterations ago the planner decided to ask it.
     cache_digest = hashlib.sha256(
-        f"{scoped_query}\n{value.max_results}".encode()
+        f"{scoped_query}\n{value.max_results}\n{value.search_lang}".encode()
     ).hexdigest()
-    cache_key = f"social:brave:v4:{cache_digest}"
+    cache_key = f"social:brave:v5:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -559,7 +560,8 @@ async def _search_brave(
             "Accept": "application/json",
             "X-Subscription-Token": api_key,
         },
-        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true"},
+        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true",
+                "search_lang": value.search_lang, "country": "ALL"},
     )
     response.raise_for_status()
     rows = response.json().get("web", {}).get("results", [])
