@@ -290,7 +290,7 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
     # /mobile/question/ and /mobile/tags/ pages, which are not posts, so
     # RedNote contributed nothing at all through it.
     assert seen_queries == [
-        "site:xiaohongshu.com/discovery/item 北海道 必去景点 旅游攻略"
+        "(site:xiaohongshu.com/explore OR site:xiaohongshu.com/discovery/item) 北海道 必去景点 旅游攻略"
     ]
     # Mandarin only: an English angle here would return the wrong internet.
     assert not any("must visit" in q for q in seen_queries)

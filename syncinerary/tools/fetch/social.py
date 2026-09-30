@@ -203,7 +203,7 @@ def normalize_social_url(url: str) -> SocialReference:
         )
 
     if host == "xiaohongshu.com":
-        note = re.fullmatch(r"/(?:discovery/item|explore)/([A-Za-z0-9]+)", path)
+        note = re.fullmatch(r"/(?:discovery/item/(?:sgh/)?|explore/)([A-Za-z0-9]+)", path)
         if note is None:
             raise _unsupported()
         note_id = note.group(1)
@@ -519,13 +519,13 @@ def parse_public_engagement(text: str) -> tuple[int | None, int | None]:
 # returns 20 rows of which 12 to 15 are /mobile/question/ Q&A pages plus
 # /mobile/tags/, /user/profile/ and the bare /explore/ feed, and 0 to 5 are
 # actual notes; the note-path scope returns 6 to 20 rows that are all notes.
-# Discovery therefore searches the note path. normalize_social_url still
-# accepts /explore/<id> as well, so a traveler pasting either shape is
-# unaffected: this narrows what discovery searches, not what the app accepts.
+# Search both public note paths. Boston coverage exposed newer /explore/
+# notes and older /discovery/item/sgh/ shares; host-wide searches still admit
+# too many Q&A and topic pages before the result-page limit.
 _SEARCH_SCOPE = {
     SocialPlatform.INSTAGRAM: "site:instagram.com/reel",
     SocialPlatform.TIKTOK: "site:tiktok.com",
-    SocialPlatform.REDNOTE: "site:xiaohongshu.com/discovery/item",
+    SocialPlatform.REDNOTE: "(site:xiaohongshu.com/explore OR site:xiaohongshu.com/discovery/item)",
 }
 
 
