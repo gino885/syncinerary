@@ -93,6 +93,7 @@ class StopReason(StrEnum):
     NO_SEARCH_ACTIONS_LEFT = "no_search_actions_left"
     # Not a statement about the search space, unlike the four above.
     PROVIDER_UNAVAILABLE = "provider_unavailable"
+    VERIFICATION_BUDGET_REACHED = "verification_budget_reached"
 
 
 @dataclass(frozen=True)
@@ -195,6 +196,14 @@ class SocialSearchState:
     # What the downstream pool wants, not a promise. Section 55: stopping short
     # of it on a saturated search space is a correct outcome.
     target_candidates: int = 0
+    reel_target: int = 0
+    verified_reels: int = 0
+    verified_lane_supply: tuple[int, int] | None = None
+    verification_exhausted: bool = False
+    food_target: int = 0
+    attraction_target: int = 0
+    verified_food: int = 0
+    verified_attractions: int = 0
     max_searches: int = MAX_SEARCHES_PER_CITY
     platforms: tuple[SocialPlatform, ...] = DISCOVERY_PLATFORMS
 
@@ -203,6 +212,7 @@ class SocialSearchState:
     # count.
     discovered_places: dict[str, MinedPlace] = field(default_factory=dict)
     searched_queries: list[SearchAction] = field(default_factory=list)
+    seen_post_urls: dict[IntentKey, set[str]] = field(default_factory=dict)
     attempts_by_intent: dict[IntentKey, int] = field(default_factory=dict)
     interest_coverage: dict[str, int] = field(default_factory=dict)
     platform_stats: dict[SocialPlatform, SearchStats] = field(default_factory=dict)
@@ -258,6 +268,8 @@ class SocialSearchState:
         both. Which lane finally shows it is decided later, in
         select_social_candidates.
         """
+        if self.verified_lane_supply is not None:
+            return self.verified_lane_supply
         trending = for_you = 0
         for place in self.discovered_places.values():
             found_by = {
@@ -412,19 +424,19 @@ def update_search_state(
 def available_platforms(state: SocialSearchState) -> list[SocialPlatform]:
     """Platforms this city can actually be searched on.
 
-    RedNote drops out without a Mandarin destination name rather than falling
-    back to the English one, which would search a different corpus.
+    Chinese searches require a translated destination. English and Japanese
+    searches can use the resolved city name without a Mandarin translation.
     """
     return [
         platform
         for platform in state.platforms
-        if platform is not SocialPlatform.REDNOTE or state.destination_local_name
+        if is_buildable(state, SearchIntent(platform=platform, intent_type=SearchIntentType.PLACES))
     ]
 
 
 def is_buildable(state: SocialSearchState, intent: SearchIntent) -> bool:
     """Whether a query exists for this intent without inventing language."""
-    if intent.platform is not SocialPlatform.REDNOTE:
+    if not state.output_locale.startswith("zh"):
         return True
     return bool(state.destination_local_name)
 
@@ -658,6 +670,15 @@ def _any_remaining_intent(state: SocialSearchState) -> SearchIntent | None:
     return None
 
 
+def search_page(state: SocialSearchState, intent: SearchIntent, query: str) -> tuple[str, int]:
+    """Use one second page instead of a broader retry after a productive full page."""
+    if intent.platform is SocialPlatform.INSTAGRAM and state.attempts_for(intent) == 1:
+        previous = next(action for action in state.searched_queries if action.intent.key == intent.key)
+        if previous.outcome.raw_results_count >= 20 and previous.outcome.new_unique_places_count > 1:
+            return previous.query, 1
+    return query, 0
+
+
 def _chinese_rednote_recovery(state: SocialSearchState) -> SearchIntent | None:
     """Use the existing budget on unprobed notes when Reel yield stays low.
 
@@ -690,7 +711,12 @@ def plan_next_search(state: SocialSearchState) -> SearchIntent | None:
     if state.searches_used >= state.max_searches:
         state.stop(StopReason.SEARCH_BUDGET_REACHED)
         return None
-    if state.target_candidates and all(
+    if state.verification_exhausted:
+        state.stop(StopReason.VERIFICATION_BUDGET_REACHED)
+        return None
+    if (state.target_candidates and state.verified_reels >= state.reel_target
+        and state.verified_food >= state.food_target
+        and state.verified_attractions >= state.attraction_target) and all(
         deficit <= 0 for deficit, _lane, _types in lane_deficits(state)
     ):
         state.stop(StopReason.TARGET_REACHED)
@@ -706,9 +732,23 @@ def plan_next_search(state: SocialSearchState) -> SearchIntent | None:
     if opening is not None:
         return opening
 
-    recovery = _chinese_rednote_recovery(state)
-    if recovery is not None:
-        return recovery
+    # Other platforms filling the lanes is not evidence of enough Reels.
+    # Probe the remaining Instagram intents within the same search ceiling.
+    if state.verified_reels < state.reel_target:
+        recovery = _chinese_rednote_recovery(state)
+        if recovery is not None:
+            return recovery
+        kinds = [kind for _, _, kinds in lane_deficits(state) for kind in kinds]
+        if state.verified_food < state.food_target:
+            kinds.remove(SearchIntentType.FOOD)
+            kinds.insert(0, SearchIntentType.FOOD)
+        # Cover different intents before spending their broader retries.
+        for specificity in (QuerySpecificity.SPECIFIC, QuerySpecificity.NORMAL):
+            for kind in kinds:
+                intent = SearchIntent(platform=SocialPlatform.INSTAGRAM,
+                                      intent_type=kind, specificity=specificity)
+                if SocialPlatform.INSTAGRAM in state.platforms and is_available(state, intent):
+                    return intent
 
     if (
         not state.discovered_places

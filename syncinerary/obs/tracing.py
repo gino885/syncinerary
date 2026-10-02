@@ -12,6 +12,7 @@ Observability model (see CLAUDE.md §14):
   that add attributes not derivable from auto-instrumentation (e.g. a
   trip-scoped operation span with trip_id).
 """
+from openinference.instrumentation import TraceConfig
 from openinference.instrumentation.anthropic import AnthropicInstrumentor
 from openinference.instrumentation.langchain import LangChainInstrumentor
 from opentelemetry import trace
@@ -45,8 +46,12 @@ def init_tracing() -> None:
     # LangChain instrumentor captures every node execution. Anthropic
     # instrumentor captures every LLM call regardless of caller (LangGraph
     # node, harness wrapper, or direct SDK use).
-    LangChainInstrumentor().instrument()
-    AnthropicInstrumentor().instrument()
+    trace_config = TraceConfig(
+        hide_inputs=not settings.sync_trace_sensitive_content,
+        hide_outputs=not settings.sync_trace_sensitive_content,
+    )
+    LangChainInstrumentor().instrument(config=trace_config)
+    AnthropicInstrumentor().instrument(config=trace_config)
 
     _initialized = True
 

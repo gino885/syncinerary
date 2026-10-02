@@ -69,6 +69,8 @@ class BraveSocialSearchInput(BaseModel):
     # enough posts for a genuinely popular place to recur, and a larger page
     # costs the same one request as a small one.
     max_results: int = Field(default=20, ge=1, le=20)
+    search_kind: Literal["web", "videos"] = "web"
+    offset: int = Field(default=0, ge=0, le=1)
     search_lang: Literal["en", "zh-hans", "zh-hant", "ja"] = "en"
 
 
@@ -386,6 +388,32 @@ _MANDARIN_QUERIES: dict[tuple[SearchIntentType, QuerySpecificity], str] = {
 }
 
 
+_TRADITIONAL_QUERIES: dict[tuple[SearchIntentType, QuerySpecificity], str] = {
+    (SearchIntentType.PLACES, QuerySpecificity.SPECIFIC): "{destination} 必去景點 旅遊推薦",
+    (SearchIntentType.PLACES, QuerySpecificity.NORMAL): "{destination} 景點推薦",
+    (SearchIntentType.PLACES, QuerySpecificity.BROAD): "{destination} 景點",
+    (SearchIntentType.FOOD, QuerySpecificity.SPECIFIC): "{destination} 美食推薦 餐廳 咖啡店",
+    (SearchIntentType.FOOD, QuerySpecificity.NORMAL): "{destination} 美食推薦",
+    (SearchIntentType.FOOD, QuerySpecificity.BROAD): "{destination} 美食",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.SPECIFIC): "{destination} 小眾景點 巷弄酒吧",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.NORMAL): "{destination} 私房景點",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.BROAD): "{destination} 小眾",
+}
+
+
+_INSTAGRAM_ENGLISH_QUERIES = {
+    (SearchIntentType.PLACES, QuerySpecificity.SPECIFIC): "{destination} sightseeing",
+    (SearchIntentType.PLACES, QuerySpecificity.NORMAL): "{destination} attractions",
+    (SearchIntentType.PLACES, QuerySpecificity.BROAD): "{destination} travel",
+    (SearchIntentType.FOOD, QuerySpecificity.SPECIFIC): "{destination} restaurants",
+    (SearchIntentType.FOOD, QuerySpecificity.NORMAL): "{destination} food",
+    (SearchIntentType.FOOD, QuerySpecificity.BROAD): "{destination} food",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.SPECIFIC): "{destination} hidden gems",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.NORMAL): "{destination} local spots",
+    (SearchIntentType.HIDDEN_GEMS, QuerySpecificity.BROAD): "{destination} local",
+}
+
+
 def build_discovery_query(
     intent: SearchIntent,
     *,
@@ -398,25 +426,39 @@ def build_discovery_query(
     Deterministic on purpose: the planner decides what is missing, this decides
     how to ask for it, and no model writes a query. Chinese trips use Chinese
     vocabulary on every platform so discovery retrieves Chinese posts and
-    video captions. RedNote always uses Chinese because an English query
-    returns a different corpus entirely.
+    video captions. The user's language applies to RedNote too; destination
+    country and platform never select a different search language.
     """
     destination = destination.strip()
     if not destination:
         raise ValueError("destination cannot be empty")
 
-    uses_chinese_vocabulary = (
-        intent.platform is SocialPlatform.REDNOTE
-        or normalize_output_locale(output_locale).startswith("zh-")
-    )
+    if normalize_output_locale(output_locale) == "ja":
+        terms = {
+            SearchIntentType.PLACES: ("おすすめ観光スポット", "観光スポット", "観光"),
+            SearchIntentType.FOOD: ("おすすめレストラン", "レストラン", "グルメ"),
+            SearchIntentType.HIDDEN_GEMS: ("穴場スポット", "地元のおすすめ", "穴場"),
+        }
+        index = (QuerySpecificity.SPECIFIC, QuerySpecificity.NORMAL,
+                 QuerySpecificity.BROAD).index(intent.specificity)
+        return f"{destination} {terms[intent.intent_type][index]}"
+    uses_chinese_vocabulary = normalize_output_locale(output_locale).startswith("zh-")
     if uses_chinese_vocabulary:
         if destination_localized is None or not destination_localized.strip():
             raise ValueError("Chinese discovery requires a localized destination")
         name = destination_localized.strip()
-        template = _MANDARIN_QUERIES[(intent.intent_type, intent.specificity)]
+        vocabulary = (
+            _TRADITIONAL_QUERIES
+            if normalize_output_locale(output_locale) == "zh-Hant"
+            else _MANDARIN_QUERIES
+        )
+        template = vocabulary[(intent.intent_type, intent.specificity)]
     else:
         name = destination
-        template = _ENGLISH_QUERIES[(intent.intent_type, intent.specificity)]
+        # Longer piles of synonyms returned only five Tokyo food posts in
+        # the live comparison. Shorter queries leave room for venue names.
+        vocabulary = _INSTAGRAM_ENGLISH_QUERIES if intent.platform is SocialPlatform.INSTAGRAM else _ENGLISH_QUERIES
+        template = vocabulary[(intent.intent_type, intent.specificity)]
 
     return " ".join(template.format(destination=name).split())
 
@@ -544,9 +586,9 @@ async def _search_brave(
     # produced it. A given query costs the provider once however many
     # iterations ago the planner decided to ask it.
     cache_digest = hashlib.sha256(
-        f"{scoped_query}\n{value.max_results}\n{value.search_lang}".encode()
+        f"{value.search_kind}\n{value.offset}\n{scoped_query}\n{value.max_results}\n{value.search_lang}".encode()
     ).hexdigest()
-    cache_key = f"social:brave:v5:{cache_digest}"
+    cache_key = f"social:brave:v6:{cache_digest}"
     if cache is not None:
         cached = await cache.get(cache_key)
         if cached is not None:
@@ -554,18 +596,22 @@ async def _search_brave(
     seen: set[str] = set()
     results: list[DiscoveredSocialURL] = []
 
+    params = {"q": scoped_query, "count": value.max_results, "offset": value.offset,
+              "search_lang": value.search_lang, "country": "ALL"}
+    if value.search_kind == "web":
+        params["extra_snippets"] = "true"
     response = await client.get(
-        "https://api.search.brave.com/res/v1/web/search",
+        f"https://api.search.brave.com/res/v1/{value.search_kind}/search",
         headers={
             "Accept": "application/json",
             "X-Subscription-Token": api_key,
         },
-        params={"q": scoped_query, "count": value.max_results, "extra_snippets": "true",
-                "search_lang": value.search_lang, "country": "ALL"},
+        params=params,
     )
     response.raise_for_status()
-    rows = response.json().get("web", {}).get("results", [])
-    for rank, row in enumerate(rows, start=1):
+    data = response.json()
+    rows = data.get("results", []) if value.search_kind == "videos" else data.get("web", {}).get("results", [])
+    for rank, row in enumerate(rows, start=1 + value.offset * value.max_results):
         try:
             reference = normalize_social_url(row.get("url", ""))
         except (TypeError, ValueError):
@@ -592,6 +638,7 @@ async def _search_brave(
                 rank=rank,
                 title=title,
                 description=description,
+                author_name=(row.get("video") or {}).get("creator") if value.search_kind == "videos" else None,
                 like_count=like_count,
                 comment_count=comment_count,
             )

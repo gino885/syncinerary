@@ -478,7 +478,7 @@ async def test_a_candidate_moved_to_another_day_is_never_scheduled_twice(
     monkeypatch.setattr(
         solver_module,
         "assign_days_by_city",
-        lambda _candidates, _days, _cities: [[a], [b, moved, later]],
+        lambda _candidates, _days, _cities, _city_days=None: [[a], [b, moved, later]],
     )
 
     async def fake_solve(bucket, *, day, **_kwargs):

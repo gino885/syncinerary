@@ -1,8 +1,8 @@
 """Single execution boundary for every LLM and tool call."""
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from decimal import Decimal
@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from opentelemetry import trace
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from syncinerary.config import settings
 from syncinerary.config.harness import (
@@ -227,6 +227,14 @@ class RunLedger:
 
 
 _current_run: ContextVar[RunLedger | None] = ContextVar("harness_run", default=None)
+_CREATOR_KEY_MISSING = object()
+_current_anthropic_api_key: ContextVar[SecretStr | object | None] = ContextVar(
+    "anthropic_api_key", default=None
+)
+
+
+class CreatorCredentialUnavailable(RuntimeError):
+    """A creator-owned trip attempted a model call without its creator key."""
 
 
 async def before_call(
@@ -264,12 +272,45 @@ def log_attempt(
     trace.get_current_span().add_event("harness.attempt", attributes=attributes)
 
 
-def make_messages_client() -> MessagesClient:
-    """Construct the provider client inside the mandatory harness boundary."""
+def _anthropic_client_factory(*, api_key: str | None):
     from anthropic import AsyncAnthropic
 
-    api_key = settings.anthropic_api_key or None
-    return AsyncAnthropic(api_key=api_key).messages
+    return AsyncAnthropic(api_key=api_key)
+
+
+@contextmanager
+def use_anthropic_api_key(api_key: SecretStr) -> Iterator[None]:
+    """Scope a creator credential without placing it in state, traces, or payloads."""
+    token = _current_anthropic_api_key.set(api_key)
+    try:
+        yield
+    finally:
+        _current_anthropic_api_key.reset(token)
+
+
+@contextmanager
+def require_anthropic_api_key(api_key: SecretStr | None) -> Iterator[None]:
+    """Forbid the server fallback when a trip belongs to an account."""
+    token = _current_anthropic_api_key.set(api_key or _CREATOR_KEY_MISSING)
+    try:
+        yield
+    finally:
+        _current_anthropic_api_key.reset(token)
+
+
+def make_messages_client() -> MessagesClient:
+    """Construct the provider client inside the mandatory harness boundary."""
+    scoped = _current_anthropic_api_key.get()
+    if scoped is _CREATOR_KEY_MISSING:
+        raise CreatorCredentialUnavailable(
+            "The trip creator must add an Anthropic API key in AI access"
+        )
+    api_key = (
+        scoped.get_secret_value()
+        if isinstance(scoped, SecretStr)
+        else settings.anthropic_api_key or None
+    )
+    return _anthropic_client_factory(api_key=api_key).messages
 
 
 async def call_llm(

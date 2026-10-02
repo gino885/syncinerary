@@ -5,6 +5,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from syncinerary.config.schedule import SCHEDULE_QUANTUM_MINUTES, ceil_slot
 from syncinerary.config.solver import DAY_DURATION_CAP_HOURS, MEAL_WINDOWS, REQUIRED_MEALS
 from syncinerary.domain.models import CandidatePlace, CandidateType
 
@@ -50,17 +51,17 @@ def available_meal_breaks(
                    - duration_cap_minutes)
     latest = min((left for left, _ in occupied), default=day_end)
     best: list[MealBreak] = []
-    for span_start in range(earliest, min(latest, day_end) + 1):
+    for span_start in range(ceil_slot(earliest), min(latest, day_end) + 1, SCHEDULE_QUANTUM_MINUTES):
         breaks = []
         for meal in missing:
             start, end = MEAL_WINDOWS[meal]
-            cursor = max(span_start, start * 60)
+            cursor = ceil_slot(max(span_start, start * 60))
             limit = min(day_end, end * 60, span_start + duration_cap_minutes)
             for left, right in occupied:
                 if cursor + MEAL_BREAK_MINUTES <= left:
                     break
                 if right > cursor and left < cursor + MEAL_BREAK_MINUTES:
-                    cursor = right
+                    cursor = ceil_slot(right)
             if cursor + MEAL_BREAK_MINUTES <= limit:
                 breaks.append(MealBreak(meal=meal, start_minute=cursor,
                                         end_minute=cursor + MEAL_BREAK_MINUTES))

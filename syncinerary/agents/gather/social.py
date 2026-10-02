@@ -16,8 +16,8 @@ select_social_candidates and SOCIAL_TWO_LANE_PLAN.md.
 
 Searching is adaptive. One query runs at a time and what it found decides the
 next one, under a hard per-city ceiling; the rules live in social_search.py.
-Google Places verification stays after the loop, where the two-lane selection
-can choose which mined names are worth a reality check.
+Production verification feeds accepted, deduplicated supply back into the
+loop. A mining-only mode remains available for provider comparisons.
 """
 from __future__ import annotations
 
@@ -32,8 +32,12 @@ import httpx
 from opentelemetry import trace
 from pydantic import BaseModel, Field, ValidationError
 
+from syncinerary.agents.gather.admission import admit_place, supported_candidate_type
 from syncinerary.agents.gather.cities import resolve_trip_cities
+from syncinerary.agents.gather.dedup import dedup_candidates, merge_candidate_evidence
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
+from syncinerary.agents.gather.preferences import traveler_interests
+from syncinerary.agents.gather.progress import report_progress
 from syncinerary.agents.gather.social_read import read_tiktok_posts
 from syncinerary.agents.gather.social_search import (
     DISCOVERY_PLATFORMS,
@@ -46,12 +50,13 @@ from syncinerary.agents.gather.social_search import (
     interests_in_text,
     normalize_matched_interests,
     plan_next_search,
+    search_page,
     update_search_state,
 )
 from syncinerary.agents.gather.source_language import chinese_source_evidence
+from syncinerary.agents.gather.source_mix import has_reel, is_reel_url
 from syncinerary.agents.gather.traits import (
     fatigue_cost,
-    is_visitable_place,
     is_weather_dependent,
 )
 from syncinerary.config import settings
@@ -59,10 +64,17 @@ from syncinerary.config.gather import (
     BUZZ_MIN_SOURCE_COUNT,
     MAX_SEARCHES_PER_CITY,
     MINED_NAMES_MAX,
+    POOL_PER_DAY,
+    SOCIAL_VERIFY_BATCH_MAX,
+    SOCIAL_VERIFY_BUDGET_MAX,
+    guide_verify_budget,
     lane_slots,
+    reel_target,
     social_verify_budget,
 )
 from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
+from syncinerary.config.solver import ATTRACTIONS_PER_DAY_MIN, MEALS_PER_DAY_MIN
+from syncinerary.domain.city_plan import city_day_counts
 from syncinerary.domain.models import (
     CandidatePlace,
     CandidateType,
@@ -341,24 +353,12 @@ class MinedPlace(BaseModel):
         return round(math.log(self.mention_count + 1) * (1 + engagement_boost), 4)
 
 
-def traveler_interests(travelers: list[Traveler]) -> list[str]:
-    """Interest terms from traveler profiles, deduplicated and order-stable."""
-    interests: OrderedDict[str, None] = OrderedDict()
-    for traveler in travelers:
-        raw = traveler.profile.get("interests")
-        if not isinstance(raw, list):
-            continue
-        for item in raw:
-            if isinstance(item, str) and item.strip():
-                interests.setdefault(item.strip(), None)
-    return list(interests)[:8]
-
-
 async def _search_platform(
     platform: SocialPlatform,
     *,
     query: str,
     destination: str,
+    offset: int = 0,
     output_locale: str = DEFAULT_OUTPUT_LOCALE,
 ) -> list[DiscoveredSocialURL]:
     """Run one already-worded query and read what the platform permits.
@@ -369,15 +369,15 @@ async def _search_platform(
     """
     result = await run_tool(
         make_brave_social_search_tool(),
-        BraveSocialSearchInput(
-            platform=platform, query=query,
-            search_lang=normalize_output_locale(output_locale).lower(),
-        ),
+        BraveSocialSearchInput(platform=platform, query=query, offset=offset,
+                               search_lang=normalize_output_locale(output_locale).lower()),
         state={
             "node": "gather_social",
             "platform": platform.value,
             "destination": destination,
             "query": query,
+            "offset": offset,
+            "output_locale": output_locale,
         },
     )
     posts = list(result.results)[:MAX_POSTS_PER_SEARCH]
@@ -603,14 +603,10 @@ def _clean_highlight(value: str | None) -> str | None:
 
 
 def _candidate_type(place: PlaceMatch) -> CandidateType:
-    types = set(place.types)
-    if place.primary_type:
-        types.add(place.primary_type)
-    if types & _LODGING_PLACE_TYPES:
-        return CandidateType.LODGING
-    if types & _FOOD_PLACE_TYPES or any(t.endswith("_restaurant") for t in types):
-        return CandidateType.FOOD
-    return CandidateType.ATTRACTION
+    kind = supported_candidate_type(place)
+    if kind is None:
+        raise ValueError("Unsupported place type cannot become a candidate")
+    return kind
 
 
 def to_candidate(
@@ -652,6 +648,8 @@ def to_candidate(
             )
         ],
         enrichment={
+            "admission": admit_place(place, destination=city.name if city else trip.destination,
+                                     city=city, social_evidence=True).model_dump(mode="json"),
             "google_place_id": place.place_id,
             "city": city.name if city else None,
             "discovery_provider": "social_public_search",
@@ -868,10 +866,99 @@ def _coverage_hits(
     return dict(hits)
 
 
+@dataclass
+class CityVerification:
+    """Bounded reality checks shared across a city's adaptive searches.
+
+    Keep resolutions by mined name, then rebuild evidence from the latest
+    mining state. A later post can enrich a verified place without paying for
+    another lookup. Failed names also consume the budget exactly once.
+    """
+
+    trip: Trip
+    city: ResolvedCity
+    budget: int
+    ceiling: int | None = None
+    baseline: list[CandidatePlace] = field(default_factory=list)
+    matches: dict[str, PlaceMatch | None] = field(default_factory=dict)
+    rejected: int = 0
+
+    @property
+    def attempts(self) -> int:
+        return len(self.matches)
+
+    def candidates(self, state: SocialSearchState) -> list[CandidatePlace]:
+        by_id: dict[str, CandidatePlace] = {}
+        for key, match in self.matches.items():
+            if match is None:
+                continue
+            mined = state.discovered_places[key]
+            candidate = to_candidate(match, mined, self.trip, city=self.city,
+                                     lane="for_you" if mined.is_hidden_gem else "trending")
+            existing = by_id.get(match.place_id)
+            by_id[match.place_id] = merge_candidate_evidence(existing, candidate) if existing else candidate
+        return dedup_candidates(list(by_id.values()))
+
+    def refresh(self, state: SocialSearchState) -> None:
+        cards = dedup_candidates(self.baseline + self.candidates(state))
+        cards = [c for c in cards if c.type is not CandidateType.LODGING]
+        state.verified_reels = sum(has_reel(c, automatic=True) for c in cards)
+        gems = sum(c.trending_signals.get("selection_lane") == "for_you" for c in cards)
+        state.verified_lane_supply = (len(cards) - gems, gems)
+        state.verified_food = sum(c.type is CandidateType.FOOD for c in cards)
+        state.verified_attractions = sum(c.type is CandidateType.ATTRACTION for c in cards)
+        if self.attempts >= self.budget and state.verified_reels < state.reel_target:
+            deficit = state.reel_target - state.verified_reels
+            extra = math.ceil(deficit * self.attempts / max(1, state.verified_reels))
+            self.budget = min(self.ceiling or self.budget, self.budget + max(1, extra))
+        state.verification_exhausted = self.attempts >= self.budget
+
+    async def update(self, state: SocialSearchState, *, final: bool = False) -> None:
+        self.refresh(state)
+        pending = {key: place for key, place in state.discovered_places.items() if key not in self.matches}
+        # Reserve checks for Reels until the searches finish or the target is
+        # met. At exhaustion, release unused capacity to other social sources.
+        if not final and state.verified_reels < state.reel_target:
+            pending = {key: p for key, p in pending.items() if any(is_reel_url(u) for u in p.post_urls)}
+        limit = max(0, self.budget - self.attempts)
+        if not final:
+            limit = min(limit, SOCIAL_VERIFY_BATCH_MAX)
+        choices = select_social_candidates(score_places(pending), budget=limit)
+        keys = {id(place): key for key, place in pending.items()}
+        for choice in choices:
+            key = keys[id(choice.place)]
+            await report_progress("place_verification", self.city.name)
+            result = await run_tool(
+                make_place_search_tool(),
+                PlaceSearchInput(query=choice.place.name, destination=self.city.name,
+                                 city_center=PlaceSearchBias(lat=self.city.lat, lng=self.city.lng),
+                                 city_radius_km=self.city.radius_km),
+                state={"node": "gather_social_geocode", "name": choice.place.name},
+            )
+            match = result.matches[0] if result.matches else None
+            admission = admit_place(match, destination=self.city.name, city=self.city,
+                                    social_evidence=True) if match else None
+            if admission is None or not admission.accepted:
+                match = None
+                self.rejected += 1
+            self.matches[key] = match
+            trace.get_current_span().add_event("social_verification", {
+                "city": self.city.name, "name": choice.place.name,
+                "accepted": match is not None,
+                "reason": admission.reason_code if admission else "unresolved",
+            })
+            logger.info("social.verify city=%s name=%r accepted=%s reason=%s attempts=%s/%s",
+                        self.city.name, choice.place.name, match is not None,
+                        admission.reason_code if admission else "unresolved", self.attempts, self.budget)
+        self.refresh(state)
+
+
 async def _run_one_search(
     state: SocialSearchState,
     intent: SearchIntent,
     query: str,
+    *,
+    offset: int = 0,
 ) -> tuple[SearchOutcome, dict[str, int]]:
     """Execute one planned search and read what happened at each stage.
 
@@ -886,6 +973,7 @@ async def _run_one_search(
             query=query,
             destination=state.destination,
             output_locale=state.output_locale,
+            **({"offset": offset} if offset else {}),
         )
     except httpx.HTTPError as exc:
         # Section 38: a timeout or a 5xx is a failed request, not an empty
@@ -893,11 +981,16 @@ async def _run_one_search(
         # missing key stays a RuntimeError and still stops the run.
         return SearchOutcome(provider_error=type(exc).__name__), {}
 
+    raw_count = len(posts)
+    seen = state.seen_post_urls.setdefault(intent.key, set())
+    if offset:
+        posts = [post for post in posts if post.reference.canonical_url not in seen]
+    seen.update(post.reference.canonical_url for post in posts)
     readable = [post for post in posts if post.evidence_text.strip()]
     if not readable:
         return (
             SearchOutcome(
-                raw_results_count=len(posts),
+                raw_results_count=raw_count,
                 readable_posts_count=0,
             ),
             {},
@@ -920,7 +1013,7 @@ async def _run_one_search(
     )
     return (
         SearchOutcome(
-            raw_results_count=len(posts),
+            raw_results_count=raw_count,
             readable_posts_count=len(readable),
             extracted_mentions_count=len(mentions.mentions),
             resolved_places_count=merge.resolved,
@@ -938,6 +1031,7 @@ async def mine_city(
     target_candidates: int,
     max_searches: int = MAX_SEARCHES_PER_CITY,
     output_locale: str = DEFAULT_OUTPUT_LOCALE,
+    verification: CityVerification | None = None,
     **thresholds: int,
 ) -> SocialSearchState:
     """Search one city adaptively until it is covered, dry, or out of budget.
@@ -957,6 +1051,8 @@ async def mine_city(
         output_locale=output_locale,
         **thresholds,
     )
+    if verification is not None:
+        await verification.update(state)
 
     while True:
         intent = plan_next_search(state)
@@ -970,6 +1066,9 @@ async def mine_city(
             destination_localized=destination_local_name,
             output_locale=output_locale,
         )
+        offset = 0
+        if verification is not None:
+            query, offset = search_page(state, intent, query)
         span.add_event(
             "social_search_iteration",
             {
@@ -980,6 +1079,7 @@ async def mine_city(
                 "lane": intent.lane,
                 "specificity": intent.specificity.value,
                 "query": query,
+                "offset": offset,
                 "existing_places": state.discovered_count,
                 "trending_supply": trending_supply,
                 "for_you_supply": for_you_supply,
@@ -989,7 +1089,7 @@ async def mine_city(
         # the terminal serving the app is where a gather is actually watched.
         logger.info(
             "social.search city=%s iteration=%s platform=%s intent=%s lane=%s "
-            "specificity=%s trending=%s/%s for_you=%s/%s query=%r",
+            "specificity=%s trending=%s/%s for_you=%s/%s query=%r offset=%s",
             destination,
             iteration,
             intent.platform.value,
@@ -1001,8 +1101,9 @@ async def mine_city(
             for_you_supply,
             state.lane_targets[1],
             query,
+            offset,
         )
-        outcome, hits = await _run_one_search(state, intent, query)
+        outcome, hits = await _run_one_search(state, intent, query, offset=offset)
         update_search_state(
             state,
             intent=intent,
@@ -1010,6 +1111,8 @@ async def mine_city(
             outcome=outcome,
             interest_hits=hits,
         )
+        if verification is not None:
+            await verification.update(state)
         span.add_event(
             "social_search_result",
             {
@@ -1086,29 +1189,66 @@ async def discover_social_candidates(
     resolved = cities if cities is not None else await resolve_trip_cities(trip)
 
     budget = social_verify_budget(days=trip.days)
-    # ResolvedCity carries no day count yet: CLAUDE.md M3 guarantees only one
-    # trip day per city, and the day split is decided later by Stage 1. Equal
-    # weights until it does, at which point they pass straight in here.
-    city_budgets = allocate_city_budget([1] * len(resolved), budget)
+    # Reservations follow the reviewed days, never search-index supply.
+    day_counts = city_day_counts(trip)
+    city_budgets = allocate_city_budget(day_counts, budget)
     span.set_attribute("gather.social.verify_budget", budget)
 
     candidates: list[CandidatePlace] = []
+    guide_attempts = 0
+    local_names = []
+    for city in resolved:
+        local_names.append(await translate_destination_to_mandarin(city.name)
+                           if trip.output_locale.startswith("zh") else city.name)
+    if trip.output_locale.startswith("zh"):
+        from syncinerary.agents.gather.guides import discover_guide_baseline
+        candidates, guide_attempts = await discover_guide_baseline(
+            trip, resolved, local_names, budget=guide_verify_budget(days=trip.days),
+        )
+        city_budgets = allocate_city_budget(day_counts, max(0, budget - guide_attempts))
+    city_ceilings = allocate_city_budget(day_counts, SOCIAL_VERIFY_BUDGET_MAX - guide_attempts)
+    targets = [days * POOL_PER_DAY for days in day_counts]
+    reel_targets = allocate_city_budget(day_counts, reel_target(days=trip.days))
+    food_targets = [days * MEALS_PER_DAY_MIN for days in day_counts]
+    sight_targets = [days * ATTRACTIONS_PER_DAY_MIN for days in day_counts]
     unresolved = 0
-    for city, city_budget in zip(resolved, city_budgets, strict=True):
-        # Once per city, before the loop: the planner needs to know whether
-        # RedNote can be searched at all, and RedNote without the Mandarin
-        # name is not a search worth making.
-        local_name = await translate_destination_to_mandarin(city.name)
-        # The target is the city's verification allocation. Mining past it
-        # buys names the run cannot afford to reality-check, so more searching
-        # would add nothing the deck can use.
+    verification_attempts = guide_attempts
+    # Resolve small allocations first. Their unused capacity and Reel deficit
+    # can then be absorbed inside the larger city's existing card allocation.
+    order = sorted(range(len(resolved)), key=lambda i: (
+        day_counts[i], i == trip.priority_city_index, i,
+    ))
+    retained_reels = 0
+    released_checks = 0
+    for position, index in enumerate(order):
+        city, local_name = resolved[index], local_names[index]
+        future_reels = sum(reel_targets[i] for i in order[position + 1:])
+        city_reel_target = min(targets[index], max(
+            0, reel_target(days=trip.days) - retained_reels - future_reels,
+        ))
+        ceiling = city_ceilings[index] + released_checks
+        city_budget = min(ceiling, city_budgets[index] + released_checks)
+        await report_progress("social_search", city.name)
+        verification = CityVerification(
+            trip=trip, city=city, budget=city_budget,
+            ceiling=ceiling,
+            baseline=[c for c in candidates if c.enrichment.get("city") == city.name],
+        )
+        # The destination wording is prepared once in the user's language.
+        # Verified coverage drives production stopping; raw names may fail
+        # admission or resolve to the same place. Both budgets remain bounded.
         state = await mine_city(
             destination=city.name,
             destination_local_name=local_name,
             interests=interests,
-            target_candidates=city_budget,
+            target_candidates=targets[index],
+            reel_target=city_reel_target,
+            food_target=food_targets[index],
+            attraction_target=sight_targets[index],
+            verification=verification,
             output_locale=trip.output_locale,
         )
+        await verification.update(state, final=True)
         mined = state.discovered_places
 
         prefix = f"gather.social.{city.name}"
@@ -1130,42 +1270,38 @@ async def discover_social_candidates(
             span.set_attribute(
                 f"{prefix}.{intent_type.value}.new_places", stats.new_unique_places
             )
-        selected = select_social_candidates(score_places(mined), budget=city_budget)
+        verified = verification.candidates(state)
         span.set_attribute(
             f"gather.social.{city.name}.for_you",
-            sum(1 for choice in selected if choice.lane == "for_you"),
+            sum(c.trending_signals.get("selection_lane") == "for_you" for c in verified),
         )
-        for choice in selected:
-            place = choice.place
-            result = await run_tool(
-                make_place_search_tool(),
-                PlaceSearchInput(
-                    query=place.name,
-                    destination=city.name,
-                    city_center=PlaceSearchBias(lat=city.lat, lng=city.lng),
-                    city_radius_km=city.radius_km,
-                ),
-                state={"node": "gather_social_geocode", "name": place.name},
-            )
-            # Section 8.3: a name that does not resolve to a real place never
-            # reaches the pool, whatever the posts claimed about it.
-            if not result.matches:
-                unresolved += 1
-                continue
-            match = result.matches[0]
-            # A city resolves cleanly and passes the boundary check, so
-            # "Sapporo" became an attraction card. Section 8.2 says only
-            # places a traveler can visit.
-            if not is_visitable_place(match.primary_type, list(match.types)):
-                unresolved += 1
-                continue
-            candidates.append(
-                to_candidate(match, place, trip, city=city, lane=choice.lane)
-            )
+        candidates.extend(verified)
+        city_cards = dedup_candidates(verification.baseline + verified)
+        # Non-Reel essentials also occupy slots, whether already found or
+        # supplied later by Google. Count only Reels that can survive that mix.
+        food_gap = max(0, food_targets[index] - sum(
+            c.type is CandidateType.FOOD and has_reel(c, automatic=True) for c in city_cards
+        ))
+        sight_gap = max(0, sight_targets[index] - sum(
+            c.type is CandidateType.ATTRACTION and has_reel(c, automatic=True) for c in city_cards
+        ))
+        retained_reels += min(
+            sum(has_reel(c, automatic=True) for c in city_cards),
+            max(0, targets[index] - food_gap - sight_gap),
+        )
+        released_checks = max(0, ceiling - verification.attempts)
+        unresolved += verification.rejected
+        verification_attempts += verification.attempts
+        span.set_attribute(f"{prefix}.verification_attempts", verification.attempts)
+        span.set_attribute(f"{prefix}.verified_reels", state.verified_reels)
+        span.set_attribute(f"{prefix}.reel_target", state.reel_target)
 
     span.set_attribute("gather.social.unresolved_names", unresolved)
     span.set_attribute("gather.social.candidate_count", len(candidates))
-    return candidates
+    span.set_attribute("gather.social.verification_attempts", verification_attempts)
+    logger.info("gather.social.verification attempts=%s ceiling=%s rejected=%s",
+                verification_attempts, SOCIAL_VERIFY_BUDGET_MAX, unresolved)
+    return dedup_candidates(candidates)
 
 
 def merge_into_pool(
@@ -1183,26 +1319,7 @@ def merge_into_pool(
         if existing is None:
             pool[place_id] = candidate
             continue
-        pool[place_id] = existing.model_copy(
-            update={
-                "sources": [*existing.sources, *candidate.sources],
-                "trending_signals": {
-                    **existing.trending_signals,
-                    **candidate.trending_signals,
-                },
-                "enrichment": {
-                    **existing.enrichment,
-                    "social_platforms": candidate.enrichment["social_platforms"],
-                    "social_post_urls": candidate.enrichment["social_post_urls"],
-                    "social_posts": candidate.enrichment.get("social_posts", []),
-                    "social_highlight": candidate.enrichment.get("social_highlight"),
-                    "source_description": (
-                        existing.enrichment.get("source_description")
-                        or candidate.enrichment.get("source_description")
-                    ),
-                },
-            }
-        )
+        pool[place_id] = merge_candidate_evidence(existing, candidate)
     return pool
 
 

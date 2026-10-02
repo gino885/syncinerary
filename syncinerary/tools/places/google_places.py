@@ -14,7 +14,8 @@ from syncinerary.harness import ToolDefinition
 SEARCH_FIELD_MASK = (
     "places.id,places.displayName,places.formattedAddress,"
     "places.addressComponents,places.location,places.primaryType,places.types,"
-    "places.editorialSummary,places.regularOpeningHours,places.priceLevel"
+    "places.editorialSummary,places.regularOpeningHours,places.priceLevel,places.websiteUri,"
+    "places.nationalPhoneNumber,places.userRatingCount,places.businessStatus"
 )
 
 # Resolving a typed city needs its extent, not its hours or price.
@@ -133,7 +134,11 @@ class PlaceMatch(BaseModel):
     types: list[str] = Field(default_factory=list)
     area: str | None = None
     editorial_summary: str | None = None
-    hours_by_weekday: dict[str, list[list[int]]] = Field(default_factory=dict)
+    website_uri: str | None = None
+    phone_number: str | None = None
+    user_rating_count: int | None = None
+    business_status: str | None = None
+    hours_by_weekday: dict[str, list[list[float]]] = Field(default_factory=dict)
     price_tier: int | None = Field(default=None, ge=1, le=4)
 
 
@@ -261,9 +266,9 @@ def _radius_from_viewport(viewport: dict[str, Any]) -> float:
     return min(MAX_CITY_RADIUS_KM, max(MIN_CITY_RADIUS_KM, diagonal / 2))
 
 
-def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[int]]]:
-    """Convert Google minute-level periods into conservative whole-hour windows."""
-    by_day: dict[str, list[list[int]]] = {}
+def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[float]]]:
+    """Preserve provider minute precision; the solver chooses its publication grid."""
+    by_day: dict[str, list[list[float]]] = {}
     periods = place.get("regularOpeningHours", {}).get("periods", [])
     always_open = (
         len(periods) == 1
@@ -291,14 +296,14 @@ def _opening_hours(place: dict[str, Any]) -> dict[str, list[list[int]]]:
         if not isinstance(open_hour, int):
             continue
         open_minute = opened.get("minute", 0)
-        start = open_hour + (1 if open_minute else 0)
+        start = open_hour + open_minute / 60
 
         close_hour = closed.get("hour")
         close_day = closed.get("day")
         if not isinstance(close_hour, int) or close_day != opened.get("day"):
             end = 24
         else:
-            end = close_hour
+            end = close_hour + closed.get("minute", 0) / 60
 
         if start == end and opened.get("day") == close_day:
             start, end = 0, 24
@@ -366,6 +371,10 @@ async def _search_place(
                 types=place.get("types", []),
                 area=_area(place),
                 editorial_summary=place.get("editorialSummary", {}).get("text"),
+                website_uri=place.get("websiteUri"),
+                phone_number=place.get("nationalPhoneNumber"),
+                user_rating_count=place.get("userRatingCount"),
+                business_status=place.get("businessStatus"),
                 hours_by_weekday=_opening_hours(place),
                 price_tier=_PRICE_TIER.get(place.get("priceLevel")),
             )

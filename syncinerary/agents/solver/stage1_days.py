@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from syncinerary.agents.gather.traits import opening_hours_are_binding, opens_on
 from syncinerary.agents.solver.meal_breaks import is_meal_candidate
 from syncinerary.agents.solver.objective import SolverObjectiveWeights
+from syncinerary.config.schedule import ceil_slot
 from syncinerary.config.solver import (
     ATTRACTIONS_PER_DAY_MIN,
     DAILY_FATIGUE_BUDGET,
@@ -242,6 +243,7 @@ def assign_days_by_city(
     candidates: Sequence[CandidatePlace],
     days: int,
     city_names: list[str],
+    city_days: list[int] | None = None,
 ) -> list[list[CandidatePlace]]:
     """Give each city a consecutive block of days, then cluster inside it.
 
@@ -274,7 +276,7 @@ def assign_days_by_city(
         )
         by_city[nearest or city_names[0]].append(candidate)
 
-    allocation = allocate_days([len(by_city[name]) for name in city_names], days)
+    allocation = city_days or allocate_days([len(by_city[name]) for name in city_names], days)
 
     buckets: list[list[CandidatePlace]] = []
     for name, day_count in zip(city_names, allocation, strict=True):
@@ -719,7 +721,7 @@ def open_windows_on(
     weekday = trip_date.strftime("%a").lower()
     start_minute = day_start.hour * 60 + day_start.minute
     end_minute = day_end.hour * 60 + day_end.minute
-    duration = candidate.duration_estimate_min
+    duration = ceil_slot(candidate.duration_estimate_min)
 
     if not opening_hours_are_binding(
         candidate.category, candidate.enrichment.get("place_types") or [],
@@ -732,8 +734,8 @@ def open_windows_on(
 
     windows: list[tuple[int, int]] = []
     for raw_start, raw_end in candidate.hours_by_weekday.get(weekday, []):
-        start = max(start_minute, raw_start * 60)
-        end = min(end_minute, raw_end * 60)
+        start = ceil_slot(max(start_minute, raw_start * 60))
+        end = int(min(end_minute, raw_end * 60))
         if start + duration <= end:
             windows.append((start, end))
     return windows
@@ -759,7 +761,7 @@ def required_meals_on(
         return frozenset()
     day_start_minute = day_start.hour * 60 + day_start.minute
     day_end_minute = day_end.hour * 60 + day_end.minute
-    duration = candidate.duration_estimate_min
+    duration = ceil_slot(candidate.duration_estimate_min)
     eligible = set()
     for meal in REQUIRED_MEALS:
         slot_start_hour, slot_end_hour = MEAL_WINDOWS[meal]
@@ -785,7 +787,7 @@ def _allowed_days_by_city(
         sum(candidate.enrichment.get("city") == city for candidate in candidates)
         for city in trip.cities
     ]
-    allocation = allocate_days(counts, trip.days)
+    allocation = trip.city_days or allocate_days(counts, trip.days)
     days_by_city: dict[str, list[int]] = {}
     offset = 0
     for city, count in zip(trip.cities, allocation, strict=True):
@@ -793,7 +795,7 @@ def _allowed_days_by_city(
         offset += count
     all_days = list(range(trip.days))
     return {
-        candidate.id: days_by_city.get(candidate.enrichment.get("city"), all_days) or all_days
+        candidate.id: days_by_city.get(candidate.enrichment.get("city"), all_days)
         for candidate in candidates
     }
 

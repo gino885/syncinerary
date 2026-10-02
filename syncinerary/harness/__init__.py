@@ -8,14 +8,18 @@ from syncinerary.harness.tool_guard import (
     run_tool,
 )
 from syncinerary.harness.wrapper import (
+    CreatorCredentialUnavailable,
     LLMMessage,
     LLMRequest,
     call_llm,
+    require_anthropic_api_key,
     tracked_run,
+    use_anthropic_api_key,
 )
 
 __all__ = [
     "BudgetExceeded",
+    "CreatorCredentialUnavailable",
     "LLMMessage",
     "LLMRequest",
     "NoProgress",
@@ -24,6 +28,8 @@ __all__ = [
     "ToolCycle",
     "ToolDefinition",
     "call_llm",
+    "require_anthropic_api_key",
     "run_tool",
     "tracked_run",
+    "use_anthropic_api_key",
 ]

@@ -26,6 +26,7 @@ from syncinerary.domain.models import (
     SourceAttachment,
     Traveler,
     Trip,
+    TripStatus,
 )
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
@@ -74,7 +75,7 @@ async def test_attachment_repository_round_trips_contributor_and_input_type(sess
     assert fetched.status is AttachmentStatus.PENDING
 
 
-async def test_post_reel_link_strips_tracking_and_identifies_contributor(client, unreadable_links):
+async def test_post_reel_link_strips_tracking_and_identifies_contributor(client, session, unreadable_links):
     created = await client.post(
         "/trips",
         json={
@@ -85,6 +86,8 @@ async def test_post_reel_link_strips_tracking_and_identifies_contributor(client,
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -113,7 +116,7 @@ async def test_post_reel_link_strips_tracking_and_identifies_contributor(client,
 
 
 async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
-    client,
+    client, session,
     monkeypatch,
 ):
     monkeypatch.setattr(personal_module.settings, "brave_search_api_key", "")
@@ -127,6 +130,8 @@ async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
@@ -140,7 +145,7 @@ async def test_post_link_stays_pending_when_brave_metadata_is_not_configured(
     assert response.json()["status"] == "pending"
 
 
-async def test_post_rednote_short_link_is_preserved_for_enrichment(client, unreadable_links):
+async def test_post_rednote_short_link_is_preserved_for_enrichment(client, session, unreadable_links):
     created = await client.post(
         "/trips",
         json={
@@ -151,6 +156,8 @@ async def test_post_rednote_short_link_is_preserved_for_enrichment(client, unrea
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -169,7 +176,7 @@ async def test_post_rednote_short_link_is_preserved_for_enrichment(client, unrea
 
 
 async def test_pending_link_can_be_resubmitted_with_a_place_name(
-    client,
+    client, session,
     monkeypatch,
 ):
     async def fake_run_tool(tool, arguments, **_kwargs):
@@ -204,6 +211,8 @@ async def test_pending_link_can_be_resubmitted_with_a_place_name(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
     first = await client.post(
@@ -263,6 +272,8 @@ async def test_link_place_name_becomes_a_personal_candidate_without_a_picture(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -287,6 +298,7 @@ async def test_link_place_name_becomes_a_personal_candidate_without_a_picture(
     assert candidate.enrichment["google_place_id"] == "ChIJ-otaru"
     assert candidate.enrichment["attachment_id"] == response.json()["id"]
     assert candidate.sources[0].model_dump(mode="json") == {
+        "url": "https://www.instagram.com/reel/Da2UDmNtLvp/", "query": None, "guide_rank": None, "mention_text": None,
         "type": "personal",
         "score": None,
         "articles_count": None,
@@ -331,6 +343,8 @@ async def test_link_place_name_is_checked_in_each_selected_city(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
@@ -350,7 +364,7 @@ async def test_link_place_name_is_checked_in_each_selected_city(
     assert candidates[0].enrichment["city"] == "Otaru"
 
 
-async def test_link_rejects_a_whitespace_only_place_name(client):
+async def test_link_rejects_a_whitespace_only_place_name(client, session):
     created = await client.post(
         "/trips",
         json={
@@ -361,6 +375,8 @@ async def test_link_rejects_a_whitespace_only_place_name(client):
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
@@ -374,7 +390,7 @@ async def test_link_rejects_a_whitespace_only_place_name(client):
     assert response.status_code == 422
 
 
-async def test_tiktok_discovery_page_is_rejected_as_an_attachment(client):
+async def test_tiktok_discovery_page_is_rejected_as_an_attachment(client, session):
     created = await client.post(
         "/trips",
         json={
@@ -385,6 +401,8 @@ async def test_tiktok_discovery_page_is_rejected_as_an_attachment(client):
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -403,7 +421,7 @@ async def test_tiktok_discovery_page_is_rejected_as_an_attachment(client):
     assert "specific post" in response.json()["detail"]
 
 
-async def test_attachment_cannot_claim_a_traveler_from_another_trip(client):
+async def test_attachment_cannot_claim_a_traveler_from_another_trip(client, session):
     first = await client.post(
         "/trips",
         json={
@@ -414,6 +432,8 @@ async def test_attachment_cannot_claim_a_traveler_from_another_trip(client):
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(first.json()["trip"]["id"]), TripStatus.SETUP)
     second = await client.post(
         "/trips",
         json={
@@ -424,6 +444,8 @@ async def test_attachment_cannot_claim_a_traveler_from_another_trip(client):
             "creator_name": "Ana",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(second.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{first.json()['trip']['id']}/attachments/links",
@@ -532,6 +554,8 @@ async def test_tiktok_link_uses_official_preview_then_google_place(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -622,6 +646,8 @@ async def test_upload_screenshot_extracts_evidence_and_preserves_contributor(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
     attached = await client.post(
@@ -674,7 +700,7 @@ async def test_upload_screenshot_extracts_evidence_and_preserves_contributor(
 
 
 async def test_upload_screenshot_rejects_unsupported_content_type(
-    client,
+    client, session,
     monkeypatch,
     tmp_path,
     unreadable_links,
@@ -689,6 +715,8 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
     attached = await client.post(
@@ -714,7 +742,7 @@ async def test_upload_screenshot_rejects_unsupported_content_type(
     assert list(tmp_path.rglob("*")) == []
 
 
-async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client, unreadable_links):
+async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client, session, unreadable_links):
     """The bug this replaced: five real Instagram links sat at 'pending'
     forever with no error and no prompt, so the traveler waited for a card
     that was never coming."""
@@ -728,6 +756,8 @@ async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client, unr
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
@@ -742,7 +772,7 @@ async def test_an_unreadable_link_says_what_the_traveler_can_do_next(client, unr
     assert response.json()["candidate_id"] is None
 
 
-async def test_a_missing_search_key_leaves_the_link_retryable(client, monkeypatch):
+async def test_a_missing_search_key_leaves_the_link_retryable(client, session, monkeypatch):
     """A deployment gap must not burn the attachment: configuring the key and
     re-running should still pick it up, so this one stays pending."""
     monkeypatch.setattr(personal_module.settings, "brave_search_api_key", "")
@@ -756,6 +786,8 @@ async def test_a_missing_search_key_leaves_the_link_retryable(client, monkeypatc
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
 
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
@@ -769,7 +801,7 @@ async def test_a_missing_search_key_leaves_the_link_retryable(client, monkeypatc
     assert response.json()["failure_reason"] is None
 
 
-async def test_naming_the_place_rescues_a_failed_link(client, unreadable_links):
+async def test_naming_the_place_rescues_a_failed_link(client, session, unreadable_links):
     """needs_place_name has to be actionable, or it is just a nicer dead end."""
     created = await client.post(
         "/trips",
@@ -781,6 +813,8 @@ async def test_naming_the_place_rescues_a_failed_link(client, unreadable_links):
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
 
     failed = await client.post(
@@ -793,3 +827,5 @@ async def test_naming_the_place_rescues_a_failed_link(client, unreadable_links):
     )
 
     assert failed.json()["submitted_place_name"] == "Otaru Canal"
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")

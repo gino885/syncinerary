@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from syncinerary.agents.gather import gather_node
 from syncinerary.api.routers import trips as trips_router_module
 from syncinerary.domain.models import (
@@ -45,6 +47,7 @@ async def _trip_with_deck(client, session, monkeypatch) -> dict:
     trip = await TripRepository(session).get(body["trip"]["id"])
     _use_test_session(monkeypatch, session)
     await gather_node(TripState(trip=trip))
+    await TripRepository(session).set_status(trip.id, TripStatus.SWIPING)
     return body
 
 
@@ -135,7 +138,7 @@ async def test_create_trip_uses_the_city_place_id_selected_by_the_traveler(
 async def test_create_trip_returns_trip_and_traveler_identity(client):
     body = await _created_trip(client)
     assert body["trip"]["destination"] == "Hokkaido"
-    assert body["trip"]["status"] == "setup"
+    assert body["trip"]["status"] == "draft"
     # The client holds this and sends it when voting: there is no auth in M1.
     assert body["traveler_id"]
 
@@ -268,6 +271,7 @@ async def test_deck_cards_carry_what_the_swipe_screen_needs(client, session, mon
 async def test_deck_shows_only_the_current_travelers_delegate_badge(client, session):
     body = await _created_trip(client)
     trip_id = body["trip"]["id"]
+    await TripRepository(session).set_status(trip_id, TripStatus.SWIPING)
     gino_id = body["traveler_id"]
     ana = await TravelerRepository(session).add(
         Traveler(trip_id=trip_id, name="Ana")
@@ -323,6 +327,7 @@ async def test_deck_shows_only_the_current_travelers_delegate_badge(client, sess
 async def test_deck_labels_personal_sources_for_the_current_traveler(client, session):
     body = await _created_trip(client)
     trip_id = body["trip"]["id"]
+    await TripRepository(session).set_status(trip_id, TripStatus.SWIPING)
     traveler_id = body["traveler_id"]
     candidate = await CandidatePlaceRepository(session).add(
         CandidatePlace(
@@ -366,6 +371,7 @@ async def test_deck_labels_personal_sources_for_the_current_traveler(client, ses
 async def test_deck_names_the_friend_who_attached_a_source(client, session):
     body = await _created_trip(client)
     trip_id = body["trip"]["id"]
+    await TripRepository(session).set_status(trip_id, TripStatus.SWIPING)
     friend = await TravelerRepository(session).add(
         Traveler(trip_id=trip_id, name="Ana")
     )
@@ -562,12 +568,12 @@ async def test_changing_your_mind_replaces_the_vote(client, session, monkeypatch
     assert first.json()["id"] == second.json()["id"]
 
 
-async def test_voting_moves_the_trip_out_of_setup(client, session, monkeypatch):
+async def test_voting_keeps_a_ready_trip_in_swiping(client, session, monkeypatch):
     body = await _trip_with_deck(client, session, monkeypatch)
     trip_id = body["trip"]["id"]
     deck = (await client.get(f"/trips/{trip_id}/candidates")).json()
 
-    assert (await TripRepository(session).get(trip_id)).status is TripStatus.SETUP
+    assert (await TripRepository(session).get(trip_id)).status is TripStatus.SWIPING
     await client.post(
         f"/trips/{trip_id}/votes",
         json={
@@ -711,3 +717,5 @@ def _use_test_session(monkeypatch, session):
 
     monkeypatch.setattr(live_module, "session_scope", _scope)
     monkeypatch.setattr(live_module, "discover_candidates", _discover)
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")

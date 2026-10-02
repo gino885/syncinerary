@@ -70,6 +70,15 @@ class CandidatePlaceRepository(BaseRepository[tables.CandidatePlace, CandidatePl
     async def count_for_trip(self, trip_id: UUID) -> int:
         return len(await self.list_for_trip(trip_id))
 
+    async def update_evidence(self, candidate: CandidatePlace) -> CandidatePlace:
+        """Keep one stable card ID while discovery adds independent sources."""
+        values = self.to_row_values(candidate)
+        fields = ("sources", "enrichment", "trending_signals", "hours_by_weekday", "address", "area")
+        await self.session.execute(sa_update(tables.CandidatePlace)
+            .where(tables.CandidatePlace.id == candidate.id)
+            .values(**{field: values[field] for field in fields}))
+        return candidate
+
     async def update_localized_display(
         self, candidates: list[CandidatePlace]
     ) -> None:

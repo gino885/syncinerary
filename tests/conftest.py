@@ -15,6 +15,26 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from syncinerary.store.db import make_engine
 
 
+@pytest_asyncio.fixture
+async def auth_mail(monkeypatch):
+    """Capture verification mail while keeping real password and rate-limit paths."""
+    from uuid import uuid4
+
+    from syncinerary.api import email_auth
+    from syncinerary.store.redis import dispose_redis
+
+    await dispose_redis()
+    monkeypatch.setattr(email_auth, "RATE_NAMESPACE", f"test:auth:{uuid4().hex}")
+    sent = []
+
+    async def deliver(email, code, purpose):
+        sent.append((email, code, purpose))
+
+    monkeypatch.setattr(email_auth, "send_code", deliver)
+    yield sent
+    await dispose_redis()
+
+
 @pytest_asyncio.fixture(scope="function")
 async def engine() -> AsyncEngine:
     """A live engine against the configured Postgres, or skip the test."""
@@ -189,3 +209,83 @@ def no_vendor_calls(monkeypatch, request):
 
     monkeypatch.setattr(socket.socket, "connect", guarded)
 
+
+@pytest_asyncio.fixture
+async def signed_in_client(client, monkeypatch):
+    """Give legacy API tests an owner with explicit test-only AI access."""
+    import base64
+    import os
+    from uuid import uuid4
+
+    from pydantic import SecretStr
+
+    from syncinerary.api.deps import db_session
+    from syncinerary.api.main import app
+    from syncinerary.config import settings
+    from syncinerary.domain.models import Account
+    from syncinerary.store.repositories import (
+        AccountRepository,
+        AccountSessionRepository,
+        AnthropicCredentialRepository,
+    )
+
+    encoded = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    monkeypatch.setattr(
+        settings,
+        "sync_credential_encryption_keys",
+        SecretStr(f'{{"1":"{encoded}"}}'),
+    )
+    monkeypatch.setattr(settings, "sync_credential_encryption_active_version", 1)
+    # Domain fixture only. Auth endpoints are exercised by test_email_auth.
+    async for db in app.dependency_overrides[db_session]():
+        account = await AccountRepository(db).add(Account(
+            display_name="Test traveler", handle=f"test-{uuid4().hex[:12]}"))
+        await AccountRepository(db).grant_anthropic_consent(account.id)
+        await AnthropicCredentialRepository(db).save(
+            account.id,
+            SecretStr("sk-ant-api03-test-suite-owner-key"),
+        )
+        issued = await AccountSessionRepository(db).issue(account.id)
+    client.headers["Authorization"] = f"Bearer {issued.token}"
+    yield client
+    client.headers.pop("Authorization", None)
+
+
+@pytest.fixture
+def creator_anthropic_credential(session, monkeypatch):
+    """Attach a non-vendor test key to an existing trip creator account."""
+    import base64
+    import os
+    from uuid import UUID
+
+    from pydantic import SecretStr
+
+    from syncinerary.config import settings
+    from syncinerary.store.repositories import (
+        AccountRepository,
+        AnthropicCredentialRepository,
+        TravelerRepository,
+        TripRepository,
+    )
+
+    encoded = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    monkeypatch.setattr(
+        settings,
+        "sync_credential_encryption_keys",
+        SecretStr(f'{{"1":"{encoded}"}}'),
+    )
+    monkeypatch.setattr(settings, "sync_credential_encryption_active_version", 1)
+
+    async def configure(trip_id: str) -> None:
+        trip = await TripRepository(session).get(UUID(trip_id))
+        creator = await TravelerRepository(session).get(trip.created_by)
+        assert creator.account_id is not None
+        await AnthropicCredentialRepository(session).save(
+            creator.account_id,
+            SecretStr("sk-ant-api03-test-suite-creator-key"),
+        )
+        await AccountRepository(session).grant_anthropic_consent(
+            creator.account_id
+        )
+
+    return configure

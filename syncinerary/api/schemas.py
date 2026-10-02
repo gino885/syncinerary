@@ -19,7 +19,9 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator, model
 from syncinerary.agents.gather.cities import MAX_CITIES_PER_TRIP
 from syncinerary.agents.gather.dietary import dietary_notice
 from syncinerary.agents.solver.meal_breaks import is_meal_candidate
+from syncinerary.api.social_tips import SocialTipOut, social_tip
 from syncinerary.config.locales import DEFAULT_OUTPUT_LOCALE, normalize_output_locale
+from syncinerary.config.schedule import validate_clock
 from syncinerary.config.solver import (
     DEFAULT_DAY_END_HOUR,
     DEFAULT_DAY_START_HOUR,
@@ -73,6 +75,8 @@ class TripCreateRequest(BaseModel):
             StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
         ]
     ] = Field(min_length=1, max_length=MAX_CITIES_PER_TRIP)
+    city_days: list[Annotated[int, Field(strict=True, ge=1)]] = Field(default_factory=list)
+    priority_city_index: int | None = Field(default=None, strict=True, ge=0)
     # New clients send the Google prediction they selected. Older clients may
     # omit this and keep the text-resolution path during the transition.
     city_place_ids: list[
@@ -118,6 +122,14 @@ class TripCreateRequest(BaseModel):
             raise ValueError("end_date must not be before start_date")
         if self.city_place_ids and len(self.city_place_ids) != len(self.cities):
             raise ValueError("city_place_ids must match cities")
+        from syncinerary.domain.city_plan import validate_city_plan
+
+        validate_city_plan(self.cities, (self.end_date - self.start_date).days + 1,
+                           self.city_days, self.priority_city_index)
+        if (self.city_days or self.priority_city_index is not None) and len(
+            {" ".join(c.split()).casefold() for c in self.cities}
+        ) != len(self.cities):
+            raise ValueError("Each city must appear once in the day allocation")
         return self
 
 
@@ -131,6 +143,8 @@ class TripOut(BaseModel):
     id: UUID
     destination: str
     cities: list[str]
+    city_days: list[int]
+    priority_city_index: int | None
     country: str | None
     timezone: str | None
     output_locale: str
@@ -145,6 +159,8 @@ class TripOut(BaseModel):
             id=trip.id,
             destination=trip.destination,
             cities=trip.cities or [trip.destination],
+            city_days=trip.city_days,
+            priority_city_index=trip.priority_city_index,
             country=trip.country,
             timezone=trip.timezone,
             output_locale=trip.output_locale,
@@ -159,6 +175,7 @@ class AccountOut(BaseModel):
     id: UUID
     display_name: str
     handle: str
+    auth_provider: str = "email"
 
     @classmethod
     def of(cls, account: Account) -> AccountOut:
@@ -166,18 +183,8 @@ class AccountOut(BaseModel):
             id=account.id,
             display_name=account.display_name,
             handle=account.handle,
+            auth_provider=account.auth_provider,
         )
-
-
-class SignInRequest(BaseModel):
-    """Stub sign-in: the handle is the whole credential (CLAUDE.md §15)."""
-
-    display_name: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
-    ]
-    handle: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=3, max_length=30)
-    ]
 
 
 class SignInResponse(BaseModel):
@@ -801,6 +808,8 @@ class CandidateCardOut(BaseModel):
 
 
 class LodgingOptionOut(BaseModel):
+    is_booked: bool = False
+    is_selected: bool = False
     candidate_id: UUID
     name: str
     area: str | None
@@ -930,6 +939,8 @@ class PlanRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_window(self) -> PlanRequest:
+        validate_clock(self.day_start)
+        validate_clock(self.day_end)
         start = self.day_start.hour * 60 + self.day_start.minute
         end = self.day_end.hour * 60 + self.day_end.minute
         if end <= start:
@@ -1143,6 +1154,9 @@ class ReplanProposalOut(BaseModel):
 
 
 class ItineraryStopOut(BaseModel):
+    social_tip: SocialTipOut | None = None
+    fixed: bool = False
+    lock_reason: str | None = None
     directions_url: str | None = None
     candidate_id: UUID
     name: str
@@ -1168,7 +1182,13 @@ class ItineraryStopOut(BaseModel):
     ) -> ItineraryStopOut:
         description, description_source = _itinerary_description(candidate)
         return cls(
+            social_tip=(
+                social_tip(source_posts(candidate), food=candidate.type is CandidateType.FOOD)
+                if candidate else None
+            ),
             candidate_id=node.candidate_id,
+            fixed=node.fixed,
+            lock_reason=node.lock_reason,
             name=candidate.name_canonical if candidate else "Unknown place",
             area=candidate.area if candidate else None,
             description=description,

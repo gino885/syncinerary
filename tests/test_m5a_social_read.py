@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 from types import SimpleNamespace
+from uuid import UUID
 
 import httpx
 import pytest
@@ -36,8 +37,16 @@ from syncinerary.config.gather import (
     SOCIAL_COVER_TEXT_CACHE_TTL_SECONDS,
     SOCIAL_POST_READ_CACHE_TTL_SECONDS,
 )
-from syncinerary.domain.models import CandidatePlace, CandidateType, SocialPlatform, Source, Trip
+from syncinerary.domain.models import (
+    CandidatePlace,
+    CandidateType,
+    SocialPlatform,
+    Source,
+    Trip,
+    TripStatus,
+)
 from syncinerary.harness import ToolDefinition, run_tool
+from syncinerary.store.repositories import TripRepository
 from syncinerary.tools.fetch.social import (
     CoverImage,
     DiscoveredSocialURL,
@@ -634,6 +643,8 @@ async def test_a_placeless_tiktok_caption_falls_back_to_the_cover_frame(
             "creator_name": "Gino",
         },
     )
+    # Exercise the existing-trip enrichment path. Drafts defer this to the worker.
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
 
@@ -658,3 +669,5 @@ async def test_a_placeless_tiktok_caption_falls_back_to_the_cover_frame(
     assert candidates[0].enrichment["source_description"] == (
         "A canal walk that looks best after dark."
     )
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")

@@ -34,7 +34,8 @@ async def test_text_search_returns_typed_place_identity_and_location():
         assert request.headers["X-Goog-FieldMask"] == (
             "places.id,places.displayName,places.formattedAddress,"
             "places.addressComponents,places.location,places.primaryType,places.types,"
-            "places.editorialSummary,places.regularOpeningHours,places.priceLevel"
+            "places.editorialSummary,places.regularOpeningHours,places.priceLevel,places.websiteUri,"
+            "places.nationalPhoneNumber,places.userRatingCount,places.businessStatus"
         )
         assert request.read() == b'{"textQuery":"Otaru Canal, Hokkaido"}'
         return httpx.Response(
@@ -83,7 +84,7 @@ async def test_text_search_returns_typed_place_identity_and_location():
     assert match.primary_type == "tourist_attraction"
     assert match.area == "Otaru"
     assert match.editorial_summary == "Canal-side warehouses glow after dark."
-    assert match.hours_by_weekday == {"mon": [[10, 18]]}
+    assert match.hours_by_weekday == {"mon": [[9.5, 18.25]]}
     assert match.price_tier == 2
 
 
@@ -651,3 +652,5 @@ async def test_a_city_nobody_can_resolve_comes_back_empty_rather_than_guessed():
         )
 
     assert result.city is None
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")

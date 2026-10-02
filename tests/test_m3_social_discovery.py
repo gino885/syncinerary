@@ -114,7 +114,7 @@ class StubMessages:
 # ----- personalised queries -----
 
 
-def test_traveler_interests_are_collected_in_order_without_duplicates():
+def test_shared_interests_rank_ahead_of_individual_interests():
     trip_id = uuid4()
     travelers = [
         Traveler(trip_id=trip_id, name="Gino", profile={"interests": ["ramen", "onsen"]}),
@@ -122,7 +122,32 @@ def test_traveler_interests_are_collected_in_order_without_duplicates():
         Traveler(trip_id=trip_id, name="Sam", profile={}),
     ]
 
-    assert traveler_interests(travelers) == ["ramen", "onsen", "pottery"]
+    assert traveler_interests(travelers) == ["onsen", "pottery", "ramen"]
+
+
+def test_group_interests_count_members_once_and_cap_at_five():
+    trip_id = uuid4()
+    travelers = [
+        Traveler(trip_id=trip_id, name="A", profile={"interests": [
+            "Shopping", "shopping", " shopping ", "music", "history", "art", "nature",
+        ]}),
+        Traveler(trip_id=trip_id, name="B", profile={"interests": ["coffee", "hidden gems"]}),
+        Traveler(trip_id=trip_id, name="C", profile={"interests": [" COFFEE ", "Hidden-Gems"]}),
+    ]
+    expected = ["coffee", "hidden gems", "art", "history", "music"]
+    assert traveler_interests(travelers) == expected
+    assert traveler_interests(list(reversed(travelers))) == expected
+    assert traveler_interests(travelers + [travelers[0]]) == expected
+    assert travelers[0].profile["interests"][0] == "Shopping"
+
+
+def test_invalid_group_interests_are_ignored():
+    trip_id = uuid4()
+    travelers = [
+        Traveler(trip_id=trip_id, name="A", profile={"interests": [None, 1, "", "  "]}),
+        Traveler(trip_id=trip_id, name="B", profile={"interests": "coffee"}),
+    ]
+    assert traveler_interests(travelers) == []
 
 
 def test_interests_rank_the_for_you_lane_rather_than_steering_search():
@@ -354,6 +379,7 @@ async def test_multilingual_aliases_count_together_after_google_resolves_them(
     monkeypatch,
 ):
     trip = _trip()
+    trip.resolved_cities[0].update(lat=41.772, lng=140.724)
     posts_by_platform = {
         SocialPlatform.TIKTOK: [
             _tiktok(1, title="Hakodate Morning Market food tour")
@@ -445,11 +471,8 @@ async def test_a_platform_failure_is_not_hidden_as_an_empty_result(monkeypatch):
 
 
 async def test_rednote_searches_use_the_mandarin_destination_name(monkeypatch):
-    """The translation now happens once per city, before the loop plans.
-
-    The planner has to know whether RedNote can be searched at all, and
-    RedNote without the Mandarin name searches a different corpus.
-    """
+    """Chinese discovery prepares its destination wording once per city."""
+    from syncinerary.agents.gather import guides
     queries: list[tuple[SocialPlatform, str]] = []
 
     async def fake_search(platform, *, query, destination, output_locale="en"):
@@ -457,9 +480,10 @@ async def test_rednote_searches_use_the_mandarin_destination_name(monkeypatch):
         return []
 
     monkeypatch.setattr(social_module, "_search_platform", fake_search)
+    monkeypatch.setattr(guides, "_search_platform", fake_search)
     _stub_translation(monkeypatch)
 
-    await discover_social_candidates(_trip(), [])
+    await discover_social_candidates(_trip().model_copy(update={"output_locale": "zh-Hans"}), [])
 
     rednote = [query for platform, query in queries if platform is SocialPlatform.REDNOTE]
     assert rednote, "RedNote must still take part in automatic discovery"
@@ -467,9 +491,8 @@ async def test_rednote_searches_use_the_mandarin_destination_name(monkeypatch):
     assert not any("Hokkaido" in query for query in rednote)
 
 
-async def test_rednote_is_skipped_when_no_mandarin_name_is_available(monkeypatch):
-    """Silently searching xiaohongshu.com in English would be worse than not
-    searching it at all."""
+async def test_english_rednote_discovery_does_not_require_a_mandarin_name(monkeypatch):
+    """Every platform follows the user's English language choice."""
     queries: list[SocialPlatform] = []
 
     async def fake_search(platform, *, query, destination, output_locale="en"):
@@ -482,7 +505,7 @@ async def test_rednote_is_skipped_when_no_mandarin_name_is_available(monkeypatch
     await discover_social_candidates(_trip(), [])
 
     assert queries, "the other platforms still run"
-    assert SocialPlatform.REDNOTE not in queries
+    assert SocialPlatform.REDNOTE in queries
 
 
 # ----- one card, both provenances -----

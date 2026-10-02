@@ -44,6 +44,7 @@ from syncinerary.agents.solver.stage1_days import (
     assign_days_by_city,
     open_windows_on,
 )
+from syncinerary.config.schedule import SCHEDULE_QUANTUM_MINUTES, ceil_slot
 from syncinerary.config.solver import (
     DAY_DURATION_CAP_HOURS,
     DEFAULT_DAY_END_HOUR,
@@ -436,7 +437,12 @@ def solve_day(
     changes to planning preferences.
     """
     options = options or SolverOptions()
+    candidates = [candidate.model_copy(update={
+        "duration_estimate_min": ceil_slot(candidate.duration_estimate_min),
+    }) for candidate in candidates]
     fixed_starts = fixed_start_minutes or {}
+    if any(value % SCHEDULE_QUANTUM_MINUTES for value in fixed_starts.values()):
+        raise ValueError("Fixed times must use 30-minute boundaries")
     required = (required_candidate_ids or set()) | set(fixed_starts)
     if not candidates:
         return DayRoute(day=day)
@@ -525,12 +531,13 @@ def solve_day(
     count = len(open_candidates)
 
     active: dict[int, cp_model.IntVar] = {}
-    starts: dict[int, cp_model.IntVar] = {}
-    ends: dict[int, cp_model.IntVar] = {}
+    starts: dict[int, cp_model.LinearExpr] = {}
+    ends: dict[int, cp_model.LinearExpr] = {}
     start_costs: dict[int, cp_model.IntVar] = {}
     arcs: dict[tuple[int, int], cp_model.IntVar] = {}
     meal_assignment: dict[tuple[int, str], cp_model.IntVar] = {}
     circuit: list[tuple[int, int, cp_model.IntVar]] = []
+    occupied_intervals = []
 
     empty = model.new_bool_var("empty_day")
     circuit.append((0, 0, empty))
@@ -540,9 +547,16 @@ def solve_day(
         active[index] = model.new_bool_var(f"active_{index}")
         if candidate.id in required:
             model.add(active[index] == 1)
-        starts[index] = model.new_int_var(day_start, day_end - duration, f"start_{index}")
-        ends[index] = model.new_int_var(day_start + duration, day_end, f"end_{index}")
-        model.add(ends[index] == starts[index] + duration)
+        # Search over slots directly. Minute domains with modulo constraints
+        # add hundreds of equivalent choices to every routing repair model.
+        starts[index] = model.new_int_var(
+            ceil_slot(day_start) // SCHEDULE_QUANTUM_MINUTES,
+            (day_end - duration) // SCHEDULE_QUANTUM_MINUTES, f"start_slot_{index}",
+        ) * SCHEDULE_QUANTUM_MINUTES
+        ends[index] = starts[index] + duration
+        occupied_intervals.append(model.new_optional_interval_var(
+            starts[index], duration, ends[index], active[index], f"visit_{index}",
+        ))
         if candidate.id in fixed_starts:
             model.add(starts[index] == fixed_starts[candidate.id])
 
@@ -655,9 +669,14 @@ def solve_day(
         else:
             model.add(needed == 1)
         break_start = model.new_int_var(
-            window_start, window_end - MEAL_BREAK_MINUTES, f"break_start_{meal}"
-        )
+            ceil_slot(window_start) // SCHEDULE_QUANTUM_MINUTES,
+            (window_end - MEAL_BREAK_MINUTES) // SCHEDULE_QUANTUM_MINUTES,
+            f"break_start_slot_{meal}",
+        ) * SCHEDULE_QUANTUM_MINUTES
         break_end = break_start + MEAL_BREAK_MINUTES
+        occupied_intervals.append(model.new_optional_interval_var(
+            break_start, MEAL_BREAK_MINUTES, break_end, needed, f"meal_break_{meal}",
+        ))
         for other_needed, other_start, other_end in reserved_breaks:
             model.add(break_end - other_start <= cap_minutes).only_enforce_if(
                 [needed, other_needed]
@@ -688,6 +707,9 @@ def solve_day(
                 model.add(starts[index] - leg_by_pair[(left, right)].minutes >= break_end
                           ).only_enforce_if([needed, arc, before.Not()])
 
+    # The circuit already forbids overlaps. This redundant global constraint
+    # lets CP-SAT propagate shared time capacity before enumerating routes.
+    model.add_no_overlap(occupied_intervals)
     max_start_cost = (day_end - day_start) * count
     transit_weight = max_start_cost + 1
     max_transit_cost = cap_minutes * max(0, count - 1) * transit_weight
@@ -1034,6 +1056,7 @@ async def solve_routes(
         candidates,
         state.trip.days,
         state.trip.cities,
+        state.trip.city_days,
     )
     candidate_by_id = {candidate.id: candidate for candidate in candidates}
     candidate_rank = {
@@ -1071,7 +1094,8 @@ async def solve_routes(
             offers = _offers_for_day(
                 route,
                 buckets[day],
-                pool,
+                [c for c in pool if not state.trip.city_days or c in buckets[day]
+                 or c.enrichment.get("city") in {b.enrichment.get("city") for b in buckets[day]}],
                 trip_date=trip_date,
                 options=options,
                 limit=TOPUP_CANDIDATES_PER_ROUND,

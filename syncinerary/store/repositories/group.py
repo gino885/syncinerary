@@ -1,18 +1,17 @@
 """Group trip persistence: accounts, sessions, invites, and the trip thread.
 
-See GROUP_TRIP_PLAN.md. Identity here is a stub per CLAUDE.md section 15: an
-account is a display name and a handle, and a session is an opaque token with
-an expiry. There is no password, no provider, and nothing here should grow one
-without reopening that section.
+Email credentials are managed by EmailAccountRepository. Public account models
+exclude secrets; session tokens are hashed before storage.
 """
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import delete, or_, select, update
 
 from syncinerary.domain.models import (
     Account,
@@ -20,6 +19,7 @@ from syncinerary.domain.models import (
     TripInvite,
     TripMessage,
 )
+from syncinerary.privacy import ANTHROPIC_CONSENT_VERSION
 from syncinerary.store import tables
 from syncinerary.store.repositories.base import BaseRepository
 
@@ -60,31 +60,268 @@ class AccountRepository(BaseRepository[tables.Account, Account]):
             Account(display_name=display_name, handle=handle.casefold())
         )
 
+    async def grant_anthropic_consent(self, account_id: UUID) -> Account:
+        row = await self.session.scalar(
+            update(self.table)
+            .where(self.table.id == account_id)
+            .values(
+                anthropic_consent_version=ANTHROPIC_CONSENT_VERSION,
+                anthropic_consent_at=_now(),
+            )
+            .returning(self.table)
+        )
+        if row is None:
+            raise ValueError("Account no longer exists")
+        return self.to_model(row)
+
+    async def revoke_anthropic_consent(self, account_id: UUID) -> Account:
+        row = await self.session.scalar(
+            update(self.table)
+            .where(self.table.id == account_id)
+            .values(anthropic_consent_version=None, anthropic_consent_at=None)
+            .returning(self.table)
+        )
+        if row is None:
+            raise ValueError("Account no longer exists")
+        return self.to_model(row)
+
+    async def missing_anthropic_consent_for_trip(self, trip_id: UUID) -> list[str]:
+        statement = (
+            select(tables.Traveler.name)
+            .join(self.table, self.table.id == tables.Traveler.account_id)
+            .where(
+                tables.Traveler.trip_id == trip_id,
+                (
+                    self.table.anthropic_consent_version
+                    != ANTHROPIC_CONSENT_VERSION
+                )
+                | self.table.anthropic_consent_version.is_(None)
+                | self.table.anthropic_consent_at.is_(None),
+            )
+            .order_by(tables.Traveler.name)
+        )
+        return list(await self.session.scalars(statement))
+
+    async def attachment_storage_keys_for_account(self, account_id: UUID) -> set[str]:
+        """Return screenshot objects that account deletion must remove."""
+        travelers = list(
+            await self.session.scalars(
+                select(tables.Traveler).where(
+                    tables.Traveler.account_id == account_id
+                )
+            )
+        )
+        if not travelers:
+            return set()
+        traveler_ids = {traveler.id for traveler in travelers}
+        owned_trip_ids = set(
+            await self.session.scalars(
+                select(tables.Trip.id).where(
+                    tables.Trip.created_by.in_(traveler_ids)
+                )
+            )
+        )
+        values = await self.session.scalars(
+            select(tables.SourceAttachment.screenshot_storage_key).where(
+                tables.SourceAttachment.screenshot_storage_key.is_not(None),
+                or_(
+                    tables.SourceAttachment.traveler_id.in_(traveler_ids),
+                    tables.SourceAttachment.trip_id.in_(owned_trip_ids),
+                ),
+            )
+        )
+        return {value for value in values if value}
+
+    async def delete_personal_data(self, account_id: UUID) -> list[UUID]:
+        """Delete owned trips and remove this person from trips they joined.
+
+        Shared venue facts may remain, but account identifiers, messages,
+        profiles, votes, attachments, private model snapshots, and source
+        attribution are removed. Returned trip IDs identify graph checkpoints
+        that the API must delete through the checkpointer.
+        """
+        travelers = list(
+            await self.session.scalars(
+                select(tables.Traveler).where(
+                    tables.Traveler.account_id == account_id
+                )
+            )
+        )
+        traveler_ids = {traveler.id for traveler in travelers}
+        trip_ids = {traveler.trip_id for traveler in travelers}
+        if not traveler_ids:
+            await self.session.execute(
+                delete(self.table).where(self.table.id == account_id)
+            )
+            return []
+
+        owned_trip_ids = set(
+            await self.session.scalars(
+                select(tables.Trip.id).where(
+                    tables.Trip.created_by.in_(traveler_ids)
+                )
+            )
+        )
+        joined_trip_ids = trip_ids - owned_trip_ids
+
+        if owned_trip_ids:
+            await self.session.execute(
+                delete(tables.GatherRun).where(
+                    tables.GatherRun.trip_id.in_(owned_trip_ids)
+                )
+            )
+            await self.session.execute(
+                delete(tables.ChecklistItem).where(
+                    tables.ChecklistItem.trip_id.in_(owned_trip_ids)
+                )
+            )
+            await self.session.execute(
+                delete(tables.Trip).where(tables.Trip.id.in_(owned_trip_ids))
+            )
+
+        remaining_ids = {
+            traveler.id
+            for traveler in travelers
+            if traveler.trip_id in joined_trip_ids
+        }
+        if remaining_ids:
+            attachment_ids = {
+                str(value)
+                for value in await self.session.scalars(
+                    select(tables.SourceAttachment.id).where(
+                        tables.SourceAttachment.traveler_id.in_(remaining_ids)
+                    )
+                )
+            }
+            await self.session.execute(
+                delete(tables.TripMessage).where(
+                    tables.TripMessage.traveler_id.in_(remaining_ids)
+                )
+            )
+            await self.session.execute(
+                delete(tables.TripInvite).where(
+                    tables.TripInvite.created_by_traveler_id.in_(remaining_ids)
+                )
+            )
+            await self.session.execute(
+                delete(tables.GatherRun).where(
+                    tables.GatherRun.trip_id.in_(joined_trip_ids)
+                )
+            )
+            await self._scrub_shared_references(
+                joined_trip_ids,
+                remaining_ids,
+                attachment_ids,
+            )
+            await self.session.execute(
+                update(tables.Trip)
+                .where(tables.Trip.created_by.in_(remaining_ids))
+                .values(created_by=None)
+            )
+            await self.session.execute(
+                delete(tables.Traveler).where(
+                    tables.Traveler.id.in_(remaining_ids)
+                )
+            )
+
+        await self.session.execute(
+            delete(self.table).where(self.table.id == account_id)
+        )
+        await self.session.flush()
+        return sorted(trip_ids, key=str)
+
+    async def _scrub_shared_references(
+        self,
+        trip_ids: set[UUID],
+        traveler_ids: set[UUID],
+        attachment_ids: set[str],
+    ) -> None:
+        id_strings = {str(value) for value in traveler_ids}
+        shortlists = list(
+            await self.session.scalars(
+                select(tables.ShortlistState).where(
+                    tables.ShortlistState.trip_id.in_(trip_ids)
+                )
+            )
+        )
+        for shortlist in shortlists:
+            shortlist.confirmed_by = [
+                value
+                for value in shortlist.confirmed_by
+                if str(value) not in id_strings
+            ]
+
+        nodes = list(
+            await self.session.scalars(
+                select(tables.ItineraryNode)
+                .join(
+                    tables.ItineraryVersion,
+                    tables.ItineraryVersion.id == tables.ItineraryNode.version_id,
+                )
+                .where(tables.ItineraryVersion.trip_id.in_(trip_ids))
+            )
+        )
+        for node in nodes:
+            node.notes_for_travelers = {
+                key: value
+                for key, value in node.notes_for_travelers.items()
+                if str(key) not in id_strings
+            }
+
+        candidates = list(
+            await self.session.scalars(
+                select(tables.CandidatePlace).where(
+                    tables.CandidatePlace.trip_id.in_(trip_ids)
+                )
+            )
+        )
+        for candidate in candidates:
+            candidate.sources = [
+                source
+                for source in candidate.sources
+                if str(source.get("by")) not in id_strings
+            ]
+            enrichment = dict(candidate.enrichment)
+            if str(enrichment.get("attachment_id")) in attachment_ids:
+                for key in (
+                    "attachment_id",
+                    "input_type",
+                    "platform",
+                    "source_url",
+                    "platform_preview_url",
+                    "source_description",
+                ):
+                    enrichment.pop(key, None)
+                candidate.enrichment = enrichment
+
 
 class AccountSessionRepository(BaseRepository[tables.AccountSession, AccountSession]):
     table = tables.AccountSession
     model = AccountSession
 
     async def issue(self, account_id: UUID) -> AccountSession:
-        return await self.add(
-            AccountSession(
-                token=secrets.token_urlsafe(32),
-                account_id=account_id,
-                expires_at=_now() + SESSION_TTL,
-            )
-        )
+        token = secrets.token_urlsafe(32)
+        stored = await self.add(AccountSession(
+            token=self.digest(token), account_id=account_id,
+            expires_at=_now() + SESSION_TTL,
+        ))
+        return stored.model_copy(update={"token": token})
+
+    @staticmethod
+    def digest(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
 
     async def resolve(self, token: str) -> AccountSession | None:
-        """Return the session only while it is still valid.
+        found = await self.list_where(tables.AccountSession.token == self.digest(token))
+        return found[0] if found and found[0].expires_at > _now() else None
 
-        Expiry is enforced on read rather than by a sweep, so a stale row can
-        never authenticate anyone even if nothing has cleaned it up.
-        """
-        found = await self.list_where(tables.AccountSession.token == token)
-        if not found:
-            return None
-        session = found[0]
-        return session if session.expires_at > _now() else None
+    async def revoke(self, token: str) -> None:
+        await self.session.execute(delete(tables.AccountSession).where(
+            tables.AccountSession.token == self.digest(token)))
+
+    async def revoke_all(self, account_id: UUID) -> None:
+        await self.session.execute(delete(tables.AccountSession).where(
+            tables.AccountSession.account_id == account_id))
 
 
 class TripInviteRepository(BaseRepository[tables.TripInvite, TripInvite]):

@@ -74,7 +74,7 @@ def _same_place(left: CandidatePlace, right: CandidatePlace) -> bool:
     return left_tokens <= right_tokens or right_tokens <= left_tokens
 
 
-def _merge(keeper: CandidatePlace, duplicate: CandidatePlace) -> CandidatePlace:
+def merge_candidate_evidence(keeper: CandidatePlace, duplicate: CandidatePlace) -> CandidatePlace:
     """Union the sources and keep whichever enrichment is richer."""
     sources = list(keeper.sources)
     for source in duplicate.sources:
@@ -85,6 +85,12 @@ def _merge(keeper: CandidatePlace, duplicate: CandidatePlace) -> CandidatePlace:
     for key, value in duplicate.enrichment.items():
         if not keeper.enrichment.get(key) and value:
             enrichment[key] = value
+
+    for key in ("social_platforms", "social_post_urls", "social_posts", "discovery_queries"):
+        values = list(keeper.enrichment.get(key) or [])
+        values.extend(value for value in duplicate.enrichment.get(key, []) if value not in values)
+        if values:
+            enrichment[key] = values
 
     return keeper.model_copy(
         update={
@@ -111,11 +117,11 @@ def dedup_candidates(candidates: list[CandidatePlace]) -> list[CandidatePlace]:
     for candidate in candidates:
         for index, kept in enumerate(resolved):
             if _same_place(kept, candidate):
-                resolved[index] = _merge(kept, candidate)
+                resolved[index] = merge_candidate_evidence(kept, candidate)
                 break
         else:
             resolved.append(candidate)
     return resolved
 
 
-__all__ = ["dedup_candidates", "normalize_name"]
+__all__ = ["dedup_candidates", "merge_candidate_evidence", "normalize_name"]

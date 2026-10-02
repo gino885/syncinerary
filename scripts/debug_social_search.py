@@ -210,7 +210,7 @@ class Narrator:
 
     # -- the provider search ---------------------------------------------
     def wrap_search(self, search):
-        async def searched(platform, *, query, destination):
+        async def searched(platform, *, query, destination, output_locale="en"):
             self.out(f"  QUERY    {self.paint(query, BLUE)}")
             self._search_started = time.perf_counter()
             try:

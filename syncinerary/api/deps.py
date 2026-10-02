@@ -28,9 +28,8 @@ async def current_account(
 ) -> Account:
     """Resolve a bearer token to an account, or 401.
 
-    Stub identity per CLAUDE.md section 15: the token proves only that someone
-    signed in with a handle. It is not a security boundary, and nothing here
-    should start treating it as one without reopening that section.
+    Password or provider identity checks happen at issuance. Legacy
+    handle-only sessions are expired by the email-account migration.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(

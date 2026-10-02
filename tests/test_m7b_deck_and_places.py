@@ -4,6 +4,8 @@ from __future__ import annotations
 from itertools import pairwise
 from uuid import uuid4
 
+import pytest
+
 from syncinerary.agents.gather.deck import deck_lane, order_deck
 from syncinerary.agents.gather.traits import is_visitable_place
 from syncinerary.domain.models import CandidatePlace, CandidateType, Source
@@ -149,7 +151,7 @@ def test_an_untyped_place_is_allowed_through():
 
 
 async def test_a_caption_naming_a_city_and_a_place_resolves_to_the_place(
-    client, monkeypatch
+    client, session, monkeypatch
 ):
     """The walkthrough bug: a TikTok about miso ramen produced a card called
     "Sapporo".
@@ -216,6 +218,11 @@ async def test_a_caption_naming_a_city_and_a_place_resolves_to_the_place(
             "creator_name": "Gino",
         },
     )
+    from uuid import UUID
+
+    from syncinerary.domain.models import TripStatus
+    from syncinerary.store.repositories import TripRepository
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
         json={
@@ -232,7 +239,7 @@ async def test_a_caption_naming_a_city_and_a_place_resolves_to_the_place(
 
 
 async def test_an_attachment_naming_only_a_city_fails_rather_than_carding_it(
-    client, monkeypatch
+    client, session, monkeypatch
 ):
     from syncinerary.agents.gather import personal as personal_module
     from syncinerary.agents.gather.attachments import ExtractedPlaceMention
@@ -275,6 +282,11 @@ async def test_an_attachment_naming_only_a_city_fails_rather_than_carding_it(
             "creator_name": "Gino",
         },
     )
+    from uuid import UUID
+
+    from syncinerary.domain.models import TripStatus
+    from syncinerary.store.repositories import TripRepository
+    await TripRepository(session).set_status(UUID(created.json()["trip"]["id"]), TripStatus.SETUP)
     response = await client.post(
         f"/trips/{created.json()['trip']['id']}/attachments/links",
         json={
@@ -352,3 +364,5 @@ def test_deck_retains_platform_priority_within_a_lane():
                                     ("RedNote", "rednote", 10),
                                     ("Instagram", "instagram", 1)]]
     assert [c.name_canonical for c in order_deck(cards)] == ["Instagram", "RedNote", "TikTok"]
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")
