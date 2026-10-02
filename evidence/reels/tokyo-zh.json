@@ -1,0 +1,206 @@
+[
+  {
+    "city": "Tokyo",
+    "locale": "zh-Hant",
+    "days": 2,
+    "run_at": "2026-09-16T19:29:13.452020+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 7,
+        "other_social": 0,
+        "google_only": 9,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.5625,
+        "majority_met": false,
+        "target_shortfall": 3
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 7,
+        "other_social": 0,
+        "google_only": 9,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.5625,
+        "majority_met": false,
+        "target_shortfall": 3
+      }
+    },
+    "elapsed_seconds": 74.21,
+    "harness_steps": 49,
+    "model_cost_usd": "0.219375",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "合羽橋廚房用品商業街",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DOlWe37D_N5/"
+        ]
+      },
+      {
+        "name": "螃蟹滿載 東京池袋店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKjfYX2zkvy/"
+        ]
+      },
+      {
+        "name": "三麗鷗彩虹樂園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DTcrE9uCalP/"
+        ]
+      },
+      {
+        "name": "小網神社",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKZbQpATc1t/"
+        ]
+      },
+      {
+        "name": "上野公園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRPAud7Emhk/",
+          "https://www.tiktok.com/@user1724669138368/video/7464992891434208519"
+        ]
+      },
+      {
+        "name": "明治神宮",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DQUVeuwkkQv/",
+          "https://www.tiktok.com/@user1724669138368/video/7464992891434208519"
+        ]
+      },
+      {
+        "name": "吾皮卡瓦公園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DI2qRGgpMft/"
+        ]
+      },
+      {
+        "name": "魚河岸食堂美食廣場",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "澀谷橫町",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "代代木公園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "東京鐵塔",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "代代木公園鐘塔",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "楓葉瀑布",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "忠犬八公像",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "築地丼飯市場",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "魚類市場",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  }
+]

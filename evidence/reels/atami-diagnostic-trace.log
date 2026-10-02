@@ -1,0 +1,36 @@
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=1 platform=instagram intent=places lane=trending specificity=specific trending=0/12 for_you=0/4 query='Atami sightseeing' offset=0
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Atami Plum Garden' accepted=True reason=accepted attempts=1/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Mt Fuji' accepted=False reason=unsupported_place_type attempts=2/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Rancho Casa Playa' accepted=False reason=unresolved attempts=3/22
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=1 yield=productive raw=20 mentions=3 resolved=3 new=3 total=3
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=2 platform=rednote intent=food lane=trending specificity=specific trending=1/12 for_you=0/4 query='热海 美食推荐 餐厅 咖啡店 探店' offset=0
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=2 yield=no_mentions raw=19 mentions=0 resolved=0 new=0 total=3
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=3 platform=tiktok intent=hidden_gems lane=for_you specificity=specific trending=1/12 for_you=0/4 query='Atami hidden gems local spots underrated places' offset=0
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=3 yield=productive raw=3 mentions=8 resolved=8 new=8 total=11
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=4 platform=instagram intent=food lane=trending specificity=specific trending=1/12 for_you=0/4 query='Atami restaurants' offset=0
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Atami Fireworks Festival' accepted=False reason=unsupported_place_type attempts=4/22
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=4 yield=productive raw=8 mentions=1 resolved=1 new=1 total=12
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=5 platform=instagram intent=hidden_gems lane=for_you specificity=specific trending=1/12 for_you=0/4 query='Atami hidden gems' offset=0
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Atami Ropeway' accepted=False reason=unsupported_place_type attempts=5/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='MoA Museum of Art' accepted=True reason=accepted attempts=6/22
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=5 yield=productive raw=20 mentions=3 resolved=3 new=2 total=14
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=6 platform=instagram intent=food lane=trending specificity=normal trending=1/12 for_you=1/4 query='Atami food' offset=0
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Atami Kennesaw' accepted=False reason=unresolved attempts=7/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Atami Ginza Shopping Street' accepted=True reason=accepted attempts=8/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Soki Atami' accepted=False reason=unsupported_place_type attempts=9/22
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=6 yield=productive raw=20 mentions=5 resolved=5 new=3 total=17
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=7 platform=instagram intent=places lane=trending specificity=normal trending=2/12 for_you=1/4 query='Atami sightseeing' offset=1
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Club Zero Hanabi Atami' accepted=True reason=accepted attempts=10/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='UPBEAT International School' accepted=False reason=unresolved attempts=11/22
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=7 yield=productive raw=7 mentions=2 resolved=2 new=2 total=19
+INFO:syncinerary.agents.gather.social:social.search city=Atami iteration=8 platform=instagram intent=hidden_gems lane=for_you specificity=normal trending=3/12 for_you=1/4 query='Atami hidden gems' offset=1
+INFO:syncinerary.agents.gather.social:social.result city=Atami iteration=8 yield=duplicate_heavy raw=20 mentions=1 resolved=1 new=0 total=19
+INFO:syncinerary.agents.gather.social:social.stop city=Atami reason=search_budget_reached searches=8 places=19 trending=3 for_you=1 target=16 coverage={}
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Blue Pond' accepted=False reason=unresolved attempts=12/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Ginzan Onsen' accepted=False reason=unsupported_place_type attempts=13/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Kussharo Lake' accepted=False reason=unresolved attempts=14/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Zao Monster' accepted=False reason=unresolved attempts=15/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='JoyPolis' accepted=False reason=unresolved attempts=16/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Moss Diner' accepted=True reason=accepted attempts=17/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Paddlers coffee shop' accepted=False reason=unresolved attempts=18/22
+INFO:syncinerary.agents.gather.social:social.verify city=Atami name='Spice' accepted=True reason=accepted attempts=19/22

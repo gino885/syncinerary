@@ -1,0 +1,248 @@
+[
+  {
+    "city": "Tokyo",
+    "locale": "zh-Hant",
+    "days": 2,
+    "run_at": "2026-09-16T19:43:20.317850+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 10,
+        "other_social": 0,
+        "google_only": 6,
+        "other": 0,
+        "reel_share": 0.625,
+        "google_only_share": 0.375,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 10,
+        "other_social": 0,
+        "google_only": 6,
+        "other": 0,
+        "reel_share": 0.625,
+        "google_only_share": 0.375,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "by_city": {
+        "Tokyo": {
+          "total": 16,
+          "reels": 10,
+          "other_social": 0,
+          "google_only": 6,
+          "other": 0,
+          "reel_share": 0.625,
+          "google_only_share": 0.375,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 10,
+          "reels": 6,
+          "other_social": 0,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.6,
+          "google_only_share": 0.4,
+          "majority_met": true,
+          "target_shortfall": 0
+        },
+        "food": {
+          "total": 6,
+          "reels": 4,
+          "other_social": 0,
+          "google_only": 2,
+          "other": 0,
+          "reel_share": 0.6666666666666666,
+          "google_only_share": 0.3333333333333333,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      }
+    },
+    "elapsed_seconds": 76.59,
+    "harness_steps": 55,
+    "model_cost_usd": "0.229495",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Kanimamire 東京 池袋店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKjfYX2zkvy/"
+        ]
+      },
+      {
+        "name": "合羽橋廚房用品街",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DOlWe37D_N5/"
+        ]
+      },
+      {
+        "name": "咖啡沼澤",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/C1XUKYLv3ve/"
+        ]
+      },
+      {
+        "name": "Hosigi Double Chicken（第二分店）",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/CzJZMFPJn4e/"
+        ]
+      },
+      {
+        "name": "三麗鷗彩虹樂園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DTcrE9uCalP/"
+        ]
+      },
+      {
+        "name": "小網神社",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKZbQpATc1t/"
+        ]
+      },
+      {
+        "name": "福德神社",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKZbQpATc1t/"
+        ]
+      },
+      {
+        "name": "哥吉拉頭",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DXWyQFECQlX/"
+        ]
+      },
+      {
+        "name": "東京迪士尼海洋",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DYCHKD0y_VN/"
+        ]
+      },
+      {
+        "name": "上野公園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRPAud7Emhk/",
+          "https://www.tiktok.com/@user1724669138368/video/7464992891434208519"
+        ]
+      },
+      {
+        "name": "思出橫丁",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "皇宮東御苑",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "明治神宮",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "皇居外苑國家庭園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "牛勝元村 原宿分店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "日本橋海鮮丼辻半 室町分店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  }
+]

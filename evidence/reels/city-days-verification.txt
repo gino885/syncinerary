@@ -1,0 +1,29 @@
+September 18, 2026
+
+Backend: .venv/bin/python -m pytest tests/ -q
+815 passed in 137.01s (0:02:17), no skips.
+
+Lint: .venv/bin/ruff check syncinerary tests
+All checks passed.
+Whitespace: git diff --check, passed.
+
+Planner: .venv/bin/python -m syncinerary.eval.runner --no-store
+10/10 fixtures passed in 30.42s. No model calls, no stored results.
+
+Swift APIContractTests: passed.
+Swift CityDaysTests (view model and JSON encoding): passed.
+Xcode simulator Debug build: BUILD SUCCEEDED.
+Component visual inspection: light, dark, maximum accessibility text.
+
+Database migration f019a7c35b82: local upgrade passed.
+Disposable database: upgrade head, downgrade base, upgrade head passed.
+Disposable database and QA simulator removed after verification.
+
+Live provider evaluation: city-days-user-language.json.
+Tokyo 3 days / Atami 1 day retained 24 / 8 cards.
+English: 16/32 Reels (50%), 4 short of the 60% target.
+Traditional Chinese: 14/32 Reels (43.75%), 6 short.
+Both are measured misses. No saved trips or candidate rows were created.
+Reel playback and spoken-language classification were not tested.
+
+Changes are local. No commit, merge or deployment.
