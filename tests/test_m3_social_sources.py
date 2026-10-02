@@ -94,10 +94,10 @@ def test_tiktok_video_url_is_attachable_and_canonical():
 def test_rednote_discovery_queries_are_mandarin_first_and_deterministic():
     intent = _intent(SocialPlatform.REDNOTE)
     first = build_discovery_query(
-        intent, destination="Hokkaido", destination_localized="北海道"
+        intent, destination="Hokkaido", destination_localized="北海道", output_locale="zh-Hans"
     )
     second = build_discovery_query(
-        intent, destination="Hokkaido", destination_localized="北海道"
+        intent, destination="Hokkaido", destination_localized="北海道", output_locale="zh-Hans"
     )
 
     assert first == second
@@ -113,7 +113,7 @@ def test_every_rednote_intent_and_wording_stays_in_mandarin():
     queries = [
         build_discovery_query(
             _intent(SocialPlatform.REDNOTE, intent_type, specificity=specificity),
-            destination="Hokkaido",
+            destination="Hokkaido", output_locale="zh-Hans",
             destination_localized="北海道",
         )
         for intent_type in SearchIntentType
@@ -169,7 +169,7 @@ def test_the_fallback_ladder_removes_words_rather_than_adding_them():
     assert len(ladder) == 3
     lengths = [len(query.split()) for query in ladder]
     assert lengths == sorted(lengths, reverse=True)
-    assert ladder[-1] == "Sapporo things to do"
+    assert ladder[-1] == "Sapporo travel"
 
 
 def test_a_semantic_intent_ignores_wording_and_specificity():
@@ -199,7 +199,9 @@ def test_one_city_never_exceeds_the_brave_search_ceiling():
 
 def test_rednote_discovery_requires_a_mandarin_destination_name():
     with pytest.raises(ValueError, match="localized destination"):
-        build_discovery_query(_intent(SocialPlatform.REDNOTE), destination="Hokkaido")
+        build_discovery_query(
+            _intent(SocialPlatform.REDNOTE), destination="Hokkaido", output_locale="zh-Hans"
+        )
 
 
 @pytest.mark.parametrize(
@@ -281,7 +283,7 @@ async def test_brave_rednote_search_uses_only_mandarin_queries():
                 query=build_discovery_query(
                     _intent(SocialPlatform.REDNOTE),
                     destination="Hokkaido",
-                    destination_localized="北海道",
+                    destination_localized="北海道", output_locale="zh-Hans",
                 ),
             ),
         )
@@ -461,7 +463,7 @@ async def test_brave_search_reuses_a_cached_city_platform_result():
     assert calls == after_first
     assert cache.last_ttl == 86_400
     assert cache.last_key is not None
-    assert cache.last_key.startswith("social:brave:v5:")
+    assert cache.last_key.startswith("social:brave:v6:")
 
 
 async def test_brave_search_stops_clearly_when_the_key_is_missing():

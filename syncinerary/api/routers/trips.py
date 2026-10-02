@@ -37,7 +37,8 @@ from syncinerary.agents.gather.dietary import filter_dietary_conflicts
 from syncinerary.agents.gather.personal import resolve_link_attachment
 from syncinerary.agents.graph import get_graph, graph_config
 from syncinerary.agents.solver.lodging import rank_lodging_options
-from syncinerary.api.deps import OptionalAccount, Session
+from syncinerary.ai_credentials import trip_creator_credential_scope
+from syncinerary.api.deps import CurrentAccount, OptionalAccount, Session
 from syncinerary.api.itinerary_details import directions_url, meal_breaks_for_day
 from syncinerary.api.schemas import (
     AttachmentLinkRequest,
@@ -67,6 +68,10 @@ from syncinerary.api.schemas import (
     WishlistNotPlacedOut,
     social_cover_image,
 )
+from syncinerary.api.trip_membership import (
+    require_account_member_for_owned_trip,
+    require_member,
+)
 from syncinerary.config import settings
 from syncinerary.config.aggregate import MUST_GO_CAP_PER_DAY
 from syncinerary.config.gather import gather_max_steps
@@ -85,7 +90,7 @@ from syncinerary.domain.models import (
     Vote,
     VoteSignal,
 )
-from syncinerary.harness import run_tool, tracked_run
+from syncinerary.harness import CreatorCredentialUnavailable, run_tool, tracked_run
 from syncinerary.store.repositories import (
     CandidateBadgeRepository,
     CandidatePlaceRepository,
@@ -110,6 +115,13 @@ from syncinerary.tools.timezone import TimezoneUnavailable
 from syncinerary.tools.transit import attributions_for
 
 router = APIRouter(prefix="/trips", tags=["trips"])
+
+
+def _creator_key_conflict(exc: CreatorCredentialUnavailable) -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        str(exc),
+    )
 
 
 async def _load_trip(session: Session, trip_id: UUID) -> Trip:
@@ -179,14 +191,11 @@ async def city_suggestions(
 async def create_trip(
     payload: TripCreateRequest,
     session: Session,
-    account: OptionalAccount = None,
+    account: CurrentAccount,
 ) -> TripCreatedResponse:
     """Create a trip and its creator traveler.
 
-    The account is optional so the single-player flow keeps working unchanged,
-    but when someone is signed in the creator traveler is linked to them. That
-    link is what makes them a member of their own trip, and therefore able to
-    invite others and post in the thread.
+    The authenticated creator owns the draft room and its discovery start action.
 
     `days` is derived here and stored (§7 calls it derived but persisted):
     every downstream default is expressed as a multiple of it, so recomputing
@@ -237,10 +246,15 @@ async def create_trip(
         ),
         payload.country,
     )
+    from syncinerary.domain.city_plan import suggested_city_days
+
+    city_days = payload.city_days or suggested_city_days(days, len(resolved), payload.priority_city_index)
     trip = await TripRepository(session).add(
         Trip(
             destination=destination_label([city.name for city in resolved]),
             cities=[city.name for city in resolved],
+            city_days=city_days,
+            priority_city_index=payload.priority_city_index,
             country=canonical_country,
             resolved_cities=[city.model_dump(mode="json") for city in resolved],
             timezone=timezone,
@@ -248,7 +262,7 @@ async def create_trip(
             start_date=payload.start_date,
             end_date=payload.end_date,
             days=days,
-            status=TripStatus.SETUP,
+            status=TripStatus.DRAFT,
         )
     )
     traveler = await TravelerRepository(session).add(
@@ -256,7 +270,7 @@ async def create_trip(
             trip_id=trip.id,
             name=payload.creator_name,
             home_city=payload.creator_home_city,
-            account_id=account.id if account is not None else None,
+            account_id=account.id,
             profile=(
                 {"interests": payload.creator_interests}
                 if payload.creator_interests
@@ -279,11 +293,20 @@ async def create_trip(
     # points back at the trip (see store/tables.py).
     trip = await TripRepository(session).set_created_by(trip.id, traveler.id)
 
+    from syncinerary.domain.checklist_suggestions import suggestions
+    from syncinerary.store.repositories import ChecklistItemRepository
+
+    await ChecklistItemRepository(session).suggest(suggestions(trip, []))
     return TripCreatedResponse(trip=TripOut.of(trip), traveler_id=traveler.id)
 
 
 @router.get("/{trip_id}")
-async def get_trip(trip_id: UUID, session: Session) -> TripOut:
+async def get_trip(
+    trip_id: UUID,
+    session: Session,
+    account: OptionalAccount,
+) -> TripOut:
+    await require_account_member_for_owned_trip(session, trip_id, account)
     return TripOut.of(await _load_trip(session, trip_id))
 
 
@@ -291,6 +314,7 @@ async def get_trip(trip_id: UUID, session: Session) -> TripOut:
 async def list_candidates(
     trip_id: UUID,
     session: Session,
+    account: OptionalAccount,
     traveler_id: UUID | None = None,
 ) -> list[CandidateCardOut]:
     """The swipe deck.
@@ -298,7 +322,9 @@ async def list_candidates(
     Lodging is excluded. §8.6 makes it solver-driven after shortlist
     confirmation, not something the group swipes.
     """
-    await _load_trip(session, trip_id)
+    trip = await require_account_member_for_owned_trip(session, trip_id, account)
+    if trip.status in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        return []
     if traveler_id is not None:
         viewer = await TravelerRepository(session).get(traveler_id)
         if viewer is None or viewer.trip_id != trip_id:
@@ -335,16 +361,26 @@ async def list_candidates(
 
 
 @router.get("/{trip_id}/lodging-options")
-async def lodging_options(trip_id: UUID, session: Session) -> list[LodgingOptionOut]:
+async def lodging_options(
+    trip_id: UUID,
+    session: Session,
+    account: OptionalAccount,
+) -> list[LodgingOptionOut]:
     """Return up to three deterministic hotel comparisons for this trip."""
-    trip = await _load_trip(session, trip_id)
+    trip = await require_account_member_for_owned_trip(session, trip_id, account)
     repo = CandidatePlaceRepository(session)
     lodging = await repo.list_by_type(trip_id, CandidateType.LODGING)
     activities = await repo.list_swipeable(trip_id)
-    return [
-        LodgingOptionOut.of(candidate, trip)
-        for candidate in rank_lodging_options(lodging, activities)
-    ]
+    constraints = await ConstraintRepository(session).list_for_trip(trip_id)
+    selected = next((c.value for c in constraints if c.type == "selected_lodging"), {})
+    ranked = rank_lodging_options(lodging, activities)
+    chosen = next((c for c in lodging if str(c.id) == selected.get("candidate_id")), None)
+    if chosen:
+        ranked = [chosen] + [c for c in ranked if c.id != chosen.id]
+    return [LodgingOptionOut.of(c, trip).model_copy(update={
+        "is_selected": str(c.id) == selected.get("candidate_id"),
+        "is_booked": str(c.id) == selected.get("candidate_id") and selected.get("booked", False),
+    }) for c in ranked[:3]]
 
 
 @router.post("/{trip_id}/lodging-selection")
@@ -352,15 +388,12 @@ async def select_lodging(
     trip_id: UUID,
     payload: LodgingSelectionRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> LodgingOptionOut:
-    """Persist the group's chosen hotel as a hard solver anchor."""
-    trip = await _load_trip(session, trip_id)
-    traveler = await TravelerRepository(session).get(payload.traveler_id)
-    if traveler is None or traveler.trip_id != trip_id:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"Traveler {payload.traveler_id} is not on trip {trip_id}",
-        )
+    """Persist the group's hotel selection for preparation."""
+    from syncinerary.api.trip_membership import require_member
+
+    trip = await require_member(session, trip_id, payload.traveler_id, account)
     candidate = await CandidatePlaceRepository(session).get(payload.candidate_id)
     if (
         candidate is None
@@ -371,14 +404,22 @@ async def select_lodging(
             status.HTTP_404_NOT_FOUND,
             f"Lodging {payload.candidate_id} is not in trip {trip_id}",
         )
+    await TripRepository(session).lock(trip_id)
+    constraints = await ConstraintRepository(session).list_for_trip(trip_id)
+    selected = next((c.value for c in constraints if c.type == "selected_lodging"), {})
+    value = {"candidate_id": str(candidate.id)}
+    if selected.get("candidate_id") == str(candidate.id) and selected.get("booked"):
+        value["booked"] = True
     await ConstraintRepository(session).set_group_constraint(
         trip_id,
         constraint_type="selected_lodging",
-        value={"candidate_id": str(candidate.id)},
+        value=value,
         priority=100,
         kind=ConstraintKind.HARD,
     )
-    return LodgingOptionOut.of(candidate, trip)
+    return LodgingOptionOut.of(candidate, trip).model_copy(
+        update={"is_selected": True, "is_booked": value.get("booked", False)}
+    )
 
 
 @router.get("/{trip_id}/candidates/{candidate_id}/photo")
@@ -387,9 +428,10 @@ async def candidate_photo(
     candidate_id: UUID,
     response: Response,
     session: Session,
+    account: OptionalAccount,
 ) -> CandidatePhotoOut:
     """Fetch a fresh Places photo and its attribution for one visible card."""
-    trip = await _load_trip(session, trip_id)
+    trip = await require_account_member_for_owned_trip(session, trip_id, account)
     candidate = await CandidatePlaceRepository(session).get(candidate_id)
     if candidate is None or candidate.trip_id != trip_id:
         raise HTTPException(
@@ -467,15 +509,22 @@ async def attach_link(
     trip_id: UUID,
     payload: AttachmentLinkRequest,
     session: Session,
+    account: OptionalAccount = None,
 ) -> SourceAttachmentOut:
     """Store one traveler-submitted social post with explicit provenance."""
-    trip = await _load_trip(session, trip_id)
+    trip = await TripRepository(session).lock(trip_id)
+    if trip is None:
+        raise HTTPException(404, "Trip not found")
     traveler = await TravelerRepository(session).get(payload.traveler_id)
     if traveler is None or traveler.trip_id != trip_id:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"Traveler {payload.traveler_id} is not on trip {trip_id}",
         )
+
+    if ((traveler.account_id is not None or trip.status in {TripStatus.DRAFT, TripStatus.GATHERING})
+            and (account is None or traveler.account_id != account.id)):
+        raise HTTPException(403, "Sign in as the contributing member")
 
     try:
         reference = normalize_social_url(payload.url)
@@ -494,6 +543,8 @@ async def attach_link(
         canonical_url=reference.canonical_url,
     )
     if attachment is not None:
+        if trip.status is TripStatus.GATHERING:
+            return SourceAttachmentOut.of(attachment, traveler)
         if attachment.status is AttachmentStatus.READY:
             return SourceAttachmentOut.of(attachment, traveler)
         if payload.place_name is not None:
@@ -506,7 +557,12 @@ async def attach_link(
                 )
                 or attachment
             )
-        attachment = await resolve_link_attachment(attachment, trip, session)
+        if trip.status not in {TripStatus.DRAFT, TripStatus.GATHERING}:
+            try:
+                async with trip_creator_credential_scope(session, trip_id):
+                    attachment = await resolve_link_attachment(attachment, trip, session)
+            except CreatorCredentialUnavailable as exc:
+                raise _creator_key_conflict(exc) from exc
         return SourceAttachmentOut.of(attachment, traveler)
 
     attachment = await attachment_repo.add(
@@ -526,7 +582,12 @@ async def attach_link(
             ),
         )
     )
-    attachment = await resolve_link_attachment(attachment, trip, session)
+    if trip.status not in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        try:
+            async with trip_creator_credential_scope(session, trip_id):
+                attachment = await resolve_link_attachment(attachment, trip, session)
+        except CreatorCredentialUnavailable as exc:
+            raise _creator_key_conflict(exc) from exc
     return SourceAttachmentOut.of(attachment, traveler)
 
 
@@ -537,15 +598,22 @@ async def attach_screenshot(
     traveler_id: Annotated[UUID, Form()],
     screenshot: Annotated[UploadFile, File()],
     session: Session,
+    account: OptionalAccount,
 ) -> SourceAttachmentOut:
     """Add user-provided visual evidence without fetching protected content."""
-    await _load_trip(session, trip_id)
+    trip = await TripRepository(session).lock(trip_id)
+    if trip is None:
+        raise HTTPException(404, "Trip not found")
+    if trip.status in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        raise HTTPException(409, "Save a post link in the group room before discovery")
     traveler = await TravelerRepository(session).get(traveler_id)
     if traveler is None or traveler.trip_id != trip_id:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"Traveler {traveler_id} is not on trip {trip_id}",
         )
+    if traveler.account_id is not None and (account is None or account.id != traveler.account_id):
+        raise HTTPException(403, "Only the contributor can add evidence to this post")
     attachment = await SourceAttachmentRepository(session).get(attachment_id)
     if (
         attachment is None
@@ -571,11 +639,14 @@ async def attach_screenshot(
         )
 
     try:
-        extraction = await extract_screenshot(
-            image,
-            media_type=media_type,
-            platform=attachment.platform,
-        )
+        async with trip_creator_credential_scope(session, trip_id):
+            extraction = await extract_screenshot(
+                image,
+                media_type=media_type,
+                platform=attachment.platform,
+            )
+    except CreatorCredentialUnavailable as exc:
+        raise _creator_key_conflict(exc) from exc
     except ScreenshotExtractionUnavailable as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
@@ -608,7 +679,12 @@ async def attach_screenshot(
 
 
 @router.post("/{trip_id}/votes", status_code=status.HTTP_201_CREATED)
-async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> VoteOut:
+async def cast_vote(
+    trip_id: UUID,
+    payload: VoteRequest,
+    session: Session,
+    account: OptionalAccount,
+) -> VoteOut:
     """Record one swipe.
 
     Re-voting on the same card replaces the earlier vote rather than adding
@@ -622,6 +698,10 @@ async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> Vo
             status.HTTP_404_NOT_FOUND,
             f"Traveler {payload.traveler_id} is not on trip {trip_id}",
         )
+    if traveler.account_id is not None and (
+        account is None or account.id != traveler.account_id
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign in as this trip member")
 
     candidate = await CandidatePlaceRepository(session).get(payload.candidate_id)
     if candidate is None or candidate.trip_id != trip_id:
@@ -633,7 +713,10 @@ async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> Vo
     note_parsed = None
     if payload.signal.value == VoteSignal.LIKE_WITH_NOTE.value:
         try:
-            note_parsed = await parse_vote_note(payload.note_text or "")
+            async with trip_creator_credential_scope(session, trip_id):
+                note_parsed = await parse_vote_note(payload.note_text or "")
+        except CreatorCredentialUnavailable as exc:
+            raise _creator_key_conflict(exc) from exc
         except NoteParsingUnavailable as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
@@ -658,18 +741,14 @@ async def cast_vote(trip_id: UUID, payload: VoteRequest, session: Session) -> Vo
 
 @router.get("/{trip_id}/votes/progress")
 async def vote_progress(
-    trip_id: UUID, traveler_id: UUID, session: Session
+    trip_id: UUID,
+    traveler_id: UUID,
+    session: Session,
+    account: OptionalAccount,
 ) -> VoteProgressOut:
     """How far through the deck one traveler is. The iOS swipe screen uses
     this to decide when to offer planning."""
-    await _load_trip(session, trip_id)
-
-    traveler = await TravelerRepository(session).get(traveler_id)
-    if traveler is None or traveler.trip_id != trip_id:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"Traveler {traveler_id} is not on trip {trip_id}",
-        )
+    await require_member(session, trip_id, traveler_id, account)
 
     deck = await CandidatePlaceRepository(session).list_swipeable(trip_id)
     constraints = await ConstraintRepository(session).list_for_trip(trip_id)
@@ -686,8 +765,12 @@ async def vote_progress(
 
 
 @router.get("/{trip_id}/shortlist")
-async def get_shortlist(trip_id: UUID, session: Session) -> ShortlistOut:
-    await _load_trip(session, trip_id)
+async def get_shortlist(
+    trip_id: UUID,
+    session: Session,
+    account: OptionalAccount,
+) -> ShortlistOut:
+    await require_account_member_for_owned_trip(session, trip_id, account)
     shortlist = await ShortlistStateRepository(session).get_for_trip(trip_id)
     if shortlist is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Shortlist has not been built")
@@ -696,9 +779,13 @@ async def get_shortlist(trip_id: UUID, session: Session) -> ShortlistOut:
 
 
 @router.post("/{trip_id}/shortlist/build")
-async def build_trip_shortlist(trip_id: UUID, session: Session) -> ShortlistOut:
+async def build_trip_shortlist(
+    trip_id: UUID,
+    session: Session,
+    account: OptionalAccount,
+) -> ShortlistOut:
     """Resume consensus scoring and stop before scheduling for group review."""
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     graph = get_graph()
     config = graph_config(trip_id)
     snapshot = await graph.aget_state(config)
@@ -729,10 +816,12 @@ async def edit_shortlist(
     trip_id: UUID,
     payload: ShortlistEditRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ShortlistOut:
     """Replace the editable shortlist and invalidate earlier acknowledgments."""
-    trip = await _load_trip(session, trip_id)
-    await _load_trip_traveler(session, trip_id, payload.traveler_id)
+    trip = await require_member(session, trip_id, payload.traveler_id, account)
+    if trip.status in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        raise HTTPException(409, "Wait for discovery to complete before voting")
     current = await ShortlistStateRepository(session).get_for_trip(trip_id)
     if current is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Shortlist has not been built")
@@ -796,10 +885,10 @@ async def confirm_shortlist(
     trip_id: UUID,
     payload: ShortlistConfirmRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ShortlistOut:
     """Acknowledge the current shortlist and close it once quorum is met."""
-    await _load_trip(session, trip_id)
-    await _load_trip_traveler(session, trip_id, payload.traveler_id)
+    await require_member(session, trip_id, payload.traveler_id, account)
     repo = ShortlistStateRepository(session)
     current = await repo.get_for_trip_for_update(trip_id)
     if current is None:
@@ -820,9 +909,15 @@ async def confirm_shortlist(
 
 
 @router.post("/{trip_id}/gather")
-async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
-    """Run the graph to its swipe interrupt and return the deck size."""
-    trip = await _load_trip(session, trip_id)
+async def gather_trip(
+    trip_id: UUID,
+    session: Session,
+    account: OptionalAccount,
+) -> GatherResponse:
+    """Legacy setup trips only; new trips use the authorized job endpoint."""
+    trip = await require_account_member_for_owned_trip(session, trip_id, account)
+    if trip.status in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        raise HTTPException(409, "Use the leader start action at /gather-runs")
     graph = get_graph()
     config = graph_config(trip_id)
     snapshot = await graph.aget_state(config)
@@ -831,7 +926,7 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
         travelers = await TravelerRepository(session).list_for_trip(trip_id)
         constraints = await ConstraintRepository(session).list_for_trip(trip_id)
         try:
-            async with tracked_run(
+            async with trip_creator_credential_scope(session, trip_id), tracked_run(
                 trip_id=trip_id,
                 kind="gather",
                 max_steps=gather_max_steps(
@@ -847,6 +942,8 @@ async def gather_trip(trip_id: UUID, session: Session) -> GatherResponse:
                     TripState(trip=trip, travelers=travelers, constraints=constraints),
                     config,
                 )
+        except CreatorCredentialUnavailable as exc:
+            raise _creator_key_conflict(exc) from exc
         except UnknownCity as exc:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
@@ -862,9 +959,10 @@ async def plan_trip(
     trip_id: UUID,
     payload: PlanRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> PlanResponse:
     """Resume after swiping and run through the explainer."""
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     graph = get_graph()
     config = graph_config(trip_id)
     snapshot = await graph.aget_state(config)
@@ -902,8 +1000,13 @@ async def plan_trip(
                 "shortlist": shortlist,
             },
         )
-        async with tracked_run(trip_id=trip_id, kind="plan"):
-            result = await graph.ainvoke(None, config)
+        try:
+            async with trip_creator_credential_scope(session, trip_id), tracked_run(
+                trip_id=trip_id, kind="plan"
+            ):
+                result = await graph.ainvoke(None, config)
+        except CreatorCredentialUnavailable as exc:
+            raise _creator_key_conflict(exc) from exc
         state = TripState.model_validate(result)
     else:
         state = TripState.model_validate(snapshot.values)
@@ -926,9 +1029,10 @@ async def plan_trip(
 async def get_itinerary(
     trip_id: UUID,
     session: Session,
+    account: OptionalAccount,
     traveler_id: UUID | None = None,
 ) -> ItineraryOut:
-    trip = await _load_trip(session, trip_id)
+    trip = await require_account_member_for_owned_trip(session, trip_id, account)
     versions = ItineraryVersionRepository(session)
     version = await versions.get_active(trip_id) or await versions.get_latest(trip_id)
     if version is None:
@@ -962,9 +1066,10 @@ async def get_itinerary(
         previous_by_day[node.day] = candidate
 
     narrative = None
-    snapshot = await get_graph().aget_state(graph_config(trip_id))
-    if snapshot.values:
-        narrative = TripState.model_validate(snapshot.values).narrative
+    if not version.objective_breakdown.get("manual_edit"):
+        snapshot = await get_graph().aget_state(graph_config(trip_id))
+        if snapshot.values:
+            narrative = TripState.model_validate(snapshot.values).narrative
 
     city_labels = trip.cities or [trip.destination]
 

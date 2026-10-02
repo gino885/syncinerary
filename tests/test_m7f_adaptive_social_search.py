@@ -591,7 +591,7 @@ async def test_every_rednote_query_uses_the_mandarin_destination(monkeypatch):
         return _places(f"Place {index}")
 
     world = FakeSocialWorld(script)
-    await _run(world, monkeypatch, target_candidates=10_000)
+    await _run(world, monkeypatch, target_candidates=10_000, output_locale="zh-Hans")
 
     rednote = [query for platform, query in world.searches if platform is REDNOTE]
     assert rednote
@@ -599,7 +599,7 @@ async def test_every_rednote_query_uses_the_mandarin_destination(monkeypatch):
     assert not any("Sapporo" in query for query in rednote)
 
 
-async def test_rednote_drops_out_without_a_mandarin_name(monkeypatch):
+async def test_english_search_needs_no_mandarin_name(monkeypatch):
     def script(index, platform, intent):
         return _places(f"Place {index}")
 
@@ -608,7 +608,7 @@ async def test_rednote_drops_out_without_a_mandarin_name(monkeypatch):
         world, monkeypatch, destination_local_name=None, target_candidates=10_000
     )
 
-    assert REDNOTE not in {platform for platform, _ in world.searches}
+    assert REDNOTE in {platform for platform, _ in world.searches}
 
 
 # ----- caching -------------------------------------------------------------

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Self
 
+import pytest
 import pytest_asyncio
 
 from syncinerary.agents import aggregate as aggregate_module
@@ -141,6 +142,7 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
     session,
     monkeypatch,
     graph_runtime,
+    creator_anthropic_credential,
 ):
     _use_test_session(monkeypatch, session)
     monkeypatch.setattr(
@@ -162,13 +164,22 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
     assert created_response.status_code == 201
     created = created_response.json()
     trip_id = created["trip"]["id"]
+    await creator_anthropic_credential(trip_id)
     traveler_id = created["traveler_id"]
     config = graph_config(trip_id)
 
     try:
-        gathered = await client.post(f"/trips/{trip_id}/gather")
-        assert gathered.status_code == 200
-        assert gathered.json() == {"deck_size": 14}
+        from uuid import UUID
+
+        from syncinerary.store.repositories import GatherRunRepository
+        from syncinerary.workers import gather as worker
+        monkeypatch.setattr(worker, "session_scope", gather_module.session_scope)
+        gathered = await client.post(f"/trips/{trip_id}/gather-runs")
+        assert gathered.status_code == 202, gathered.text
+        run = await GatherRunRepository(session).get(UUID(gathered.json()["run_id"]))
+        await worker.execute_run(run, graph_runtime)
+        current = await client.get(f"/trips/{trip_id}/gather-runs/current")
+        assert current.json()["deck_size"] == 14
 
         interrupted = await graph_runtime.aget_state(config)
         assert interrupted.next == ("aggregate",)
@@ -177,8 +188,9 @@ async def test_http_pipeline_interrupts_for_swipes_then_returns_itinerary(
         assert len(interrupted_state.badges) == 1
 
         # Gather is idempotent and must not accidentally resume planning.
-        gathered_again = await client.post(f"/trips/{trip_id}/gather")
-        assert gathered_again.json() == {"deck_size": 14}
+        gathered_again = await client.post(f"/trips/{trip_id}/gather-runs")
+        assert gathered_again.json()["deck_size"] == 14
+        assert gathered_again.json()["run_id"] == gathered.json()["run_id"]
         assert (await graph_runtime.aget_state(config)).next == ("aggregate",)
 
         deck_response = await client.get(f"/trips/{trip_id}/candidates")
@@ -298,3 +310,5 @@ async def test_itinerary_before_plan_is_not_found(client, graph_runtime):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "No itinerary has been planned"
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")

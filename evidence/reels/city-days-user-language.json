@@ -1,0 +1,834 @@
+[
+  {
+    "city": "Tokyo,Atami",
+    "locale": "en",
+    "days": 4,
+    "city_days": [
+      3,
+      1
+    ],
+    "run_at": "2026-09-18T14:06:13.820119+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 32,
+        "reels": 16,
+        "other_social": 7,
+        "google_only": 9,
+        "other": 0,
+        "reel_share": 0.5,
+        "google_only_share": 0.28125,
+        "majority_met": false,
+        "target_met": false,
+        "target_shortfall": 4
+      },
+      "automatic": {
+        "total": 32,
+        "reels": 16,
+        "other_social": 7,
+        "google_only": 9,
+        "other": 0,
+        "reel_share": 0.5,
+        "google_only_share": 0.28125,
+        "majority_met": false,
+        "target_met": false,
+        "target_shortfall": 4
+      },
+      "by_city": {
+        "Atami": {
+          "total": 8,
+          "reels": 5,
+          "other_social": 0,
+          "google_only": 3,
+          "other": 0,
+          "reel_share": 0.625,
+          "google_only_share": 0.375,
+          "majority_met": true,
+          "target_met": true,
+          "target_shortfall": 0
+        },
+        "Tokyo": {
+          "total": 24,
+          "reels": 11,
+          "other_social": 7,
+          "google_only": 6,
+          "other": 0,
+          "reel_share": 0.4583333333333333,
+          "google_only_share": 0.25,
+          "majority_met": false,
+          "target_met": false,
+          "target_shortfall": 4
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 19,
+          "reels": 9,
+          "other_social": 2,
+          "google_only": 8,
+          "other": 0,
+          "reel_share": 0.47368421052631576,
+          "google_only_share": 0.42105263157894735,
+          "majority_met": false,
+          "target_met": false,
+          "target_shortfall": 3
+        },
+        "food": {
+          "total": 13,
+          "reels": 7,
+          "other_social": 5,
+          "google_only": 1,
+          "other": 0,
+          "reel_share": 0.5384615384615384,
+          "google_only_share": 0.07692307692307693,
+          "majority_met": true,
+          "target_met": false,
+          "target_shortfall": 1
+        }
+      }
+    },
+    "elapsed_seconds": 66.16,
+    "harness_steps": 82,
+    "model_cost_usd": "0.180575",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Japanese Restaurant Ginza Ishizuka",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DWxsSuwgVeS/"
+        ]
+      },
+      {
+        "name": "Atami Ginza Shopping Street",
+        "type": "food",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/Crkk2TdrUJ9/"
+        ]
+      },
+      {
+        "name": "Tsukemen TETSU Keio Mall Shinjuku",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DQ2A1HOExgv/"
+        ]
+      },
+      {
+        "name": "Atami Plum Garden",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSUmOzGEv1l/"
+        ]
+      },
+      {
+        "name": "Ikinari Steak Yaechika",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/CeVk61LpMMJ/"
+        ]
+      },
+      {
+        "name": "Club ZERO〜華火〜(熱海キャバクラ/クラブ/ラウンジ/スナック)",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSIW7PBkqGV/"
+        ]
+      },
+      {
+        "name": "Starbucks Reserve® Roastery Tokyo",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/C3x84LoChlj/"
+        ]
+      },
+      {
+        "name": "Atami Castle",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DSCQ4Y-EoFe/"
+        ]
+      },
+      {
+        "name": "Cat Cafe MOCHA Shibuya Center-gai Store",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRx-avZE0ld/"
+        ]
+      },
+      {
+        "name": "MOA Museum of Art",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRXv3rHgdJH/"
+        ]
+      },
+      {
+        "name": "LAMBERT",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DaaKtnnRTs4/"
+        ]
+      },
+      {
+        "name": "Tempura Tsurukichi（Tempura Restaurant）",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Shinagawa Aquarium",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DPBgvVukslr/"
+        ]
+      },
+      {
+        "name": "Atami Water Park",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Yomiuri Land",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DVztS9nk3ut/"
+        ]
+      },
+      {
+        "name": "Itogawa Promenade",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Tokyo Skytree",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DK9km2qSr5T/"
+        ]
+      },
+      {
+        "name": "Tokyo Tower",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DTKOFl9k_w3/",
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Jindaiji Temple",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DZzj6jsT-EO/"
+        ]
+      },
+      {
+        "name": "Tokyo Joypolis",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Akihabara Radio Kaikan",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@sgmustwatchla/video/7500782193849978130"
+        ]
+      },
+      {
+        "name": "MOSS CROSS TOKYO",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Paddlers Coffee",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "SHIBUYA SPICE 薬膳楽園",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Dagashiya",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@nom_life/video/7288326818128612650"
+        ]
+      },
+      {
+        "name": "dotcom space",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@aikenchia/video/7291494928683683074"
+        ]
+      },
+      {
+        "name": "Omoide Yokocho Memory Lane",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Meiji Jingu",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sensō-ji",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Maple Waterfall",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Imperial Palace East National Gardens",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Tokyo Skytree Town",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  },
+  {
+    "city": "Tokyo,Atami",
+    "locale": "zh-Hant",
+    "days": 4,
+    "city_days": [
+      3,
+      1
+    ],
+    "run_at": "2026-09-18T14:07:55.085234+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 32,
+        "reels": 14,
+        "other_social": 2,
+        "google_only": 16,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.5,
+        "majority_met": false,
+        "target_met": false,
+        "target_shortfall": 6
+      },
+      "automatic": {
+        "total": 32,
+        "reels": 14,
+        "other_social": 2,
+        "google_only": 16,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.5,
+        "majority_met": false,
+        "target_met": false,
+        "target_shortfall": 6
+      },
+      "by_city": {
+        "Atami": {
+          "total": 8,
+          "reels": 4,
+          "other_social": 1,
+          "google_only": 3,
+          "other": 0,
+          "reel_share": 0.5,
+          "google_only_share": 0.375,
+          "majority_met": false,
+          "target_met": false,
+          "target_shortfall": 1
+        },
+        "Tokyo": {
+          "total": 24,
+          "reels": 10,
+          "other_social": 1,
+          "google_only": 13,
+          "other": 0,
+          "reel_share": 0.4166666666666667,
+          "google_only_share": 0.5416666666666666,
+          "majority_met": false,
+          "target_met": false,
+          "target_shortfall": 5
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 19,
+          "reels": 6,
+          "other_social": 2,
+          "google_only": 11,
+          "other": 0,
+          "reel_share": 0.3157894736842105,
+          "google_only_share": 0.5789473684210527,
+          "majority_met": false,
+          "target_met": false,
+          "target_shortfall": 6
+        },
+        "food": {
+          "total": 13,
+          "reels": 8,
+          "other_social": 0,
+          "google_only": 5,
+          "other": 0,
+          "reel_share": 0.6153846153846154,
+          "google_only_share": 0.38461538461538464,
+          "majority_met": true,
+          "target_met": true,
+          "target_shortfall": 0
+        }
+      }
+    },
+    "elapsed_seconds": 101.28,
+    "harness_steps": 100,
+    "model_cost_usd": "0.376725",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Kanimamire 東京池袋店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKjfYX2zkvy/"
+        ]
+      },
+      {
+        "name": "天望懷舊喫茶 桃山館",
+        "type": "food",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DQgg6-HE6JW/",
+          "https://www.instagram.com/reel/Dba6yifzlzv/"
+        ]
+      },
+      {
+        "name": "合羽橋廚具用品街",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DOlWe37D_N5/"
+        ]
+      },
+      {
+        "name": "Kiito",
+        "type": "food",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DY67t7CzRR0/",
+          "https://www.instagram.com/reel/DKcGpxMy4ei/"
+        ]
+      },
+      {
+        "name": "咖啡沼澤",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/C1XUKYLv3ve/"
+        ]
+      },
+      {
+        "name": "熱海平和通購物街",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DXgfg5njd3N/"
+        ]
+      },
+      {
+        "name": "東京車站咖啡廳 -北圓頂-",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/CdVpjvFF8xJ/"
+        ]
+      },
+      {
+        "name": "仲見世通購物街",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DCrOV1RzIxC/"
+        ]
+      },
+      {
+        "name": "北海道牛奶吧 淺草牛奶咖啡館",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DLuWTAsyKYO/"
+        ]
+      },
+      {
+        "name": "UTAGE the ATAMI",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@heaven_utage_the_atami/video/7641322636307385620"
+        ]
+      },
+      {
+        "name": "Tenku Lounge TOP of TREE",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DJtdaQzzAm3/"
+        ]
+      },
+      {
+        "name": "熱海水上樂園",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "三麗鷗彩虹樂園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DTcrE9uCalP/"
+        ]
+      },
+      {
+        "name": "伊東川濱步道",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "飴橫市場",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5d90bbe600000000040180d6"
+        ]
+      },
+      {
+        "name": "天婦羅鶴吉（天婦羅餐廳）",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "明治神宮",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DQUVeuwkkQv/",
+          "https://www.tiktok.com/@user1724669138368/video/7464992891434208519",
+          "https://www.instagram.com/reel/DUNjTBGktUD/"
+        ]
+      },
+      {
+        "name": "淺草寺",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DMfPE49hqrj/",
+          "https://www.tiktok.com/@user1724669138368/video/7464992891434208519"
+        ]
+      },
+      {
+        "name": "小網神社",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DKMhpfyTJA4/"
+        ]
+      },
+      {
+        "name": "代々木公園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "代々木公園時鐘塔",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "忠犬八公像",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "新宿御苑國家花園",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "澀谷Sky",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "東京晴空塔",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "東京鐵塔",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "牛肉炸豬排Motomura 原宿分店",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "東京晴空塔城",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "楓葉瀑布",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "原宿餃子郎",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "武藏天空餐廳",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sky Bar & Dining Stellar Garden",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  }
+]

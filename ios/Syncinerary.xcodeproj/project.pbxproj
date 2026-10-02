@@ -65,6 +65,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000007 /* Build configuration list for PBXNativeTarget "Syncinerary" */;
 			buildPhases = (
+				A10000000000000000000011 /* Validate App Store Release */,
 				A10000000000000000000008 /* Sources */,
 				A10000000000000000000003 /* Frameworks */,
 				A10000000000000000000009 /* Resources */,
@@ -128,6 +129,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A10000000000000000000011 /* Validate App Store Release */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Validate App Store Release";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/../scripts/validate_ios_release.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000008 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -160,7 +183,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-		};
+			};
 			name = Debug;
 		};
 		A1000000000000000000000D /* Release */ = {
@@ -176,7 +199,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
-		};
+			};
 			name = Release;
 		};
 		A1000000000000000000000E /* Debug */ = {
@@ -196,6 +219,11 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.local.syncinerary;
+				SYNC_API_BASE_URL = "http://localhost:8000";
+				SYNC_APPLE_SIGN_IN_ENABLED = NO;
+				SYNC_GOOGLE_CALLBACK_SCHEME = "com.local.syncinerary.google-unconfigured";
+				SYNC_PRIVACY_POLICY_URL = "https://github.com/gino885/syncinerary/blob/main/docs/PRIVACY_POLICY.md";
+				SYNC_SUPPORT_URL = "https://github.com/gino885/syncinerary/blob/main/docs/SUPPORT.md";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -222,6 +250,11 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.local.syncinerary;
+				SYNC_API_BASE_URL = "http://localhost:8000";
+				SYNC_APPLE_SIGN_IN_ENABLED = NO;
+				SYNC_GOOGLE_CALLBACK_SCHEME = "com.local.syncinerary.google-unconfigured";
+				SYNC_PRIVACY_POLICY_URL = "https://github.com/gino885/syncinerary/blob/main/docs/PRIVACY_POLICY.md";
+				SYNC_SUPPORT_URL = "https://github.com/gino885/syncinerary/blob/main/docs/SUPPORT.md";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;

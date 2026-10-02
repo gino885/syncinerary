@@ -1,29 +1,22 @@
 import SwiftUI
 
-/// The primary action on a screen: ink on paper inside a stamp's double
-/// rule, so pressing it reads as stamping the page. One per screen.
+/// Compatibility style for existing approval actions, now a single filled surface.
 struct StampButtonStyle: ButtonStyle {
-    var ink: Color = AppTheme.stamp
-
+    var ink: Color = AppTheme.accent
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(AppType.stampText)
-            .textCase(.uppercase)
-            .tracking(2)
-            .foregroundStyle(ink)
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .overlay {
-                Rectangle().stroke(ink, lineWidth: 2)
-            }
-            .overlay {
-                Rectangle().inset(by: -4).stroke(ink, lineWidth: 1)
-            }
-            .padding(4)
-            .opacity(isEnabled ? (configuration.isPressed ? 0.5 : 1) : 0.35)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(AppTheme.stampDown, value: configuration.isPressed)
+            .font(.system(.headline, design: .rounded))
+            .foregroundStyle(AppTheme.canvas)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .background(ink, in: .rect(cornerRadius: 18))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.86 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(reduceMotion ? AppTheme.fade : AppTheme.press, value: configuration.isPressed)
     }
 }
 

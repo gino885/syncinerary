@@ -37,11 +37,14 @@ async def _sign_in(client, *, display_name: str, handle: str) -> dict:
     identity reuse is covered in test_m7a_group_repositories instead.
     """
     salted = f"{handle}-{uuid4().hex[:8]}"
-    response = await client.post(
-        "/auth/session", json={"display_name": display_name, "handle": salted}
-    )
-    assert response.status_code == 201, response.text
-    return response.json()
+    from syncinerary.api.deps import db_session
+    from syncinerary.api.main import app
+    from syncinerary.domain.models import Account
+    from syncinerary.store.repositories import AccountRepository, AccountSessionRepository
+    async for db in app.dependency_overrides[db_session]():
+        account = await AccountRepository(db).add(Account(display_name=display_name, handle=salted))
+        issued = await AccountSessionRepository(db).issue(account.id)
+    return {"token": issued.token, "account": account.model_dump(mode="json")}
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -115,7 +118,7 @@ async def test_joining_requires_preference_tags(client):
     assert without_tags.status_code == 422
 
 
-async def test_a_second_person_joins_and_appears_in_the_trip(client):
+async def test_a_second_person_joins_and_appears_in_the_trip(client, session):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
     trip_id = trip["trip"]["id"]
@@ -127,7 +130,7 @@ async def test_a_second_person_joins_and_appears_in_the_trip(client):
     joiner = await _sign_in(client, display_name="Mei", handle="mei")
     joined = await client.post(
         f"/invites/{code}/join",
-        json={"preference_tags": ["quiet cafes", "architecture"]},
+        json={"preference_tags": ["coffee", "hidden gems"]},
         headers=_auth(joiner["token"]),
     )
 
@@ -137,6 +140,14 @@ async def test_a_second_person_joins_and_appears_in_the_trip(client):
     trips = await client.get("/accounts/me/trips", headers=_auth(joiner["token"]))
     assert [row["id"] for row in trips.json()] == [trip_id]
     assert trips.json()[0]["member_count"] == 2
+
+    from syncinerary.agents.gather.social import traveler_interests
+    from syncinerary.store.repositories import TravelerRepository
+
+    members = await TravelerRepository(session).list_for_trip(UUID(trip_id))
+    member = next(member for member in members if str(member.id) == joined.json()["traveler_id"])
+    assert member.profile["interests"] == ["coffee", "hidden gems"]
+    assert traveler_interests(members) == ["coffee", "hidden gems"]
 
 
 async def test_reopening_an_invite_link_does_not_join_twice(client):
@@ -242,6 +253,43 @@ async def test_a_pasted_link_in_chat_becomes_an_attachment(client, unreadable_li
     assert posted.json()["kind"] == "link"
     assert posted.json()["link_attachment_id"] is not None
 
+    saved = await client.get(f"/trips/{trip_id}/preparation", headers=_auth(owner["token"]))
+    assert saved.status_code == 200
+    assert saved.json()["links"][0]["id"] == posted.json()["link_attachment_id"]
+    repeated = await client.post(
+        f"/trips/{trip_id}/messages",
+        json={"body": "https://www.tiktok.com/@creator/video/7459997680383560968"},
+        headers=_auth(owner["token"]),
+    )
+    assert repeated.json()["link_attachment_id"] == posted.json()["link_attachment_id"]
+    saved = await client.get(f"/trips/{trip_id}/preparation", headers=_auth(owner["token"]))
+    assert len(saved.json()["links"]) == 1
+
+
+async def test_setup_chat_saves_links_without_running_discovery(client, session, monkeypatch):
+    from uuid import UUID
+
+    from syncinerary.api.routers import group
+    from syncinerary.domain.models import TripStatus
+    from syncinerary.store.repositories import TripRepository
+
+    async def unexpected_discovery(*args, **kwargs):
+        raise AssertionError("Sharing a link before discovery must only save it")
+
+    monkeypatch.setattr(group, "resolve_link_attachment", unexpected_discovery)
+    owner = await _sign_in(client, display_name="Gino", handle="setup-chat")
+    trip = await _owner_trip(client, owner)
+    trip_id = trip["trip"]["id"]
+    await TripRepository(session).set_status(UUID(trip_id), TripStatus.SETUP)
+    posted = await client.post(
+        f"/trips/{trip_id}/messages",
+        json={"body": "https://www.tiktok.com/@creator/video/7459997680383560968"},
+        headers=_auth(owner["token"]),
+    )
+    assert posted.status_code == 201, posted.text
+    saved = await client.get(f"/trips/{trip_id}/preparation", headers=_auth(owner["token"]))
+    assert saved.json()["links"][0]["id"] == posted.json()["link_attachment_id"]
+
 
 async def test_plain_talk_creates_no_attachment(client, unreadable_links):
     owner = await _sign_in(client, display_name="Gino", handle="gino")
@@ -291,7 +339,10 @@ async def test_an_instruction_shaped_message_is_stored_as_text_only(client):
 
     assert posted.json()["kind"] == "text"
     assert posted.json()["link_attachment_id"] is None
-    candidates = await client.get(f"/trips/{trip['trip']['id']}/candidates")
+    candidates = await client.get(
+        f"/trips/{trip['trip']['id']}/candidates",
+        headers=_auth(owner["token"]),
+    )
     assert not [
         card
         for card in candidates.json()
@@ -391,13 +442,16 @@ async def test_plain_talk_carries_no_link_card(client):
     assert posted.json()["link"] is None
 
 
-async def test_an_unreadable_link_offers_a_repair_in_the_thread(client, unreadable_links):
+async def test_an_unreadable_link_offers_a_repair_in_the_thread(client, session, unreadable_links):
     """M7a-1 produces needs_place_name. This is the only place the person who
     pasted it can answer, so without this the reason is a label with nothing
     behind it."""
     owner = await _sign_in(client, display_name="Gino", handle="gino")
     trip = await _owner_trip(client, owner)
     trip_id = trip["trip"]["id"]
+    from syncinerary.domain.models import TripStatus
+    from syncinerary.store.repositories import TripRepository
+    await TripRepository(session).set_status(UUID(trip_id), TripStatus.SWIPING)
 
     posted = await client.post(
         f"/trips/{trip_id}/messages",

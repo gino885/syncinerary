@@ -1,0 +1,734 @@
+[
+  {
+    "city": "Sapporo",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:37:39.184467+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 7,
+        "other_social": 4,
+        "google_only": 5,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.3125,
+        "majority_met": false,
+        "target_shortfall": 3
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 7,
+        "other_social": 4,
+        "google_only": 5,
+        "other": 0,
+        "reel_share": 0.4375,
+        "google_only_share": 0.3125,
+        "majority_met": false,
+        "target_shortfall": 3
+      },
+      "by_city": {
+        "Sapporo": {
+          "total": 16,
+          "reels": 7,
+          "other_social": 4,
+          "google_only": 5,
+          "other": 0,
+          "reel_share": 0.4375,
+          "google_only_share": 0.3125,
+          "majority_met": false,
+          "target_shortfall": 3
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 10,
+          "reels": 2,
+          "other_social": 4,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.2,
+          "google_only_share": 0.4,
+          "majority_met": false,
+          "target_shortfall": 4
+        },
+        "food": {
+          "total": 6,
+          "reels": 5,
+          "other_social": 0,
+          "google_only": 1,
+          "other": 0,
+          "reel_share": 0.8333333333333334,
+          "google_only_share": 0.16666666666666666,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      }
+    },
+    "elapsed_seconds": 50.8,
+    "harness_steps": 42,
+    "model_cost_usd": "0.121715",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Donguri Odori",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DUQbQ7OkwGn/"
+        ]
+      },
+      {
+        "name": "Mashike Restaurant Minaminchi Sapporo",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DTempMijyS3/"
+        ]
+      },
+      {
+        "name": "Soup Curry SAMA Sapporo restaurant",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRYG113go3N/"
+        ]
+      },
+      {
+        "name": "BUENO UENO ブエノウエノ",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DKy_2zmTGu5/"
+        ]
+      },
+      {
+        "name": "Hill of the Buddha",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSXZ6KYEzub/",
+          "https://www.instagram.com/reel/DXEIjI4zMSO/",
+          "https://www.instagram.com/reel/DUfa2i0Ey96/"
+        ]
+      },
+      {
+        "name": "Ganso Ramen Yokocho Sapporo",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DWGzV10EojF/",
+          "https://www.instagram.com/reel/DUhVA2vAQbN/"
+        ]
+      },
+      {
+        "name": "Historical Village of Hokkaido",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@twinspeakeatgo/video/7419610095610350855"
+        ]
+      },
+      {
+        "name": "Sapporo Fushimi Inari Shrine",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@neliatorres400/video/7498878145320291615"
+        ]
+      },
+      {
+        "name": "Shiroi Koibito Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@twinspeakeatgo/video/7419610095610350855"
+        ]
+      },
+      {
+        "name": "Tanukikoji Shopping Street",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@twinspeakeatgo/video/7419610095610350855"
+        ]
+      },
+      {
+        "name": "Yoshitsune",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DPOVQaKiZsU/"
+        ]
+      },
+      {
+        "name": "Maruyama Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Funsui",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sapporo City Maruyama Zoo",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sapporo TV Tower",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Elm Garden",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "41PIECES SAPPORO",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Courtyard by Marriott Sapporo",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "DANSETSU SAPPORO",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  },
+  {
+    "city": "Atami",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:38:12.168823+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 2,
+        "other_social": 2,
+        "google_only": 12,
+        "other": 0,
+        "reel_share": 0.125,
+        "google_only_share": 0.75,
+        "majority_met": false,
+        "target_shortfall": 8
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 2,
+        "other_social": 2,
+        "google_only": 12,
+        "other": 0,
+        "reel_share": 0.125,
+        "google_only_share": 0.75,
+        "majority_met": false,
+        "target_shortfall": 8
+      },
+      "by_city": {
+        "Atami": {
+          "total": 16,
+          "reels": 2,
+          "other_social": 2,
+          "google_only": 12,
+          "other": 0,
+          "reel_share": 0.125,
+          "google_only_share": 0.75,
+          "majority_met": false,
+          "target_shortfall": 8
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 10,
+          "reels": 2,
+          "other_social": 0,
+          "google_only": 8,
+          "other": 0,
+          "reel_share": 0.2,
+          "google_only_share": 0.8,
+          "majority_met": false,
+          "target_shortfall": 4
+        },
+        "food": {
+          "total": 6,
+          "reels": 0,
+          "other_social": 2,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.0,
+          "google_only_share": 0.6666666666666666,
+          "majority_met": false,
+          "target_shortfall": 4
+        }
+      }
+    },
+    "elapsed_seconds": 32.98,
+    "harness_steps": 39,
+    "model_cost_usd": "0.111395",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Isomaru Atami Heiwadori shop",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "三茶カリーZAZA ATAMI",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Atami Plum Garden",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSUmOzGEv1l/"
+        ]
+      },
+      {
+        "name": "Club ZERO〜華火〜(熱海キャバクラ/クラブ/ラウンジ/スナック)",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSIW7PBkqGV/"
+        ]
+      },
+      {
+        "name": "Tempura Tsurukichi（Tempura Restaurant）",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Osakana Dai Shokudo",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Water Park",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Itogawa Promenade",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Trick Art Museum",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Hashiri-yu",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Nagisa Deck",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Rainbow Deck",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Hanare Seafood Diner",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Okusu",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Hihokan - Adult Museum Atami",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Midorimaru Shokudo",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Korakuen Hotel",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Seaside Spa & Resort",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Spring Terrace Hotel",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  },
+  {
+    "city": "Tokyo",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:38:58.975175+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 3,
+        "other_social": 9,
+        "google_only": 4,
+        "other": 0,
+        "reel_share": 0.1875,
+        "google_only_share": 0.25,
+        "majority_met": false,
+        "target_shortfall": 7
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 3,
+        "other_social": 9,
+        "google_only": 4,
+        "other": 0,
+        "reel_share": 0.1875,
+        "google_only_share": 0.25,
+        "majority_met": false,
+        "target_shortfall": 7
+      },
+      "by_city": {
+        "Tokyo": {
+          "total": 16,
+          "reels": 3,
+          "other_social": 9,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.1875,
+          "google_only_share": 0.25,
+          "majority_met": false,
+          "target_shortfall": 7
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 6,
+          "reels": 0,
+          "other_social": 2,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.0,
+          "google_only_share": 0.6666666666666666,
+          "majority_met": false,
+          "target_shortfall": 4
+        },
+        "food": {
+          "total": 10,
+          "reels": 3,
+          "other_social": 7,
+          "google_only": 0,
+          "other": 0,
+          "reel_share": 0.3,
+          "google_only_share": 0.0,
+          "majority_met": false,
+          "target_shortfall": 3
+        }
+      }
+    },
+    "elapsed_seconds": 46.81,
+    "harness_steps": 45,
+    "model_cost_usd": "0.134410",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Kopikalyan",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DRJxvmNE5zJ/"
+        ]
+      },
+      {
+        "name": "POEM Mano A Mano Coffee",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRovEXlEeiz/"
+        ]
+      },
+      {
+        "name": "Ikinari Steak Yaechika",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRovEXlEeiz/"
+        ]
+      },
+      {
+        "name": "A Happy Pancake Omotesando",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5d824cec00000000020183a8"
+        ]
+      },
+      {
+        "name": "Hase-dera",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5ad9be5a26c624525e1599dc"
+        ]
+      },
+      {
+        "name": "Tokyo Joypolis",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Afternoon Tea • LOVE & TABLE Omotesando",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5d824cec00000000020183a8"
+        ]
+      },
+      {
+        "name": "bills Omotesando",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5ad9be5a26c624525e1599dc"
+        ]
+      },
+      {
+        "name": "CHATTERBOX CAFÉ Marunouchi",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5d824cec00000000020183a8"
+        ]
+      },
+      {
+        "name": "SHAKE SHACK Ebisu",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5d824cec00000000020183a8"
+        ]
+      },
+      {
+        "name": "Hakata Tempura Takao",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5c105095000000000802e5af"
+        ]
+      },
+      {
+        "name": "MOSS CROSS TOKYO",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Omoide Yokocho Memory Lane",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Meiji Jingu",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Yoyogi Park",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Yoyogi Park Clock Tower",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  }
+]

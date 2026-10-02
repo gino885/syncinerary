@@ -14,7 +14,13 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if let pendingInvite, !accounts.isSignedIn {
+            if !hasRestored {
+                ProgressView("Opening your trips…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.canvas)
+            } else if accounts.needsSessionRetry {
+                SessionRecoveryView()
+            } else if let pendingInvite, !accounts.isSignedIn {
                 NavigationStack {
                     InvitePreviewView(code: pendingInvite) {
                         // Identity last: the decision is made, now ask who.
@@ -31,7 +37,6 @@ struct RootView: View {
         .tint(AppTheme.ink)
         .task {
             guard !hasRestored else { return }
-            hasRestored = true
             // Development only, matching SYNC_RESUME_TRIP_ID: opens the invite
             // preview without the system's "Open in?" confirmation, which
             // cannot be dismissed from a script.
@@ -40,6 +45,7 @@ struct RootView: View {
                 pendingInvite = seeded.uppercased()
             }
             await accounts.restore()
+            hasRestored = true
         }
         .onOpenURL { url in
             guard let code = InviteLink.code(from: url) else { return }

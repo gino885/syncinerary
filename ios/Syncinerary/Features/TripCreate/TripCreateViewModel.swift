@@ -9,6 +9,8 @@ final class TripCreateViewModel {
     var country = ""
     var cityQuery = ""
     var selectedCities: [CitySuggestion] = []
+    var cityDays: [Int] = []
+    var mainCityID = ""
     var citySuggestions: [CitySuggestion] = []
     var citySearchMessage: String?
     var creatorName = ""
@@ -41,6 +43,42 @@ final class TripCreateViewModel {
 
     var cityPlaceIDs: [String] { selectedCities.map(\.placeID) }
 
+    var tripDays: Int {
+        let calendar = Calendar.current
+        return max(1, (calendar.dateComponents([.day], from: calendar.startOfDay(for: startDate),
+                                               to: calendar.startOfDay(for: endDate)).day ?? 0) + 1)
+    }
+
+    var priorityCityIndex: Int? { selectedCities.firstIndex { $0.placeID == mainCityID } }
+
+    var effectiveCityDays: [Int] {
+        if cityDays.count == selectedCities.count { return cityDays }
+        guard !selectedCities.isEmpty else { return [] }
+        let count = selectedCities.count
+        var days = Array(repeating: max(1, tripDays / count), count: count)
+        var order = Array(0..<count)
+        if let priorityCityIndex {
+            order.removeAll { $0 == priorityCityIndex }
+            order.insert(priorityCityIndex, at: 0)
+        }
+        for index in order.prefix(max(0, tripDays - days.reduce(0, +))) { days[index] += 1 }
+        return days
+    }
+
+    var allocatedDays: Int { effectiveCityDays.reduce(0, +) }
+
+    var cityDaysAreValid: Bool {
+        !selectedCities.isEmpty && allocatedDays == tripDays
+            && effectiveCityDays.allSatisfy { $0 > 0 }
+    }
+
+    func setCityDays(_ days: Int, at index: Int) {
+        var allocation = effectiveCityDays
+        guard allocation.indices.contains(index) else { return }
+        allocation[index] = days
+        cityDays = allocation
+    }
+
     var preferenceSummary: String {
         PreferenceSelection.tripSummary(
             interests: interestSelection,
@@ -55,6 +93,7 @@ final class TripCreateViewModel {
     var canSubmit: Bool {
         !trimmedCountry.isEmpty
             && !cityNames.isEmpty
+            && cityDaysAreValid
             && !creatorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && endDate >= startDate
             && minuteOfDay(dayEnd) > minuteOfDay(dayStart)
@@ -75,6 +114,8 @@ final class TripCreateViewModel {
 
     func countryChanged() {
         selectedCities = []
+        cityDays = []
+        mainCityID = ""
         citySuggestions = []
         citySearchMessage = nil
     }
@@ -109,6 +150,7 @@ final class TripCreateViewModel {
             return
         }
         selectedCities.append(suggestion)
+        cityDays = []
         cityQuery = ""
         citySuggestions = []
         citySearchMessage = nil
@@ -116,6 +158,8 @@ final class TripCreateViewModel {
 
     func removeCity(_ suggestion: CitySuggestion) {
         selectedCities.removeAll { $0.placeID == suggestion.placeID }
+        cityDays = []
+        if mainCityID == suggestion.placeID { mainCityID = "" }
     }
 
     func createTrip() async -> TripSession? {
@@ -135,12 +179,13 @@ final class TripCreateViewModel {
             creatorDietaryExcludes: dietarySelection.values(
                 in: PreferenceCatalog.dietaryExcludes
             ),
-            outputLocale: AppLanguage.currentOutputLocaleIdentifier
+            outputLocale: AppLanguage.currentOutputLocaleIdentifier,
+            cityDays: effectiveCityDays,
+            priorityCityIndex: priorityCityIndex
         )
 
         do {
             let response = try await apiClient.createTrip(request)
-            _ = try await apiClient.gather(tripID: response.trip.id)
             return TripSession(
                 trip: response.trip,
                 travelerID: response.travelerID,

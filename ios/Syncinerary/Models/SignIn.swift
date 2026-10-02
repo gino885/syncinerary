@@ -1,13 +1,8 @@
 import Foundation
 
 struct SignInRequest: Codable, Sendable {
-    let displayName: String
-    let handle: String
-
-    enum CodingKeys: String, CodingKey {
-        case displayName = "display_name"
-        case handle
-    }
+    let email: String
+    let password: String
 }
 
 struct SignInResponse: Codable, Sendable {

@@ -7,11 +7,14 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from syncinerary.agents.gather.admission import admit_place, supported_candidate_type
 from syncinerary.agents.gather.attachments import ExtractedPlaceMention
 from syncinerary.agents.gather.cities import search_bias, trip_cities
+from syncinerary.agents.gather.dedup import merge_candidate_evidence
 from syncinerary.agents.gather.dietary import dietary_tags_from_place_types
+from syncinerary.agents.gather.preferences import normalized_interests, traveler_interests
 from syncinerary.agents.gather.social_read import read_cover_text_for_url
-from syncinerary.agents.gather.traits import fatigue_cost, is_visitable_place, is_weather_dependent
+from syncinerary.agents.gather.traits import fatigue_cost, is_weather_dependent
 from syncinerary.config import settings
 from syncinerary.config.gather import (
     PROFILE_DRIVEN_CAP_PER_TRAVELER,
@@ -185,12 +188,17 @@ async def discover_profile_candidates(
     *,
     client: MessagesClient | None = None,
 ) -> list[CandidatePlace]:
-    """Batch profiles once, cap each traveler, then verify every name."""
+    """Use the group's top interests, cap each traveler, and verify every name."""
+    group_interests = traveler_interests(travelers)
+    interests_by_traveler = {
+        traveler.id: [interest for interest in group_interests
+                      if interest in normalized_interests(traveler)]
+        for traveler in travelers
+    }
     profiled = [
         traveler
         for traveler in travelers
-        if isinstance(traveler.profile.get("interests"), list)
-        and any(str(item).strip() for item in traveler.profile["interests"])
+        if interests_by_traveler[traveler.id]
     ]
     if not profiled:
         return []
@@ -213,11 +221,7 @@ async def discover_profile_candidates(
                         travelers=[
                             TravelerProfileInput(
                                 traveler_id=str(traveler.id),
-                                interests=[
-                                    str(item).strip()
-                                    for item in traveler.profile["interests"]
-                                    if str(item).strip()
-                                ],
+                                interests=interests_by_traveler[traveler.id],
                             )
                             for traveler in profiled
                         ]
@@ -273,6 +277,9 @@ async def discover_profile_candidates(
             if found is None:
                 continue
             match, city_name = found
+            admission = admit_place(match, destination=city_name or trip.destination)
+            if not admission.accepted:
+                continue
             source = Source(
                 type="personal",
                 subtype="profile_driven",
@@ -312,6 +319,7 @@ async def discover_profile_candidates(
                 enrichment={
                     "google_place_id": match.place_id,
                     "city": city_name,
+                    "admission": admission.model_dump(mode="json"),
                     "discovery_provider": "profile_driven_google_verification",
                     "source_description": match.editorial_summary,
                 },
@@ -371,14 +379,10 @@ async def extract_place_mentions(
 
 
 def _candidate_type(place: PlaceMatch) -> CandidateType:
-    types = set(place.types)
-    if place.primary_type:
-        types.add(place.primary_type)
-    if types & FOOD_PLACE_TYPES:
-        return CandidateType.FOOD
-    if types & LODGING_PLACE_TYPES:
-        return CandidateType.LODGING
-    return CandidateType.ATTRACTION
+    kind = supported_candidate_type(place)
+    if kind is None:
+        raise ValueError("Unsupported place type cannot become a candidate")
+    return kind
 
 
 async def resolve_named_attachment(
@@ -416,9 +420,9 @@ async def _resolve_first_resolvable(
     """
     for place_name in place_names:
         found = await _find_place_for_trip(place_name, trip)
-        if found is None or not is_visitable_place(
-            found[0].primary_type, list(found[0].types)
-        ):
+        if found is None or not admit_place(
+            found[0], destination=found[1], social_evidence=True
+        ).accepted:
             continue
         return await _create_candidate_for(
             found, place_name=place_name, attachment=attachment, trip=trip, session=session
@@ -457,14 +461,14 @@ async def _create_candidate_for(
     if match.primary_type:
         place_types.append(match.primary_type)
     candidate_type = _candidate_type(match)
-    candidate = await CandidatePlaceRepository(session).add(
-        CandidatePlace(
+    candidate = CandidatePlace(
             trip_id=trip.id,
             type=candidate_type,
             name_canonical=match.display_name,
             lat=match.lat,
             lng=match.lng,
             address=match.formatted_address,
+            hours_by_weekday=match.hours_by_weekday,
             category=match.primary_type,
             dietary_tags=dietary_tags_from_place_types(place_types),
             weather_dependent=is_weather_dependent(match.primary_type, match.types),
@@ -479,11 +483,14 @@ async def _create_candidate_for(
                     subtype="user_paste",
                     by=attachment.traveler_id,
                     via=f"{attachment.platform.value}_link",
+                    url=attachment.canonical_url,
                 )
             ],
             enrichment={
                 "google_place_id": match.place_id,
                 "city": city_name,
+                "admission": admit_place(match, destination=city_name,
+                                         social_evidence=True).model_dump(mode="json"),
                 "attachment_id": str(attachment.id),
                 "input_type": attachment.input_type.value,
                 "platform": attachment.platform.value,
@@ -494,7 +501,13 @@ async def _create_candidate_for(
                 "source_description": attachment.metadata.get("short_description"),
             },
         )
-    )
+    repo = CandidatePlaceRepository(session)
+    existing = next((c for c in await repo.list_for_trip(trip.id)
+                     if c.enrichment.get("google_place_id") == match.place_id), None)
+    if existing:
+        candidate = await repo.update_evidence(merge_candidate_evidence(existing, candidate))
+    else:
+        candidate = await repo.add(candidate)
     metadata = dict(attachment.metadata)
     metadata["candidate_id"] = str(candidate.id)
     updated = await SourceAttachmentRepository(session).mark_ready(

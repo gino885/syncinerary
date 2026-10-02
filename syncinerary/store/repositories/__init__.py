@@ -9,6 +9,7 @@ from syncinerary.store.repositories.candidate import (
     CandidatePlaceRepository,
     VoteRepository,
 )
+from syncinerary.store.repositories.credentials import AnthropicCredentialRepository
 from syncinerary.store.repositories.group import (
     AccountRepository,
     AccountSessionRepository,
@@ -37,12 +38,15 @@ __all__ = [
     "AccountRepository",
     "AccountSessionRepository",
     "AgentRunRepository",
+    "AnthropicCredentialRepository",
     "BaseRepository",
     "CandidateBadgeRepository",
     "CandidatePlaceRepository",
+    "ChecklistItemRepository",
     "ConstraintRepository",
     "EvalResultRepository",
     "EvalScenarioRepository",
+    "GatherRunRepository",
     "ItineraryNodeRepository",
     "ItineraryVersionRepository",
     "ReplanEventRepository",
@@ -55,3 +59,6 @@ __all__ = [
     "VoteRepository",
     "WishlistNotPlacedRepository",
 ]
+
+from syncinerary.store.repositories.checklist import ChecklistItemRepository
+from syncinerary.store.repositories.gather import GatherRunRepository

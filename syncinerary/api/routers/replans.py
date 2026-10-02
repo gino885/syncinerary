@@ -19,7 +19,8 @@ from syncinerary.agents.rescue import (
     create_replan_proposal,
     decide_replan,
 )
-from syncinerary.api.deps import Session
+from syncinerary.ai_credentials import trip_creator_credential_scope
+from syncinerary.api.deps import OptionalAccount, Session
 from syncinerary.api.replan_ws import publish_replan_proposal, stream_replan_proposals
 from syncinerary.api.schemas import (
     DisruptionRequest,
@@ -28,9 +29,14 @@ from syncinerary.api.schemas import (
     ReplanProposalOut,
     RevisionRequest,
 )
+from syncinerary.api.trip_membership import (
+    require_account_member_for_owned_trip,
+    require_member,
+    require_websocket_member,
+)
 from syncinerary.diff.itinerary_diff import itinerary_diff
 from syncinerary.domain.models import ReplanEvent, ReplanTrigger, Trip
-from syncinerary.harness import tracked_run
+from syncinerary.harness import CreatorCredentialUnavailable, tracked_run
 from syncinerary.store.db import session_scope
 from syncinerary.store.redis import get_redis
 from syncinerary.store.repositories import (
@@ -132,10 +138,11 @@ async def _proposal_out(session: Session, event: ReplanEvent) -> ReplanProposalO
 async def get_itinerary_diff(
     trip_id: UUID,
     session: Session,
+    account: OptionalAccount,
     from_version_id: UUID,
     to_version_id: UUID,
 ) -> ItineraryDiffOut:
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     return await _diff_out(
         session,
         trip_id=trip_id,
@@ -149,8 +156,9 @@ async def report_disruption(
     trip_id: UUID,
     payload: DisruptionRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ReplanProposalOut:
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     try:
         async with tracked_run(trip_id=trip_id, kind="replan"):
             proposal = await create_replan_proposal(
@@ -177,6 +185,7 @@ async def request_revision(
     trip_id: UUID,
     payload: RevisionRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ReplanProposalOut:
     """Redo one day the way the traveler asked, as a proposal they must approve.
 
@@ -186,24 +195,28 @@ async def request_revision(
     same approval gate as a disruption. Nothing here writes a stop or a time,
     and nothing auto-commits (CLAUDE.md sections 2 and 12.2).
     """
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     try:
-        hints = await parse_revision_instruction(payload.instruction)
+        async with trip_creator_credential_scope(session, trip_id):
+            hints = await parse_revision_instruction(payload.instruction)
+            async with tracked_run(trip_id=trip_id, kind="replan"):
+                proposal = await create_replan_proposal(
+                    session,
+                    trip_id=trip_id,
+                    trigger_type=ReplanTrigger.USER_REQUEST,
+                    trigger_payload={
+                        "scope": payload.scope.model_dump(mode="json"),
+                        "day": payload.scope.day,
+                        **hints,
+                    },
+                )
+    except CreatorCredentialUnavailable as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            str(exc),
+        ) from exc
     except RevisionParsingUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-
-    try:
-        async with tracked_run(trip_id=trip_id, kind="replan"):
-            proposal = await create_replan_proposal(
-                session,
-                trip_id=trip_id,
-                trigger_type=ReplanTrigger.USER_REQUEST,
-                trigger_payload={
-                    "scope": payload.scope.model_dump(mode="json"),
-                    "day": payload.scope.day,
-                    **hints,
-                },
-            )
     except ReplanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except ReplanConflict as exc:
@@ -222,10 +235,10 @@ async def get_pending_replans(
     trip_id: UUID,
     traveler_id: UUID,
     session: Session,
+    account: OptionalAccount,
 ) -> list[ReplanProposalOut]:
     """Recover proposals when a device missed the transient WebSocket push."""
-    await _load_trip(session, trip_id)
-    await _load_traveler(session, trip_id, traveler_id)
+    await require_member(session, trip_id, traveler_id, account)
     events = await ReplanEventRepository(session).list_pending(trip_id)
     return [await _proposal_out(session, event) for event in events]
 
@@ -235,8 +248,9 @@ async def get_replan(
     trip_id: UUID,
     event_id: UUID,
     session: Session,
+    account: OptionalAccount,
 ) -> ReplanProposalOut:
-    await _load_trip(session, trip_id)
+    await require_account_member_for_owned_trip(session, trip_id, account)
     event = await ReplanEventRepository(session).get(event_id)
     if event is None or event.trip_id != trip_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Replan event not found")
@@ -250,9 +264,9 @@ async def _decide(
     event_id: UUID,
     traveler_id: UUID,
     approve: bool,
+    account,
 ) -> ReplanProposalOut:
-    await _load_trip(session, trip_id)
-    await _load_traveler(session, trip_id, traveler_id)
+    await require_member(session, trip_id, traveler_id, account)
     try:
         event = await decide_replan(
             session,
@@ -274,6 +288,7 @@ async def approve_replan(
     event_id: UUID,
     payload: ReplanDecisionRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ReplanProposalOut:
     return await _decide(
         session,
@@ -281,6 +296,7 @@ async def approve_replan(
         event_id=event_id,
         traveler_id=payload.traveler_id,
         approve=True,
+        account=account,
     )
 
 
@@ -290,6 +306,7 @@ async def reject_replan(
     event_id: UUID,
     payload: ReplanDecisionRequest,
     session: Session,
+    account: OptionalAccount,
 ) -> ReplanProposalOut:
     return await _decide(
         session,
@@ -297,6 +314,7 @@ async def reject_replan(
         event_id=event_id,
         traveler_id=payload.traveler_id,
         approve=False,
+        account=account,
     )
 
 
@@ -307,10 +325,15 @@ async def replan_websocket(
     traveler_id: UUID,
 ) -> None:
     async with session_scope() as session:
-        trip = await TripRepository(session).get(trip_id)
-        traveler = await TravelerRepository(session).get(traveler_id)
-        if trip is None or traveler is None or traveler.trip_id != trip_id:
-            await websocket.close(code=1008, reason="Trip membership required")
+        try:
+            await require_websocket_member(
+                session,
+                trip_id=trip_id,
+                traveler_id=traveler_id,
+                authorization=websocket.headers.get("authorization"),
+            )
+        except HTTPException:
+            await websocket.close(code=1008, reason="Authenticated trip membership required")
             return
     try:
         await stream_replan_proposals(websocket, get_redis(), trip_id)

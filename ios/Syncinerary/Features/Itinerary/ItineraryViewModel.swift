@@ -9,6 +9,7 @@ final class ItineraryViewModel {
     var itinerary: ItineraryResponse?
     var pendingProposal: ReplanProposalResponse?
     var isShowingReplan = false
+    var isEditing = false
     var isLoading = false
     var isDeciding = false
     var liveUpdatesUnavailable = false
@@ -49,7 +50,7 @@ final class ItineraryViewModel {
                 liveUpdatesUnavailable = false
                 if proposal.status == .pending {
                     pendingProposal = proposal
-                    isShowingReplan = true
+                    isShowingReplan = !isEditing
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -71,6 +72,11 @@ final class ItineraryViewModel {
         await decide(proposal, approve: false)
     }
 
+    func finishEditing() {
+        isEditing = false
+        isShowingReplan = pendingProposal != nil
+    }
+
     func showPendingReplan() {
         isShowingReplan = pendingProposal != nil
     }
@@ -83,7 +89,7 @@ final class ItineraryViewModel {
                 travelerID: session.travelerID
             ).first {
                 pendingProposal = proposal
-                isShowingReplan = true
+                isShowingReplan = !isEditing
             }
         } catch {
             liveUpdatesUnavailable = true

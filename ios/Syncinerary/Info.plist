@@ -10,11 +10,14 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>syncinerary</string>
+				<string>$(SYNC_GOOGLE_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>SyncAppleSignInEnabled</key>
+	<string>$(SYNC_APPLE_SIGN_IN_ENABLED)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Syncinerary</string>
 	<key>CFBundleExecutable</key>
@@ -38,6 +41,14 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>SyncAPIBaseURL</key>
+	<string>$(SYNC_API_BASE_URL)</string>
+	<key>SyncPrivacyPolicyURL</key>
+	<string>$(SYNC_PRIVACY_POLICY_URL)</string>
+	<key>SyncSupportURL</key>
+	<string>$(SYNC_SUPPORT_URL)</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to the trip planning server on your local network.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>InstrumentSerif-Regular.ttf</string>

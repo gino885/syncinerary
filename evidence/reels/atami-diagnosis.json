@@ -1,0 +1,109 @@
+{
+  "diagnosed_at": "2026-09-18",
+  "original_run": "2026-09-16",
+  "source_log": "atami-diagnostic-trace.log",
+  "note": "Returned posts can repeat across searches. Merged mentions are not Google-verified places. No new live discovery run performed.",
+  "searches": [
+    {
+      "iteration": 1,
+      "platform": "instagram",
+      "intent": "places",
+      "query": "'Atami sightseeing'",
+      "offset": 0,
+      "yield": "productive",
+      "returned_post_appearances": 20,
+      "mentions": 3,
+      "merged_mentions": 3,
+      "new_names": 3
+    },
+    {
+      "iteration": 2,
+      "platform": "rednote",
+      "intent": "food",
+      "query": "'热海 美食推荐 餐厅 咖啡店 探店'",
+      "offset": 0,
+      "yield": "no_mentions",
+      "returned_post_appearances": 19,
+      "mentions": 0,
+      "merged_mentions": 0,
+      "new_names": 0
+    },
+    {
+      "iteration": 3,
+      "platform": "tiktok",
+      "intent": "hidden_gems",
+      "query": "'Atami hidden gems local spots underrated places'",
+      "offset": 0,
+      "yield": "productive",
+      "returned_post_appearances": 3,
+      "mentions": 8,
+      "merged_mentions": 8,
+      "new_names": 8
+    },
+    {
+      "iteration": 4,
+      "platform": "instagram",
+      "intent": "food",
+      "query": "'Atami restaurants'",
+      "offset": 0,
+      "yield": "productive",
+      "returned_post_appearances": 8,
+      "mentions": 1,
+      "merged_mentions": 1,
+      "new_names": 1
+    },
+    {
+      "iteration": 5,
+      "platform": "instagram",
+      "intent": "hidden_gems",
+      "query": "'Atami hidden gems'",
+      "offset": 0,
+      "yield": "productive",
+      "returned_post_appearances": 20,
+      "mentions": 3,
+      "merged_mentions": 3,
+      "new_names": 2
+    },
+    {
+      "iteration": 6,
+      "platform": "instagram",
+      "intent": "food",
+      "query": "'Atami food'",
+      "offset": 0,
+      "yield": "productive",
+      "returned_post_appearances": 20,
+      "mentions": 5,
+      "merged_mentions": 5,
+      "new_names": 3
+    },
+    {
+      "iteration": 7,
+      "platform": "instagram",
+      "intent": "places",
+      "query": "'Atami sightseeing'",
+      "offset": 1,
+      "yield": "productive",
+      "returned_post_appearances": 7,
+      "mentions": 2,
+      "merged_mentions": 2,
+      "new_names": 2
+    },
+    {
+      "iteration": 8,
+      "platform": "instagram",
+      "intent": "hidden_gems",
+      "query": "'Atami hidden gems'",
+      "offset": 1,
+      "yield": "duplicate_heavy",
+      "returned_post_appearances": 20,
+      "mentions": 1,
+      "merged_mentions": 1,
+      "new_names": 0
+    }
+  ],
+  "verification_attempts": 19,
+  "rejected": 13,
+  "accepted_social_cards": 6,
+  "accepted_reel_cards": 4,
+  "final_non_lodging_cards": 16
+}

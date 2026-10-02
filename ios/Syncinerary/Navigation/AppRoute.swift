@@ -25,7 +25,7 @@ enum TripStage: Hashable {
     static func of(_ status: String) -> TripStage {
         switch status {
         // Server trip status (CLAUDE.md section 7).
-        case "setup": .discuss
+        case "draft", "setup": .discuss
         case "swiping": .swipe
         case "shortlisting": .shortlist
         case "scheduling": .lodging
@@ -48,6 +48,7 @@ enum AppRoute: Hashable {
     case joinTrip(String?)
     case invite(TripListRow)
     case chat(TripListRow)
+    case preparation(TripSession)
     case gathering(TripSession)
     case savedPosts(TripSession)
     case swipe(TripSession)
@@ -55,19 +56,15 @@ enum AppRoute: Hashable {
     case lodging(TripSession)
     case itinerary(TripSession)
 
-    /// The screen this trip should open on now.
-    ///
-    /// `row` is supplied when the caller came from the trip board, which is
-    /// the only entry point that can offer the thread: `.chat` carries a row
-    /// rather than a session. Without one, a trip still in discussion opens
-    /// at gathering instead, which is the next thing it needs anyway.
+    /// The server lifecycle controls where a saved trip reopens.
+    /// Draft rooms remain available before a leader starts discovery.
     static func primary(
         for session: TripSession,
         row: TripListRow? = nil,
         forced: String? = nil
     ) -> AppRoute {
         switch TripStage.of(forced ?? session.trip.status) {
-        case .discuss: row.map(AppRoute.chat) ?? .gathering(session)
+        case .discuss: .chat(row ?? TripListRow(session: session))
         case .gathering: .gathering(session)
         case .savedPosts: .savedPosts(session)
         case .swipe: .swipe(session)

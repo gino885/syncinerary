@@ -67,7 +67,7 @@ async def test_an_expired_session_authenticates_nobody(session):
 
     await session.execute(
         sa.update(tables.AccountSession)
-        .where(tables.AccountSession.token == issued.token)
+        .where(tables.AccountSession.token == sessions.digest(issued.token))
         .values(expires_at=_now() - timedelta(seconds=1))
     )
 

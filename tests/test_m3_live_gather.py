@@ -201,8 +201,8 @@ async def test_live_discovery_uses_google_results_without_preset_candidates(monk
                     )
                 ]
             )
-        cluster_lat = 43.061 if query_index <= 4 or is_lodging else 43.493
-        cluster_lng = 141.354 if query_index <= 4 or is_lodging else 142.614
+        cluster_lat = 43.061 if query_index <= 4 or is_lodging else 43.16
+        cluster_lng = 141.354 if query_index <= 4 or is_lodging else 141.454
         return PlaceSearchOutput(
             matches=[
                 PlaceMatch(

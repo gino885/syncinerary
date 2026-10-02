@@ -23,3 +23,12 @@ struct TripListRow: Codable, Sendable, Identifiable, Hashable {
         case memberCount = "member_count"
     }
 }
+
+extension TripListRow {
+    init(session: TripSession) {
+        self.init(id: session.trip.id, destination: session.trip.destination,
+            startDate: session.trip.startDate, endDate: session.trip.endDate,
+            days: session.trip.days, status: session.trip.status,
+            travelerID: session.travelerID, memberCount: 1)
+    }
+}

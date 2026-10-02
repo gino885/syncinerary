@@ -17,7 +17,7 @@ struct VotingCompleteView: View {
                 .foregroundStyle(AppTheme.ink)
 
             StampView(mark: .confirmed, scale: 1.2)
-                .scaleEffect(isStamped ? 1 : (reduceMotion ? 1 : 2.4))
+                .offset(y: isStamped || reduceMotion ? 0 : 12)
                 .opacity(isStamped ? 1 : 0)
                 .padding(.vertical, AppTheme.spacingM)
 
@@ -36,7 +36,7 @@ struct VotingCompleteView: View {
         .padding(AppTheme.spacingXL)
         .background(AppTheme.paper)
         .task {
-            withAnimation(reduceMotion ? AppTheme.fade : AppTheme.stampDown) {
+            withAnimation(reduceMotion ? AppTheme.fade : AppTheme.confirmation) {
                 isStamped = true
             }
         }

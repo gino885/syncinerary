@@ -86,9 +86,15 @@ struct MessageLinkCard: View {
     }
 
     private var pending: some View {
-        Text("Reading the \(link.platformLabel) post")
-            .font(AppType.mono)
-            .foregroundStyle(AppTheme.faded)
+        VStack(alignment: .leading, spacing: AppTheme.spacingS) {
+            Label("Saved to group links", systemImage: "bookmark")
+                .font(AppType.body)
+                .foregroundStyle(AppTheme.ink)
+            if let raw = link.url, let url = URL(string: raw) {
+                Link(destination: url) { Text("Open \(link.platformLabel) post") }
+                    .font(.subheadline)
+            }
+        }
     }
 
     /// After a rejected name, ask for a different one rather than repeating

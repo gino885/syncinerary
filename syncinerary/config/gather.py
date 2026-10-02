@@ -6,6 +6,7 @@ import math
 # gaps after social search. Personal links are additive and never displaced.
 SOCIAL_PLATFORM_PRIORITY = ("instagram", "rednote", "tiktok")
 BUZZ_RATIO = 1.0
+REEL_TARGET_RATIO = 0.60
 
 # Pool size: days * POOL_PER_DAY. Acceptable range: 5 to 8.
 # At the top of that range so the shortlist can fill complete days.
@@ -25,6 +26,8 @@ BUZZ_MIN_SOURCE_COUNT = 1
 # discrimination happens here instead.
 MINED_NAMES_MAX = 100
 SOCIAL_VERIFY_BUDGET_MAX = 40
+# Leave capacity for later food and hidden-gem searches after the first query.
+SOCIAL_VERIFY_BATCH_MAX = 8
 # Share of mined names that resolve to a real place inside the city. Selection
 # over-selects by the inverse so geocoding losses do not starve the deck.
 VERIFY_YIELD = 0.75
@@ -45,6 +48,17 @@ def social_verify_budget(*, days: int) -> int:
         SOCIAL_VERIFY_BUDGET_MAX,
         math.ceil(social_target(days=days) / VERIFY_YIELD),
     )
+
+
+def reel_target(*, days: int) -> int:
+    return math.ceil(days * POOL_PER_DAY * REEL_TARGET_RATIO)
+
+
+def guide_verify_budget(*, days: int) -> int:
+    """Guides use spare capacity after reserving expected Reel verification."""
+    budget = social_verify_budget(days=days)
+    reserved = math.ceil(reel_target(days=days) / VERIFY_YIELD)
+    return min(budget // 3, max(0, budget - reserved))
 
 
 def lane_slots(budget: int) -> tuple[int, int]:
@@ -98,15 +112,15 @@ def social_search_max_steps(*, cities: int) -> int:
 
 
 def gather_max_steps(*, default_max_steps: int, days: int, cities: int = 1) -> int:
-    """Reserve the search ceiling and one Google reality check per slot.
+    """Reserve both hard ceilings, including verification after low yield.
 
-    Verification tracks trip size because the pool is the same size whatever
-    the city count. Mining tracks city count because a post about one city is
-    not evidence about another, so each city runs its own search loop.
+    Actual verification starts with a trip-sized allocation and can expand
+    to 40 after low yield. Mining tracks city count because a post about one
+    city is not evidence about another, so each city runs its own search loop.
     """
     return (
         default_max_steps
-        + social_verify_budget(days=days)
+        + SOCIAL_VERIFY_BUDGET_MAX
         + social_search_max_steps(cities=cities)
     )
 

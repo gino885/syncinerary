@@ -1,0 +1,50 @@
+[
+  {
+    "city": "Tokyo",
+    "locale": "en",
+    "surface": "web",
+    "query": "Tokyo best local food restaurants cafes must eat",
+    "posts": 5,
+    "readable_characters": 342
+  },
+  {
+    "city": "Tokyo",
+    "locale": "en",
+    "surface": "videos",
+    "query": "Tokyo best local food restaurants cafes must eat",
+    "posts": 0,
+    "readable_characters": 0
+  },
+  {
+    "city": "Sapporo",
+    "locale": "en",
+    "surface": "web",
+    "query": "Sapporo best local food restaurants cafes must eat",
+    "posts": 20,
+    "readable_characters": 1277
+  },
+  {
+    "city": "Sapporo",
+    "locale": "en",
+    "surface": "videos",
+    "query": "Sapporo best local food restaurants cafes must eat",
+    "posts": 0,
+    "readable_characters": 0
+  },
+  {
+    "city": "Atami",
+    "locale": "en",
+    "surface": "web",
+    "query": "Atami best local food restaurants cafes must eat",
+    "posts": 5,
+    "readable_characters": 326
+  },
+  {
+    "city": "Atami",
+    "locale": "en",
+    "surface": "videos",
+    "query": "Atami best local food restaurants cafes must eat",
+    "posts": 0,
+    "readable_characters": 0
+  }
+]

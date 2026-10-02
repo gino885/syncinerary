@@ -329,6 +329,19 @@ eval_result(
 
 **Immutability rule:** `itinerary_version` and `itinerary_node` are append-only. A replan never updates an existing version; it creates a new one and points `parent_version_id` at the old one. F4 diff and F2 replay both depend on this.
 
+**Owner update, September 18, 2026: manual itinerary editing.** Travelers can
+add real places and meals after generation, remove or reorder stops, and edit
+their day, start time and duration within the existing trip dates and cities.
+Use structured candidate selections and exact half-hour times. Validate the
+changed days, preserve unaffected days, protect fixed reservations, and preview
+an append-only proposal through the existing approve/reject workflow. An
+explicit Adjust this day action may find new times but must retain every chosen
+place and duration. Detect stale versions and check membership server-side.
+Manual additions need no Reel and must never be replaced to improve the 60%
+discovery-card target. City/date editing and locationless events are outside
+this first implementation. See MANUAL_ITINERARY_EDITING_PLAN.md for details.
+
+
 ---
 
 ## 8. Gather strategy: three inputs
@@ -343,6 +356,42 @@ existing eight-search ceiling. Search both public note URL paths and normalize
 specific shared-note URLs, while excluding topic and profile pages. Preserve
 votes when repairing source evidence on an existing deck, and report real source
 shortfalls without inventing links or shrinking the deck to meet a percentage.
+
+**Owner update, September 30, 2026:** Group discovery uses at most five
+interests, ranked by the number of distinct members selecting each one.
+Shared interests come first; ties use normalized alphabetical order so join
+order cannot favor one member. Each member counts once per interest. Apply
+this focus to social extraction/ranking and profile-driven place suggestions.
+Keep each traveler's full profile and all hard dietary constraints. Joining
+already offers interest tags, including coffee and hidden gems.
+
+**Owner update, September 18, 2026:** Reel-backed candidate cards divided by
+all unique visible swipe candidate cards targets 60% across the combined trip.
+Do not require 60% independently in each city. City day allocations determine
+the number of candidates and lunch/dinner options needed there; city priority
+may guide the suggested day split but never silently override explicit days.
+Persist the reviewed city days and use them for discovery, final city card
+quotas, and consecutive scheduler day blocks. Keep automatic and visible
+source metrics separate, exclude lodging, and report genuine shortages.
+Search only in the user's selected trip language, including retries and
+RedNote. English users get English queries; Chinese users get Chinese queries.
+Pass the matching Brave search language explicitly. Do not add Japanese or
+other language fallbacks based on the destination. These requirements
+supersede equal city allocations, candidate-count-driven days, and RedNote's
+unconditional Chinese-language exception. Existing resource ceilings remain.
+
+**Owner update, September 16, 2026:** Target 60% of unique visible swipe cards
+backed by relevant Instagram Reels, with a strict majority as the acceptance
+goal. Measure automatic and attachment-inclusive coverage separately after
+deduplication and dietary filtering. Prefer Reel discovery and verification
+before Google-only fallback. Compare Brave video search with the existing web
+index, keeping the eight-search city ceiling and 40-verification trip ceiling.
+Protect verification capacity from guide searches and feed verified supply
+back into discovery. Preserve food, city, and hidden-gem coverage; report a
+shortfall rather than shrinking the deck to manufacture a passing percentage.
+Other social platforms do not count as Instagram Reels. Creator API access is
+a separate future workstream. These rules supersede the earlier mining-only
+stop condition and fixed one-third guide allocation.
 
 **Owner update, September 11, 2026:** Automatic discovery prioritizes Instagram,
 then RedNote, then TikTok. Social candidates may fill the entire swipe pool;
@@ -1086,12 +1135,34 @@ Do not build these without explicit instruction; if needed, surface in a discuss
 - Popular Times / crowd estimation as a hard solver constraint. Reason: data sources are unreliable and silently biased. The system instead uses LLM-extracted heuristic flags from reviews ("crowds often mentioned") as soft hints to Stage 2 only.
 - Multi-trip personalization memory across trips (deferred to M12).
 - Mobile push notifications beyond the in-app WebSocket.
-- Auth providers beyond a stub identity service.
+- External auth providers. Owner update, September 23, 2026: implement email/password accounts with email verification, password reset, and session revocation. Disable handle-only login. Existing test identities are not automatically claimed by email.
 - LLM-driven natural language input as a primary entry point. The product is structured input + swipe, not "chat with your travel agent."
 
 ---
 
 ## 16. Decisions I committed to (override list)
+
+**Owner update, September 30, 2026, group chat:** Creating or opening a draft/setup
+group lands in its chat. The chat's top-right ellipsis menu opens group settings
+(the existing preparation screen) and saved links. Supported social post links
+sent in chat are saved as group attachments before discovery starts. Pasted
+Anthropic keys tolerate surrounding whitespace; internal whitespace remains
+invalid, with a visible explanation. Saving a key requires explicit AI consent
+and a configured server encryption keyring.
+
+**Owner update, September 30, 2026, account access:** Email/password signup
+creates an account and session immediately, with no verification email.
+Do not mark the email as verified. Password recovery still proves mailbox
+ownership. Add Google and Apple registration/sign-in using verified provider
+subjects, without automatically merging accounts by email. Provider activation
+requires the owner's OAuth configuration and Apple Developer setup.
+This supersedes the email verification requirement and external-auth exclusion
+in section 15.
+
+**Owner update, September 30, 2026:** New passwords require 8 to 128
+characters for signup and reset. Account creation starts with blank identity
+fields. Prepare iOS Password AutoFill field types; associated-domain setup
+and real-device password-saving verification wait for Apple Developer setup.
 
 These defaults were set without explicit confirmation. If any are wrong, change them here BEFORE coding starts. After M2 they become structural and harder to change.
 

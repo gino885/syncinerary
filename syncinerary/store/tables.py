@@ -94,12 +94,28 @@ def _jsonb_list() -> Mapped[list[Any]]:
 
 class Trip(Base):
     __tablename__ = "trip"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "cardinality(city_days) = 0 OR (cardinality(city_days) = cardinality(cities) "
+            "AND 0 < ALL(city_days) AND array_position(city_days, NULL) IS NULL)",
+            name="ck_trip_city_days",
+        ),
+        sa.CheckConstraint(
+            "priority_city_index IS NULL OR "
+            "(priority_city_index >= 0 AND priority_city_index < cardinality(cities))",
+            name="ck_trip_priority_city",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
     destination: Mapped[str] = mapped_column(sa.Text, nullable=False)
     cities: Mapped[list[str]] = mapped_column(
         ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
     )
+    city_days: Mapped[list[int]] = mapped_column(
+        ARRAY(sa.Integer), nullable=False, server_default=sa.text("'{}'::integer[]")
+    )
+    priority_city_index: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     country: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     resolved_cities: Mapped[list[dict]] = mapped_column(
         JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
@@ -126,13 +142,35 @@ class Trip(Base):
 
 
 class Account(Base):
-    """Stub identity. See CLAUDE.md section 15 and GROUP_TRIP_PLAN.md section 2."""
+    """Public identity and private email credentials; legacy identities stay unclaimed."""
 
     __tablename__ = "account"
+    __table_args__ = (
+        sa.UniqueConstraint("auth_provider", "provider_subject", name="uq_account_provider_subject"),
+        sa.CheckConstraint(
+            "(auth_provider = 'email' AND provider_subject IS NULL) OR "
+            "(auth_provider IN ('google', 'apple') AND provider_subject IS NOT NULL "
+            "AND length(provider_subject) > 0 AND email IS NULL AND password_hash IS NULL)",
+            name="ck_account_provider",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
     display_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     handle: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    auth_provider: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="email")
+    provider_subject: Mapped[str | None] = mapped_column(sa.Text)
+    email: Mapped[str | None] = mapped_column(sa.Text, nullable=True, unique=True)
+    password_hash: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    verify_digest: Mapped[str | None] = mapped_column(sa.Text)
+    verify_expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    reset_digest: Mapped[str | None] = mapped_column(sa.Text)
+    reset_expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    anthropic_consent_version: Mapped[str | None] = mapped_column(sa.Text)
+    anthropic_consent_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
@@ -153,6 +191,29 @@ class AccountSession(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False
+    )
+
+
+class AnthropicCredential(Base):
+    """Encrypted BYOK material, owned by exactly one account."""
+
+    __tablename__ = "account_anthropic_credential"
+    __table_args__ = (
+        sa.CheckConstraint("key_version > 0", name="key_version_positive"),
+        sa.CheckConstraint("char_length(last_four) = 4", name="last_four_length"),
+    )
+
+    account_id: Mapped[UUID] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("account.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ciphertext: Mapped[bytes] = mapped_column(sa.LargeBinary, nullable=False)
+    nonce: Mapped[bytes] = mapped_column(sa.LargeBinary, nullable=False)
+    key_version: Mapped[int] = mapped_column(sa.SmallInteger, nullable=False)
+    last_four: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
 
 
@@ -604,3 +665,50 @@ class EvalResult(Base):
         # F2 diffs the current commit's run against the previous one (§12.3).
         sa.Index("ix_eval_result_commit_sha_scenario_id", "commit_sha", "scenario_id"),
     )
+
+
+class GatherRun(Base):
+    __tablename__ = "gather_run"
+    __table_args__ = (
+        sa.Index("uq_gather_run_active_trip", "trip_id", unique=True,
+                 postgresql_where=sa.text("status IN ('queued', 'running')")),
+        sa.Index("ix_gather_run_trip_created", "trip_id", "created_at"),
+        sa.Index("ix_gather_run_pending", "updated_at",
+                 postgresql_where=sa.text("status IN ('queued', 'running')")),
+        sa.CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')",
+                           name="status_values"),
+    )
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    trip_id: Mapped[UUID] = mapped_column(sa.ForeignKey("trip.id"), nullable=False)
+    credential_account_id: Mapped[UUID | None] = mapped_column(
+        sa.Uuid,
+        sa.ForeignKey("account.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    phase: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    city: Mapped[str | None] = mapped_column(sa.Text)
+    completed_units: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    total_units: Mapped[int | None] = mapped_column(sa.Integer)
+    deck_size: Mapped[int | None] = mapped_column(sa.Integer)
+    error_code: Mapped[str | None] = mapped_column(sa.Text)
+    retry_count: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    input_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+
+
+class ChecklistItem(Base):
+    __tablename__ = "trip_checklist_item"
+    __table_args__ = (sa.UniqueConstraint("trip_id", "source_key"),)
+
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    trip_id: Mapped[UUID] = mapped_column(sa.ForeignKey("trip.id"), nullable=False)
+    title: Mapped[str] = mapped_column(sa.String(200), nullable=False)
+    notes: Mapped[str] = mapped_column(sa.String(1000), nullable=False, server_default="")
+    completed: Mapped[bool] = mapped_column(nullable=False, server_default=sa.false())
+    source_key: Mapped[str | None] = mapped_column(sa.String(300))
+    deleted: Mapped[bool] = mapped_column(nullable=False, server_default=sa.false())
+    revision: Mapped[int] = mapped_column(nullable=False, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)

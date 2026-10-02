@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// Puts a screen on paper: the ground, the scroll and toolbar surfaces, and
-/// the ink the navigation bar draws with. Applied to every screen so no
-/// screen falls back to the system's grouped grey.
+/// Shared canvas and navigation surfaces for lists and forms.
 private struct JournalPage: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -14,12 +12,12 @@ private struct JournalPage: ViewModifier {
 }
 
 extension View {
-    /// A screen written on the journal's paper.
+    /// A screen using the shared travel canvas.
     func journalPage() -> some View {
         modifier(JournalPage())
     }
 
-    /// Rows that sit on the page rather than on their own white cards.
+    /// The background surrounding a row's own content.
     func journalRow() -> some View {
         listRowBackground(AppTheme.paper)
     }

@@ -96,8 +96,27 @@ def test_chinese_creator_uses_chinese_social_searches(locale):
         output_locale=locale,
     )
 
-    assert rednote == "札幌 美食推荐 餐厅 咖啡店 探店"
-    assert tiktok == "札幌 美食推荐 餐厅 咖啡店 探店"
+    assert rednote == ("札幌 美食推薦 餐廳 咖啡店" if locale == "zh-Hant"
+                       else "札幌 美食推荐 餐厅 咖啡店 探店")
+    assert tiktok == (
+        "札幌 美食推薦 餐廳 咖啡店"
+        if locale == "zh-Hant" else "札幌 美食推荐 餐厅 咖啡店 探店"
+    )
+
+
+@pytest.mark.parametrize("platform", [SocialPlatform.INSTAGRAM, SocialPlatform.TIKTOK])
+def test_traditional_chinese_search_stays_chinese_when_broadened(platform):
+    from syncinerary.tools.fetch.social import QuerySpecificity
+
+    for specificity in QuerySpecificity:
+        for kind in SearchIntentType:
+            query = build_discovery_query(
+                SearchIntent(platform=platform, intent_type=kind, specificity=specificity),
+                destination="Tokyo", destination_localized="東京", output_locale="zh-Hant",
+            )
+            assert query.startswith("東京 ")
+            assert not any(word in query for word in ["Tokyo", "places", "food", "gems"])
+            assert not any(character in query for character in "荐厅众点游")
 
 
 def test_english_creator_keeps_english_searches_off_rednote():
@@ -114,6 +133,9 @@ def test_english_creator_keeps_english_searches_off_rednote():
 
 
 async def test_discovery_uses_the_creator_language_saved_on_the_trip(monkeypatch):
+    async def no_guides(*args, **kwargs):
+        return [], 0
+    monkeypatch.setattr("syncinerary.agents.gather.guides.discover_guide_baseline", no_guides)
     seen: dict[str, object] = {}
 
     async def fake_translate(destination: str, **_kwargs) -> str:

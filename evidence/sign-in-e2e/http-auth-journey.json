@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "Full migration upgrade/downgrade/upgrade in a disposable database",
+    "SMTP delivery, verified registration and password sign-in for three accounts",
+    "Handle-only sign-in disabled",
+    "SMTP password reset revokes the old session and password",
+    "Server-side logout revokes the token"
+  ],
+  "email_transport": "local SMTP",
+  "database": "disposable Postgres",
+  "vendor_calls": false
+}

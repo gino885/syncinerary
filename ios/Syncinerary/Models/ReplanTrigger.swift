@@ -4,6 +4,7 @@ enum ReplanTrigger: String, Decodable, Sendable {
     case overslept
     case placeClosed = "place_closed"
     case weather
+    case userRequest = "user_request"
     case other
 
     var label: String {
@@ -18,6 +19,8 @@ enum ReplanTrigger: String, Decodable, Sendable {
             String(localized: "Place closed")
         case .weather:
             String(localized: "Weather change")
+        case .userRequest:
+            String(localized: "Your trip changes")
         case .other:
             String(localized: "Trip change")
         }

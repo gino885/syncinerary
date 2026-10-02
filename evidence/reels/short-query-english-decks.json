@@ -1,0 +1,741 @@
+[
+  {
+    "city": "Sapporo",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:40:00.330059+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 11,
+        "other_social": 0,
+        "google_only": 5,
+        "other": 0,
+        "reel_share": 0.6875,
+        "google_only_share": 0.3125,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 11,
+        "other_social": 0,
+        "google_only": 5,
+        "other": 0,
+        "reel_share": 0.6875,
+        "google_only_share": 0.3125,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "by_city": {
+        "Sapporo": {
+          "total": 16,
+          "reels": 11,
+          "other_social": 0,
+          "google_only": 5,
+          "other": 0,
+          "reel_share": 0.6875,
+          "google_only_share": 0.3125,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 10,
+          "reels": 6,
+          "other_social": 0,
+          "google_only": 4,
+          "other": 0,
+          "reel_share": 0.6,
+          "google_only_share": 0.4,
+          "majority_met": true,
+          "target_shortfall": 0
+        },
+        "food": {
+          "total": 6,
+          "reels": 5,
+          "other_social": 0,
+          "google_only": 1,
+          "other": 0,
+          "reel_share": 0.8333333333333334,
+          "google_only_share": 0.16666666666666666,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      }
+    },
+    "elapsed_seconds": 45.14,
+    "harness_steps": 43,
+    "model_cost_usd": "0.117765",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Ramen Shingen minami 6 jo branch",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DS2eyunkrbh/"
+        ]
+      },
+      {
+        "name": "Yakiniku Ponga Sapporo Susukino",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DVbRoAlAW0v/"
+        ]
+      },
+      {
+        "name": "Yoshitsune",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DPOVQaKiZsU/"
+        ]
+      },
+      {
+        "name": "Soup Curry SAMA Sapporo restaurant",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRYG113go3N/"
+        ]
+      },
+      {
+        "name": "Hill of the Buddha",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/Da2d6HwSr3l/",
+          "https://www.instagram.com/reel/DTkg4UkEu9y/"
+        ]
+      },
+      {
+        "name": "Sapporo Munich Christmas Market",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSzkxRYCadM/"
+        ]
+      },
+      {
+        "name": "Shiroi Koibito Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DRar08qErFh/",
+          "https://www.tiktok.com/@twinspeakeatgo/video/7419610095610350855"
+        ]
+      },
+      {
+        "name": "Odori Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DR60IcpjVJ0/"
+        ]
+      },
+      {
+        "name": "Sapporo Clock Tower",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DO7xYEyjwQC/",
+          "https://www.instagram.com/reel/DRQvu3eE9NJ/"
+        ]
+      },
+      {
+        "name": "Sapporo TV Tower",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DO7xYEyjwQC/",
+          "https://www.instagram.com/reel/DRQvu3eE9NJ/"
+        ]
+      },
+      {
+        "name": "PAUL Sapporo Stellar Place",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DULYryPiPaD/"
+        ]
+      },
+      {
+        "name": "Maruyama Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Funsui",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sapporo City Maruyama Zoo",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Nakajima Park",
+        "type": "attraction",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Elm Garden",
+        "type": "food",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "41PIECES SAPPORO",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Courtyard by Marriott Sapporo",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "DANSETSU SAPPORO",
+        "type": "lodging",
+        "city": "Sapporo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  },
+  {
+    "city": "Atami",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:40:40.312052+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 4,
+        "other_social": 2,
+        "google_only": 10,
+        "other": 0,
+        "reel_share": 0.25,
+        "google_only_share": 0.625,
+        "majority_met": false,
+        "target_shortfall": 6
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 4,
+        "other_social": 2,
+        "google_only": 10,
+        "other": 0,
+        "reel_share": 0.25,
+        "google_only_share": 0.625,
+        "majority_met": false,
+        "target_shortfall": 6
+      },
+      "by_city": {
+        "Atami": {
+          "total": 16,
+          "reels": 4,
+          "other_social": 2,
+          "google_only": 10,
+          "other": 0,
+          "reel_share": 0.25,
+          "google_only_share": 0.625,
+          "majority_met": false,
+          "target_shortfall": 6
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 12,
+          "reels": 3,
+          "other_social": 0,
+          "google_only": 9,
+          "other": 0,
+          "reel_share": 0.25,
+          "google_only_share": 0.75,
+          "majority_met": false,
+          "target_shortfall": 5
+        },
+        "food": {
+          "total": 4,
+          "reels": 1,
+          "other_social": 2,
+          "google_only": 1,
+          "other": 0,
+          "reel_share": 0.25,
+          "google_only_share": 0.25,
+          "majority_met": false,
+          "target_shortfall": 2
+        }
+      }
+    },
+    "elapsed_seconds": 39.98,
+    "harness_steps": 41,
+    "model_cost_usd": "0.121965",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Atami Ginza Shopping Street",
+        "type": "food",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/Crkk2TdrUJ9/"
+        ]
+      },
+      {
+        "name": "Isomaru Atami Heiwadori shop",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "三茶カリーZAZA ATAMI",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": "for_you",
+        "posts": [
+          "https://www.tiktok.com/@jesseogn/video/7486337973600963848"
+        ]
+      },
+      {
+        "name": "Atami Plum Garden",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSUmOzGEv1l/"
+        ]
+      },
+      {
+        "name": "Club ZERO〜華火〜(熱海キャバクラ/クラブ/ラウンジ/スナック)",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DSIW7PBkqGV/"
+        ]
+      },
+      {
+        "name": "MOA Museum of Art",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRXv3rHgdJH/"
+        ]
+      },
+      {
+        "name": "Tempura Tsurukichi（Tempura Restaurant）",
+        "type": "food",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Water Park",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Itogawa Promenade",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Trick Art Museum",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Hashiri-yu",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Nagisa Deck",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Rainbow Deck",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Okusu",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Hihokan - Adult Museum Atami",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atamiyamaguchi Museum",
+        "type": "attraction",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Korakuen Hotel",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Seaside Spa & Resort",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Atami Spring Terrace Hotel",
+        "type": "lodging",
+        "city": "Atami",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  },
+  {
+    "city": "Tokyo",
+    "locale": "en",
+    "days": 2,
+    "run_at": "2026-09-16T19:41:40.948545+00:00",
+    "source_mix": {
+      "visible": {
+        "total": 16,
+        "reels": 11,
+        "other_social": 2,
+        "google_only": 3,
+        "other": 0,
+        "reel_share": 0.6875,
+        "google_only_share": 0.1875,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "automatic": {
+        "total": 16,
+        "reels": 11,
+        "other_social": 2,
+        "google_only": 3,
+        "other": 0,
+        "reel_share": 0.6875,
+        "google_only_share": 0.1875,
+        "majority_met": true,
+        "target_shortfall": 0
+      },
+      "by_city": {
+        "Tokyo": {
+          "total": 16,
+          "reels": 11,
+          "other_social": 2,
+          "google_only": 3,
+          "other": 0,
+          "reel_share": 0.6875,
+          "google_only_share": 0.1875,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      },
+      "by_category": {
+        "attraction": {
+          "total": 10,
+          "reels": 6,
+          "other_social": 1,
+          "google_only": 3,
+          "other": 0,
+          "reel_share": 0.6,
+          "google_only_share": 0.3,
+          "majority_met": true,
+          "target_shortfall": 0
+        },
+        "food": {
+          "total": 6,
+          "reels": 5,
+          "other_social": 1,
+          "google_only": 0,
+          "other": 0,
+          "reel_share": 0.8333333333333334,
+          "google_only_share": 0.0,
+          "majority_met": true,
+          "target_shortfall": 0
+        }
+      }
+    },
+    "elapsed_seconds": 60.64,
+    "harness_steps": 47,
+    "model_cost_usd": "0.147095",
+    "embed_playback_tested": false,
+    "cards": [
+      {
+        "name": "Japanese Restaurant Ginza Ishizuka",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DWxsSuwgVeS/"
+        ]
+      },
+      {
+        "name": "美味研鑽 TETSU",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DQ2A1HOExgv/"
+        ]
+      },
+      {
+        "name": "Ikinari Steak Yaechika",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/CeVk61LpMMJ/"
+        ]
+      },
+      {
+        "name": "Cat Cafe MOCHA Shibuya Center-gai Store",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DRx-avZE0ld/"
+        ]
+      },
+      {
+        "name": "Shinagawa Aquarium",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DPBgvVukslr/"
+        ]
+      },
+      {
+        "name": "Tokyo Camii & Diyanet Turkish Culture Center",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/C4F2OznrOAn/"
+        ]
+      },
+      {
+        "name": "Yomiuri Land",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "trending",
+        "posts": [
+          "https://www.instagram.com/reel/DVztS9nk3ut/"
+        ]
+      },
+      {
+        "name": "Hase-dera",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5ad9be5a26c624525e1599dc"
+        ]
+      },
+      {
+        "name": "Tokyo Skytree",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DK9km2qSr5T/"
+        ]
+      },
+      {
+        "name": "Tokyo Tower",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DTKOFl9k_w3/"
+        ]
+      },
+      {
+        "name": "bills Omotesando",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": "trending",
+        "posts": [
+          "https://www.xiaohongshu.com/explore/5ad9be5a26c624525e1599dc"
+        ]
+      },
+      {
+        "name": "Jindaiji Temple",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DZzj6jsT-EO/"
+        ]
+      },
+      {
+        "name": "LAMBERT",
+        "type": "food",
+        "city": "Tokyo",
+        "reel": true,
+        "lane": "for_you",
+        "posts": [
+          "https://www.instagram.com/reel/DaaKtnnRTs4/"
+        ]
+      },
+      {
+        "name": "Omoide Yokocho Memory Lane",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Sensō-ji",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "Meiji Jingu",
+        "type": "attraction",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "1 Hotel Tokyo",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA HOTEL SHINJUKU-KABUKICHO TOWER",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      },
+      {
+        "name": "APA Hotel & Resort Ryogoku Ekimae Tower",
+        "type": "lodging",
+        "city": "Tokyo",
+        "reel": false,
+        "lane": null,
+        "posts": []
+      }
+    ]
+  }
+]

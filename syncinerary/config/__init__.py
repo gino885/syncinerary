@@ -4,6 +4,7 @@
 from decimal import Decimal
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,14 +28,37 @@ class Settings(BaseSettings):
     sync_transit_fallback_providers: str = "here"
     here_api_key: str = ""
 
+    # Account email delivery. Plain transport is restricted to loopback for tests.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_security: Literal["starttls", "tls", "plain"] = "starttls"
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = ""
+
+    # Native OAuth audiences. Empty values keep that provider unavailable.
+    google_oauth_client_id: str = ""
+    apple_oauth_client_id: str = ""
+    apple_oauth_client_secret: SecretStr = SecretStr("")
+
     # LLM
     anthropic_api_key: str = ""
+    # Versioned AES-256 keys used only to encrypt account-owned provider
+    # credentials. The JSON value is injected by the cloud secret manager,
+    # for example {"1":"<urlsafe-base64-32-byte-key>"}. Keep old versions
+    # present while records encrypted with them still exist.
+    sync_credential_encryption_keys: SecretStr = SecretStr("")
+    sync_credential_encryption_active_version: int = 1
     sync_llm_model: str = "claude-opus-4-7"
     sync_cheap_model: str = "claude-haiku-4-5"
 
     # Observability
     phoenix_endpoint: str = "http://localhost:4317"
     phoenix_project_name: str = "syncinerary"
+    # Prompts and responses can contain trip preferences and user messages.
+    # Production traces keep only operational metadata unless a private local
+    # developer explicitly opts into content capture.
+    sync_trace_sensitive_content: bool = False
     # Console log level. Phoenix keeps the full trace, but a gather is easier
     # to follow live in the terminal that is serving the app.
     sync_log_level: str = "INFO"

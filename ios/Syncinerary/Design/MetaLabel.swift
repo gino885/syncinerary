@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One monospaced line of facts: "SAPPORO · PARK · 90 MIN".
+/// Supporting facts with aligned numbers and natural sentence case.
 struct MetaLabel: View {
     private let content: Text
     var color: Color = AppTheme.faded
@@ -19,9 +19,8 @@ struct MetaLabel: View {
 
     var body: some View {
         content
-            .font(AppType.mono)
+            .font(.subheadline)
             .monospacedDigit()
-            .textCase(.uppercase)
             .foregroundStyle(color)
             .lineLimit(2)
     }

@@ -22,6 +22,11 @@ class TripRepository(BaseRepository[tables.Trip, Trip]):
     model = Trip
     jsonb_fields = frozenset({"resolved_cities"})
 
+    async def lock(self, trip_id: UUID) -> Trip | None:
+        row = await self.session.scalar(select(self.table).where(self.table.id == trip_id)
+            .with_for_update().execution_options(populate_existing=True))
+        return self.to_model(row) if row else None
+
     async def set_created_by(self, trip_id: UUID, traveler_id: UUID) -> Trip | None:
         """Set the creator after the traveler row exists.
 
@@ -55,6 +60,12 @@ class TravelerRepository(BaseRepository[tables.Traveler, Traveler]):
     model = Traveler
     column_aliases: ClassVar[dict[str, str]] = {"profile": "profile_json"}
     jsonb_fields = frozenset({"profile"})
+
+    async def set_profile(self, traveler_id: UUID, profile: dict) -> Traveler:
+        row = await self.session.get(self.table, traveler_id)
+        row.profile_json = profile
+        await self.session.flush()
+        return self.to_model(row)
 
     async def list_for_trip(self, trip_id: UUID) -> list[Traveler]:
         return await self.list_where(

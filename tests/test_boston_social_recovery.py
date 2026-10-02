@@ -22,7 +22,8 @@ from syncinerary.tools.fetch.social import (
 def test_chinese_reel_shortfall_probes_more_rednote_intents_before_exhausting_budget():
     state = initialize_social_search_state(
         destination="Boston", destination_local_name="波士頓", output_locale="zh-Hant",
-        target_candidates=24,
+        target_candidates=24, reel_target=15, food_target=6, attraction_target=9,
+        verified_reels=1,
     )
     sequence = [
         (SocialPlatform.INSTAGRAM, SearchIntentType.PLACES, 1),

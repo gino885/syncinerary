@@ -9,10 +9,10 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
 
@@ -30,6 +30,8 @@ class TripStatus(str, Enum):
     SCHEDULING = "scheduling"
     ACTIVE = "active"
     DISRUPTED = "disrupted"
+    DRAFT = "draft"
+    GATHERING = "gathering"
 
 
 class CandidateType(str, Enum):
@@ -111,6 +113,8 @@ class Trip(BaseModel):
     # result to it, so this is the real input; `destination` is what the UI
     # shows. Ordered as entered.
     cities: list[str] = Field(default_factory=list)
+    city_days: list[Annotated[int, Field(strict=True, ge=1)]] = Field(default_factory=list)
+    priority_city_index: int | None = Field(default=None, strict=True, ge=0)
     # The country all of those cities are in. Trips do not span countries: the
     # day plan assumes you can move between cities without a border or a
     # long-haul flight in the middle of the trip.
@@ -134,23 +138,28 @@ class Trip(BaseModel):
     created_by: UUID | None = None
     created_at: datetime = Field(default_factory=_utcnow)
 
+    @model_validator(mode="after")
+    def _city_plan(self) -> Trip:
+        from syncinerary.domain.city_plan import validate_city_plan
+
+        validate_city_plan(self.cities, self.days, self.city_days, self.priority_city_index)
+        return self
+
 
 class Account(BaseModel):
-    """A person across trips. Stub identity per CLAUDE.md section 15.
-
-    Deliberately not an auth record: no password, no email verification, no
-    provider. It exists to answer "who is this, on which trips", which is what
-    invites and chat need and nothing more.
-    """
+    """Public identity across trips. Credential fields stay in the store layer."""
 
     id: UUID = Field(default_factory=uuid4)
     display_name: str
     handle: str
+    auth_provider: Literal["email", "google", "apple"] = "email"
+    anthropic_consent_version: str | None = None
+    anthropic_consent_at: datetime | None = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
 class AccountSession(BaseModel):
-    """An opaque bearer token. Stub: issued on sign-in, never rotated."""
+    """Opaque session: raw only on issue, SHA-256 digest in persistent storage."""
 
     token: str
     account_id: UUID
@@ -252,6 +261,10 @@ class Constraint(BaseModel):
 
 
 class Source(BaseModel):
+    url: str | None = None
+    query: str | None = None
+    guide_rank: int | None = Field(default=None, ge=1)
+    mention_text: str | None = Field(default=None, max_length=120)
     """One row inside CandidatePlace.sources. Dedup unions these across sources."""
     type: str  # 'discovery' | 'buzz' | 'personal'
     score: float | None = None
@@ -272,7 +285,7 @@ class CandidatePlace(BaseModel):
     lng: float
     address: str | None = None
     area: str | None = None
-    hours_by_weekday: dict[str, list[list[int]]] = Field(default_factory=dict)
+    hours_by_weekday: dict[str, list[list[float]]] = Field(default_factory=dict)
     price_tier: int = 2
     duration_estimate_min: int = 60
     dietary_tags: list[str] = Field(default_factory=list)

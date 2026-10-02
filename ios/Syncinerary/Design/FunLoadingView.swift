@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// A page being written: the line the agent is on now, set large in the
-/// display serif, with the lines it already finished fading above it. The
+/// Current work in large rounded type, with previous loading lines above it. The
 /// owning screen keeps its alert, so a failure is never hidden behind a
 /// friendly sentence.
 struct FunLoadingView: View {
@@ -38,7 +37,10 @@ struct FunLoadingView: View {
                     .transition(
                         reduceMotion
                             ? .opacity
-                            : .opacity.combined(with: .move(edge: .bottom))
+                            : .asymmetric(
+                                insertion: .offset(y: AppTheme.textTravel).combined(with: .opacity),
+                                removal: .offset(y: -AppTheme.textTravel).combined(with: .opacity)
+                            )
                     )
             }
 
@@ -62,7 +64,7 @@ struct FunLoadingView: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(2.4))
             guard !Task.isCancelled else { return }
-            withAnimation(AppTheme.fade) {
+            withAnimation(reduceMotion ? nil : AppTheme.textSwap) {
                 lineIndex = (lineIndex + 1) % script.lines.count
             }
         }

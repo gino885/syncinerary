@@ -1,0 +1,170 @@
+[
+  {
+    "destination": "Tokyo",
+    "expected_accepted": false,
+    "place": {
+      "place_id": "fixture-0",
+      "display_name": "Tokyo Food",
+      "primary_type": "restaurant",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": false,
+    "place": {
+      "place_id": "fixture-1",
+      "display_name": "東京美食",
+      "primary_type": "restaurant",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": false,
+    "place": {
+      "place_id": "fixture-2",
+      "display_name": "Tokyo Night & Light",
+      "primary_type": "tourist_attraction",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": false,
+    "place": {
+      "place_id": "fixture-3",
+      "display_name": "東京五天四夜攻略",
+      "primary_type": "tourist_attraction",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Paris",
+    "expected_accepted": false,
+    "place": {
+      "place_id": "fixture-4",
+      "display_name": "Pinky Tour - Paris",
+      "primary_type": "tourist_attraction",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-5",
+      "display_name": "Tokyo National Museum",
+      "primary_type": "museum",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-6",
+      "display_name": "Shinjuku Golden-Gai",
+      "primary_type": "tourist_attraction",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Tokyo",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-7",
+      "display_name": "Hachiko Statue",
+      "primary_type": "sculpture",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Kamakura",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-8",
+      "display_name": "Kamakura Central Park",
+      "primary_type": "city_park",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Atami",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-9",
+      "display_name": "Atami Plum Garden",
+      "primary_type": "park",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Sapporo",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-10",
+      "display_name": "Shiroi Koibito Park",
+      "primary_type": "amusement_center",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Seoul",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-11",
+      "display_name": "Bukchon Hanok Village",
+      "primary_type": "landmark",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Paris",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-12",
+      "display_name": "Louvre Museum",
+      "primary_type": "art_museum",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  },
+  {
+    "destination": "Paris",
+    "expected_accepted": true,
+    "place": {
+      "place_id": "fixture-13",
+      "display_name": "Pont Alexandre III",
+      "primary_type": "bridge",
+      "lat": 35.68,
+      "lng": 139.76,
+      "user_rating_count": 10
+    }
+  }
+]

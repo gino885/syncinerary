@@ -1,22 +1,17 @@
 import SwiftUI
 
-/// The trip journal (UIUX_PLAN.md section 9): indigo ink on stone paper,
-/// with three stamp inks for the three kinds of approval this app deals in.
-/// Every screen draws from these tokens; nothing declares a colour of its own.
+/// Shared travel colors and motion. Asset variants keep contrast in both appearances.
 enum AppTheme {
-    // MARK: Colours (asset catalog, light and dark)
-
-    /// The ground: a stone paper with a green-grey cast, not warm cream.
+    static let canvas = Color("Canvas")
+    static let surface = Color("Surface")
     static let paper = Color("Paper")
-    /// Text: an indigo pen rather than black.
     static let ink = Color("Ink")
-    /// Secondary text, the way older pencil goes grey.
     static let faded = Color("Faded")
-    /// Ledger hairlines. Only where a rule means a boundary.
     static let rule = Color("Rule")
-
-    /// Stamp inks. A passport page carries several, and so does this app:
-    /// vermilion for a like, jade for something settled, violet for must-go.
+    static let accent = Color("AccentColor")
+    static let onAccent = Color("OnAccent")
+    static let highlight = Color("Highlight")
+    static let onHighlight = Color("OnHighlight")
     static let stamp = Color("Stamp")
     static let jade = Color("Jade")
     static let violet = Color("Violet")
@@ -36,8 +31,8 @@ enum AppTheme {
     static let spacingL = 16.0
     static let spacingXL = 24.0
 
-    /// Photos and the primary button. Stamps and rules stay square.
-    static let cornerRadius = 6.0
+    /// Shared rounding for media and compact surfaces.
+    static let cornerRadius = 18.0
     static let hairlineWidth = 1.0
 
     // MARK: Motion
@@ -49,5 +44,14 @@ enum AppTheme {
     /// A stamp coming down: quick, and it lands hard.
     static let stampDown = Animation.spring(duration: 0.28, bounce: 0.5)
     /// Cross-fades, and the Reduce Motion fallback everywhere.
-    static let fade = Animation.easeInOut(duration: 0.35)
+    static let fade = Animation.easeInOut(duration: 0.18)
+    static let press = Animation.spring(duration: 0.26, bounce: 0.22)
+    static let selection = Animation.spring(duration: 0.34, bounce: 0.18)
+
+    /// transitions.dev surface timing for pages, tabs, and disclosures.
+    static let surfaceChange = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.25)
+    static let textSwap = Animation.easeInOut(duration: 0.15)
+    static let confirmation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.5)
+    static let pageTravel = 8.0
+    static let textTravel = 4.0
 }

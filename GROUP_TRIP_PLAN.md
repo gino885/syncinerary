@@ -1,5 +1,9 @@
 # M7a: Group trips, invites, and trip chat
 
+September 23, 2026 update: the auth portions below are historical. The owner
+requested verified email/password sign-in. See [EMAIL_SIGN_IN.md](docs/EMAIL_SIGN_IN.md)
+for the replacement flow, migration and deployment requirements.
+
 Written 2026-09-02. Proposed as **M7a**, inserted after M7 and before Phase C,
 following the M5a precedent for a milestone that does not renumber the rest.
 

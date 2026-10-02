@@ -35,6 +35,7 @@ from syncinerary.api.schemas import (
     TripMessageOut,
     TripOut,
 )
+from syncinerary.api.trip_membership import require_websocket_member
 from syncinerary.domain.models import (
     AttachmentInputType,
     AttachmentStatus,
@@ -42,6 +43,7 @@ from syncinerary.domain.models import (
     Traveler,
     TripMessage,
     TripMessageKind,
+    TripStatus,
 )
 from syncinerary.store.db import session_scope
 from syncinerary.store.redis import get_redis
@@ -172,7 +174,7 @@ async def join_trip(
     invite = await invites.find_by_code(code)
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown invite code")
-    trip = await TripRepository(session).get(invite.trip_id)
+    trip = await TripRepository(session).lock(invite.trip_id)
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "That trip no longer exists")
 
@@ -186,6 +188,9 @@ async def join_trip(
         return JoinTripResponse(
             trip=TripOut.of(trip), traveler_id=existing.id, already_member=True
         )
+
+    if trip.status not in {TripStatus.DRAFT, TripStatus.SETUP}:
+        raise HTTPException(409, "Membership is fixed after discovery starts")
 
     if await invites.claim(invite.id) is None:
         raise HTTPException(
@@ -253,7 +258,8 @@ async def _attach_first_supported_url(
                 platform_id=reference.platform_id,
             )
         )
-        attachment = await resolve_link_attachment(attachment, trip, session)
+        if trip.status not in {TripStatus.DRAFT, TripStatus.SETUP, TripStatus.GATHERING}:
+            attachment = await resolve_link_attachment(attachment, trip, session)
         return attachment.id
     return None
 
@@ -314,7 +320,7 @@ async def post_message(
     traveler = await _require_membership(
         session, trip_id=trip_id, account_id=account.id
     )
-    trip = await TripRepository(session).get(trip_id)
+    trip = await TripRepository(session).lock(trip_id)
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such trip")
 
@@ -373,7 +379,7 @@ async def name_place_for_message(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "That message has no link"
         )
-    trip = await TripRepository(session).get(trip_id)
+    trip = await TripRepository(session).lock(trip_id)
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such trip")
 
@@ -382,10 +388,15 @@ async def name_place_for_message(
     if attachment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "That link is gone")
 
+    if trip.status is TripStatus.GATHERING:
+        raise HTTPException(409, "This discovery run uses the saved input snapshot")
+
     metadata = dict(attachment.metadata)
     metadata["submitted_place_name"] = payload.place_name
     updated = await attachments.record_metadata(attachment.id, metadata=metadata)
-    resolved = await resolve_named_attachment(updated or attachment, trip, session)
+    resolved = updated or attachment
+    if trip.status not in {TripStatus.DRAFT, TripStatus.GATHERING}:
+        resolved = await resolve_named_attachment(resolved, trip, session)
     author = traveler.name if message.traveler_id == traveler.id else None
     if author is None:
         members = {
@@ -412,10 +423,15 @@ async def chat_websocket(
     traveler_id: UUID,
 ) -> None:
     async with session_scope() as session:
-        trip = await TripRepository(session).get(trip_id)
-        traveler = await TravelerRepository(session).get(traveler_id)
-        if trip is None or traveler is None or traveler.trip_id != trip_id:
-            await websocket.close(code=1008, reason="Trip membership required")
+        try:
+            await require_websocket_member(
+                session,
+                trip_id=trip_id,
+                traveler_id=traveler_id,
+                authorization=websocket.headers.get("authorization"),
+            )
+        except HTTPException:
+            await websocket.close(code=1008, reason="Authenticated trip membership required")
             return
     try:
         await stream_trip_messages(websocket, get_redis(), trip_id)

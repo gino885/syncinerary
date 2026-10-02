@@ -6,6 +6,8 @@ from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from syncinerary.agents.gather import personal as personal_module
 from syncinerary.agents.gather.dietary import (
     dietary_notice,
@@ -22,6 +24,7 @@ from syncinerary.domain.models import (
     Source,
     Traveler,
     Trip,
+    TripStatus,
 )
 from syncinerary.store.repositories import (
     CandidatePlaceRepository,
@@ -124,6 +127,7 @@ async def test_profile_suggestions_are_batched_capped_and_verified(monkeypatch):
                     lat=43.061 + len(geocoded) * 0.001,
                     lng=141.354,
                     primary_type="tourist_attraction",
+                    editorial_summary="A visitor-facing attraction.",
                 )
             ]
         )
@@ -150,6 +154,26 @@ async def test_profile_suggestions_are_batched_capped_and_verified(monkeypatch):
     ]
     assert all(candidate.sources[0].subtype == "profile_driven" for candidate in candidates)
     assert all(candidate.enrichment["google_place_id"] for candidate in candidates)
+
+
+async def test_profile_discovery_uses_only_the_groups_top_five_interests():
+    trip = _trip()
+    travelers = [
+        Traveler(trip_id=trip.id, name="A", profile={"interests": [
+            "art", "history", "music", "shopping", "coffee", "hidden gems",
+        ]}),
+        Traveler(trip_id=trip.id, name="B", profile={"interests": ["Coffee", "hidden gems"]}),
+        Traveler(trip_id=trip.id, name="C", profile={"interests": ["zoo"]}),
+    ]
+    messages = StubMessages({"travelers": []})
+    assert await discover_profile_candidates(trip, travelers, client=messages) == []
+    payload = json.loads(messages.calls[0]["messages"][0]["content"])
+    assert payload["travelers"] == [
+        {"traveler_id": str(travelers[0].id),
+         "interests": ["coffee", "hidden gems", "art", "history", "music"]},
+        {"traveler_id": str(travelers[1].id), "interests": ["coffee", "hidden gems"]},
+    ]
+    assert travelers[2].profile["interests"] == ["zoo"]
 
 
 async def test_profile_suggestion_is_checked_in_each_selected_city(monkeypatch):
@@ -207,6 +231,7 @@ async def test_profile_suggestion_is_checked_in_each_selected_city(monkeypatch):
                         lat=43.1987,
                         lng=140.9947,
                         primary_type="tourist_attraction",
+                    editorial_summary="A visitor-facing attraction.",
                     )
                 ]
             )
@@ -399,6 +424,7 @@ async def test_deck_removes_known_conflicts_and_warns_on_unknown_food(client, se
     trip_id = created.json()["trip"]["id"]
     traveler_id = created.json()["traveler_id"]
     trip = await TripRepository(session).get(trip_id)
+    await TripRepository(session).set_status(trip.id, TripStatus.SWIPING)
     await CandidatePlaceRepository(session).add_many(
         [
             _candidate(
@@ -488,3 +514,5 @@ async def test_lodging_options_can_be_compared_and_selected(client, session):
     constraints = await ConstraintRepository(session).list_for_trip(trip.id)
     lodging_choice = next(item for item in constraints if item.type == "selected_lodging")
     assert lodging_choice.value == {"candidate_id": chosen_id}
+
+pytestmark = pytest.mark.usefixtures("signed_in_client")
