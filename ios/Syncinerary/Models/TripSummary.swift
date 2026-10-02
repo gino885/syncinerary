@@ -11,6 +11,8 @@ struct TripSummary: Codable, Hashable, Identifiable, Sendable {
     let endDate: String
     let days: Int
     let status: String
+    var cityDays: [Int]?
+    var priorityCityIndex: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -22,5 +24,7 @@ struct TripSummary: Codable, Hashable, Identifiable, Sendable {
         case endDate = "end_date"
         case days
         case status
+        case cityDays = "city_days"
+        case priorityCityIndex = "priority_city_index"
     }
 }

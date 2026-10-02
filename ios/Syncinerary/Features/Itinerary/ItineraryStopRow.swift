@@ -5,21 +5,26 @@ import SwiftUI
 struct ItineraryStopRow: View {
     let stop: ItineraryStop
     @ScaledMetric(relativeTo: .body) private var timeColumnWidth = 56
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppTheme.spacingL) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: AppTheme.spacingS))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: AppTheme.spacingL))
+        layout {
             VStack(alignment: .leading, spacing: 2) {
                 Text(stop.startTime.prefix(5))
                     .font(AppType.monoBody)
                     .bold()
                     .monospacedDigit()
-                    .foregroundStyle(AppTheme.ink)
+                    .foregroundStyle(AppTheme.accent)
                 Text(stop.endTime.prefix(5))
                     .font(AppType.mono)
                     .monospacedDigit()
                     .foregroundStyle(AppTheme.faded)
             }
-            .frame(width: timeColumnWidth, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(width: dynamicTypeSize.isAccessibilitySize ? nil : timeColumnWidth, alignment: .leading)
 
             VStack(alignment: .leading, spacing: AppTheme.spacingS) {
                 if stop.transitFromPrevMin > 0 {
@@ -45,7 +50,18 @@ struct ItineraryStopRow: View {
 
                 SourceBadgesView(badges: stop.sourceBadges)
 
-                if let description = stop.description {
+                if let tip = stop.socialTip {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(tip.kind == "food" ? "Food tip" : "Before you go")
+                            .font(.caption.weight(.semibold))
+                        Text(tip.text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                        Link(destination: tip.url) {
+                            Text("\(tip.source) post ↗")
+                                .font(.caption)
+                                .frame(minHeight: 44, alignment: .leading)
+                        }
+                    }
+                } else if let description = stop.description {
                     Text(description)
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.faded)
@@ -55,7 +71,9 @@ struct ItineraryStopRow: View {
                 SourcePostsView(posts: stop.sourcePosts)
             }
         }
-        .padding(.vertical, AppTheme.spacingS)
+        .padding(AppTheme.spacingL)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: .rect(cornerRadius: 20))
         // A row with links keeps them reachable one by one; a row without
         // any reads as one element.
         .accessibilityElement(children: hasLinks ? .contain : .combine)

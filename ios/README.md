@@ -5,17 +5,20 @@
 Open `ios/Syncinerary.xcodeproj` in Xcode. The shared project and scheme are
 tracked, and the app targets iOS 17 or later.
 
-1. Start the backend with `.venv/bin/uvicorn syncinerary.api.main:app --reload`.
-   Gather needs `GOOGLE_MAPS_API_KEY`, `BRAVE_SEARCH_API_KEY`, and
-   `ANTHROPIC_API_KEY`. Provider failures are returned instead of being hidden
-   as an empty social result.
-2. Build and run on the iOS Simulator.
+1. Start the backend with `.venv/bin/python -m syncinerary.api.server`.
+   Live discovery needs `GOOGLE_MAPS_API_KEY`, `BRAVE_SEARCH_API_KEY`, and a
+   configured encryption keyring. The creator saves their Anthropic key in
+   AI access; every member grants consent. Follow the
+   [BYOK setup guide](../docs/ANTHROPIC_BYOK.md). A server `ANTHROPIC_API_KEY`
+   does not replace the creator's key for an account-owned trip.
+2. Start the durable discovery worker with `.venv/bin/python -m syncinerary.workers.gather`.
+3. Build and run on the iOS Simulator.
 
 ## Current acceptance gate for iOS
 
 - App launches without crash.
 - TripCreate accepts up to four typed cities in one country, with at least one
-  trip day per city, and gathers a city-scoped swipe deck.
+  trip day per city, and creates a draft group room. Only the leader starts discovery.
 - The saved-post step accepts Instagram, TikTok, and RedNote links without
   requiring a picture upload.
 - A link that cannot reveal its place can be submitted again after adding the
@@ -50,10 +53,11 @@ remaining quantity or category gaps after the social search budget. Google
 still verifies locations and provides place details and lodging. Automated tests use local stubs and do not spend
 provider requests.
 
-One useful post can introduce a place. RedNote is searched on its note path
-with the Mandarin destination name. When the group creator uses the Chinese
-app localization, Instagram and TikTok searches also use Chinese vocabulary,
-so the returned posts and video captions match the group's language. Explicit
+One useful post can introduce a place. RedNote searches both public note paths.
+Search wording and the provider language follow the creator's stored trip
+language on every platform. Chinese trips also require meaningful Chinese
+text in the original public metadata; a translated card is not evidence of a
+Chinese source. This does not determine the spoken language of a video. Explicit
 post likes and comments rank a result higher when the public snippet includes
 them. Results without visible metrics are labelled "Found on" rather than
 presented as popular.
@@ -79,6 +83,14 @@ return to earlier swipe cards and replace a mistaken vote. After voting, the
 prototype compares up to three Google Places lodging results before planning.
 
 Run the Swift API contract regression test from the repository root:
+
+To run all ten contract and view-model test programs together:
+
+```bash
+bash scripts/test_ios.sh
+```
+
+To run only the API contract checks:
 
 ```bash
 xcrun swiftc -parse-as-library \
@@ -116,3 +128,89 @@ them.
 On a macOS 15 host, the iOS 26 simulator can draw emoji in SwiftUI text as
 question-mark boxes. Loading states, swipe feedback, badges, meals, and
 transit therefore use SF Symbols rather than runtime emoji glyphs.
+
+## Durable discovery worker
+
+New trips require sign-in and open a draft group room. Run the worker beside
+uvicorn using the same environment and database:
+
+```bash
+.venv/bin/alembic upgrade head
+.venv/bin/python -m syncinerary.workers.gather
+```
+
+The leader starts discovery from the group room. The app polls short status
+requests and may be closed while the worker runs. After a crash, a running job
+becomes eligible for checkpoint recovery after its heartbeat is 60 seconds old.
+A provider failure exposes a sanitized error and allows at most two leader retries.
+The worker does not launch inside FastAPI. Production must supervise this process
+with the same restart policy as the API.
+
+## Edit a generated itinerary
+
+Use Edit plan in the itinerary toolbar, Add a place under a day, or a stop's
+Edit action. The draft supports saved places, verified place search and the
+existing social-link attachment flow. Preview changes checks exact times;
+Adjust this day can reschedule the selected day's places. Both open the
+existing review sheet, where Use this plan activates the proposed version.
+Cancel and Keep current plan leave the active itinerary unchanged.
+
+Run the manual draft and request-contract regression checks:
+
+```bash
+xcrun swiftc -parse-as-library \
+  -module-cache-path /tmp/syncinerary-swift-module-cache \
+  ios/Syncinerary/Models/*.swift \
+  ios/Syncinerary/Network/*.swift \
+  ios/Syncinerary/Features/Itinerary/ManualItineraryViewModel.swift \
+  ios/Tests/ManualItineraryTests.swift \
+  -o /tmp/syncinerary-manual-itinerary-tests
+/tmp/syncinerary-manual-itinerary-tests
+```
+
+## Trip preparation and iPhone trials
+
+The shared Checklist opens from the draft group room and itinerary toolbar.
+Base tasks are seeded at trip creation; scheduled ticket/reservation checks are
+added when opening the checklist. Renaming, completing and deleting tasks is
+persistent. Pull to refresh changes from another traveler.
+
+The Stay screen accepts an already-booked hotel by name or Google Maps link.
+Choose a trip city, search, and confirm the exact result. This records your
+booking statement and selected hotel; no room booking is made or verified.
+Practical stop and food tips use intact saved social highlights with a source
+link; no useful evidence means no extra tip.
+
+For installing on real phones and inviting a friend, follow
+[the iPhone testing guide](../docs/IPHONE_TESTING.md). Set `SYNC_API_BASE_URL`
+in the target's Build Settings for both Debug and Release. The value is
+embedded in the installed app; Xcode Run environment overrides remain useful
+for development but do not configure a TestFlight launch.
+
+Preparation regression checks:
+
+```bash
+xcrun swiftc -parse-as-library -module-cache-path /tmp/syncinerary-swift-module-cache \
+  ios/Syncinerary/Models/*.swift ios/Syncinerary/Network/*.swift \
+  ios/Syncinerary/Features/Checklist/ChecklistViewModel.swift \
+  ios/Syncinerary/Features/Lodging/LodgingViewModel.swift \
+  ios/Tests/PreparationTests.swift -o /tmp/syncinerary-preparation-tests
+/tmp/syncinerary-preparation-tests
+```
+
+## Account access
+
+See [email configuration and migration notes](../docs/EMAIL_SIGN_IN.md).
+Handle-only login is disabled. Email signup signs in immediately without a
+verification code. Google and Apple buttons use [provider configuration](../docs/SOCIAL_SIGN_IN.md).
+Password reset and server-side logout are available. Network failures preserve the saved session.
+
+```bash
+xcrun swiftc -parse-as-library -module-cache-path /tmp/syncinerary-swift-module-cache \
+  ios/Syncinerary/Models/*.swift ios/Syncinerary/Network/*.swift \
+  ios/Syncinerary/Features/Account/AccountStore.swift \
+  ios/Syncinerary/Features/Account/SignInMode.swift \
+  ios/Syncinerary/Features/Account/SignInViewModel.swift \
+  ios/Tests/AccountTests.swift -o /tmp/syncinerary-account-tests
+/tmp/syncinerary-account-tests
+```

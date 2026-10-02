@@ -4,7 +4,9 @@ import SwiftUI
 struct GatheringView: View {
     let onGathered: (TripSession) -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: GatheringViewModel
+    @State private var showingRoom = false
 
     init(session: TripSession, onGathered: @escaping (TripSession) -> Void) {
         self.onGathered = onGathered
@@ -24,13 +26,31 @@ struct GatheringView: View {
                         .frame(maxWidth: 240)
                 }
             } else {
-                FunLoadingView(script: .gathering(city: viewModel.cityName))
-                    .ignoresSafeArea()
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text(viewModel.phaseLabel)
+                    Text(viewModel.cityName).foregroundStyle(AppTheme.faded)
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.paper.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .task {
+        .navigationTitle("Finding places")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            Button("Group room") { showingRoom = true }
+        }
+        .sheet(isPresented: $showingRoom) {
+            NavigationStack {
+                PreparationView(session: viewModel.session, onStarted: { _ in
+                    showingRoom = false
+                    retry()
+                }, observeStartedRun: false)
+                .toolbar { Button("Done") { showingRoom = false } }
+            }
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
             await run()
         }
     }

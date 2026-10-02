@@ -32,7 +32,7 @@ struct SwipeDeckView: View {
                     .overlay(alignment: .topLeading) {
                         if index == 0 {
                             StampView(mark: .liked)
-                                .scaleEffect(1.6 - 0.6 * likeProgress)
+                                .scaleEffect(reduceMotion ? 1 : 1.6 - 0.6 * likeProgress)
                                 .opacity(likeProgress)
                                 .padding(AppTheme.spacingXL)
                         }
@@ -40,7 +40,7 @@ struct SwipeDeckView: View {
                     .overlay(alignment: .topTrailing) {
                         if index == 0 {
                             StampView(mark: .passed)
-                                .scaleEffect(1.6 - 0.6 * nopeProgress)
+                                .scaleEffect(reduceMotion ? 1 : 1.6 - 0.6 * nopeProgress)
                                 .opacity(nopeProgress)
                                 .padding(AppTheme.spacingXL)
                         }
@@ -48,7 +48,7 @@ struct SwipeDeckView: View {
                     .overlay(alignment: .center) {
                         if index == 0 {
                             StampView(mark: .mustGo)
-                                .scaleEffect(1.6 - 0.6 * mustGoProgress)
+                                .scaleEffect(reduceMotion ? 1 : 1.6 - 0.6 * mustGoProgress)
                                 .opacity(mustGoProgress)
                         }
                     }
@@ -77,7 +77,7 @@ struct SwipeDeckView: View {
         }
         // Room under the top card for the two behind it to peek out.
         .padding(.bottom, AppTheme.spacingXL)
-        .animation(AppTheme.settle, value: cards.first?.id)
+        .animation(reduceMotion ? nil : AppTheme.settle, value: cards.first?.id)
         .onChange(of: throwRequest) { _, request in
             guard let request else { return }
             throwRequest = nil
@@ -108,7 +108,7 @@ struct SwipeDeckView: View {
                     || predicted.width < -decisionDistance * 2.5 {
                     throwCard(.dislike, from: translation)
                 } else {
-                    withAnimation(AppTheme.settle) {
+                    withAnimation(reduceMotion ? nil : AppTheme.settle) {
                         dragOffset = .zero
                     }
                 }

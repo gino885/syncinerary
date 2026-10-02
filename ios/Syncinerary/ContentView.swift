@@ -22,15 +22,17 @@ struct ContentView: View {
                 .navigationDestination(for: AppRoute.self) { route in
                     switch route {
                     case .newTrip:
-                        TripCreateView(onCreated: startGathering, onResume: resume)
+                        TripCreateView(onCreated: prepare, onResume: resume)
                     case let .joinTrip(code):
                         JoinTripView(prefilledCode: code, onJoined: joined)
                     case let .invite(trip):
                         InviteView(trip: trip)
                     case let .chat(trip):
                         TripChatView(trip: trip)
+                    case let .preparation(session):
+                        PreparationView(session: session, onStarted: startGathering)
                     case let .gathering(session):
-                        GatheringView(session: session, onGathered: showSavedPosts)
+                        GatheringView(session: session, onGathered: showSwipe)
                     case let .savedPosts(session):
                         SavedPostsView(session: session, onContinue: showSwipe)
                     case let .swipe(session):
@@ -108,6 +110,11 @@ struct ContentView: View {
                 await route(to: row)
             }
         }
+    }
+
+    private func prepare(_ session: TripSession) {
+        recentTrips.remember(session)
+        path = [AppRoute.primary(for: session)]
     }
 
     private func startGathering(_ session: TripSession) {

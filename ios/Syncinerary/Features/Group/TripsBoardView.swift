@@ -1,97 +1,94 @@
 import SwiftUI
 
-/// A departure board: hairline rows, destination in the display serif on the
-/// left, dates and party size in monospace on the right. No cards, because
-/// every other list in this app is already ruled rows.
 struct TripsBoardView: View {
     @Environment(AccountStore.self) private var accounts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
+    @State private var isShowingAccountSettings = false
 
     let onOpen: (TripListRow) -> Void
     let onCreate: () -> Void
     let onJoin: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-
-            if accounts.trips.isEmpty {
-                Text("No trips yet. Start one, or join with a code.")
-                    .font(AppType.body)
-                    .foregroundStyle(AppTheme.faded)
-                    .padding(.vertical, AppTheme.spacingXL)
-            } else {
-                ForEach(accounts.trips) { trip in
-                    Button { onOpen(trip) } label: { row(trip) }
-                        .buttonStyle(.plain)
-                    Rectangle()
-                        .fill(AppTheme.rule)
-                        .frame(height: AppTheme.hairlineWidth)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                HStack {
+                    Text("Trips").font(.headline)
+                    Spacer()
+                    if let name = accounts.account?.displayName {
+                        Menu {
+                            Button("Account settings", systemImage: "person.crop.circle") {
+                                isShowingAccountSettings = true
+                            }
+                            Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") {
+                                Task { await accounts.signOut() }
+                            }.disabled(accounts.isWorking)
+                        } label: {
+                        Text(name)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.faded)
+                            .lineLimit(1)
+                            .frame(minHeight: 44)
+                        }.accessibilityLabel("Account")
+                    }
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Your next chapter.")
+                        .font(AppType.title)
+                        .foregroundStyle(AppTheme.accent)
+                    Text("Good places. Your people. One trip.")
+                        .font(.title3)
+                        .foregroundStyle(AppTheme.faded)
+                }
+                .padding(.vertical, 24)
+                if let error = accounts.errorMessage {
+                    Text(error).font(.callout).foregroundStyle(AppTheme.stamp)
+                    Button("Try again") { Task { await accounts.loadTrips() } }
+                        .frame(minHeight: 44)
+                }
+                if accounts.trips.isEmpty {
+                    ContentUnavailableView {
+                        Label("Where to next?", systemImage: "suitcase.rolling")
+                    } description: {
+                        Text("Start a trip or bring your friends’ plan along.")
+                    }
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(accounts.trips) { trip in
+                            Button { onOpen(trip) } label: { TripDepartureRow(trip: trip) }
+                                .buttonStyle(PressFeedbackStyle())
+                        }
+                    }
                 }
             }
-
-            Spacer()
-
-            HStack(spacing: AppTheme.spacingM) {
-                Button("New trip", action: onCreate)
-                    .buttonStyle(StampButtonStyle())
+            .padding(24)
+            .opacity(hasAppeared ? 1 : 0)
+            .offset(y: hasAppeared || reduceMotion ? 0 : 14)
+        }
+        .foregroundStyle(AppTheme.ink)
+        .background(AppTheme.canvas.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                Button("New trip", systemImage: "arrow.up.right", action: onCreate)
+                    .buttonStyle(JourneyButtonStyle())
                 Button("Join with code", action: onJoin)
-                    .font(AppType.rowTitle)
-                    .foregroundStyle(AppTheme.ink)
+                    .font(.headline)
+                    .frame(minHeight: 44)
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(.regularMaterial)
         }
-        .padding(AppTheme.spacingL)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.paper)
-        .task { await accounts.loadTrips() }
+        .task {
+            withAnimation(reduceMotion ? AppTheme.fade : .smooth(duration: 0.45)) {
+                hasAppeared = true
+            }
+            await accounts.loadTrips()
+        }
         .refreshable { await accounts.loadTrips() }
-    }
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Trips")
-                .font(AppType.title)
-                .foregroundStyle(AppTheme.ink)
-            Spacer()
-            if let handle = accounts.account?.handle {
-                Text("@\(handle)")
-                    .font(AppType.mono)
-                    .foregroundStyle(AppTheme.faded)
-            }
+        .sheet(isPresented: $isShowingAccountSettings) {
+            AccountSettingsView()
         }
-        .padding(.bottom, AppTheme.spacingL)
-    }
-
-    private func row(_ trip: TripListRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppTheme.spacingM) {
-            VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
-                Text(trip.destination)
-                    .font(AppType.dayDate)
-                    .foregroundStyle(AppTheme.ink)
-                    .multilineTextAlignment(.leading)
-                Text(partyLine(trip))
-                    .font(AppType.mono)
-                    .foregroundStyle(AppTheme.faded)
-            }
-            Spacer(minLength: AppTheme.spacingM)
-            VStack(alignment: .trailing, spacing: AppTheme.spacingXS) {
-                Text(TripDate.parse(trip.startDate)?.formatted(TripDate.short)
-                    ?? trip.startDate)
-                    .font(AppType.mono)
-                    .monospacedDigit()
-                    .foregroundStyle(AppTheme.ink)
-                if trip.status == "active" {
-                    StampView(mark: .stage("Active", ink: AppTheme.jade), scale: 0.7)
-                }
-            }
-        }
-        .padding(.vertical, AppTheme.spacingM)
-        .contentShape(Rectangle())
-    }
-
-    private func partyLine(_ trip: TripListRow) -> String {
-        let party = trip.memberCount == 1
-            ? String(localized: "1 traveller")
-            : String(localized: "\(trip.memberCount) travellers")
-        return String(localized: "\(trip.days)d · \(party)")
     }
 }

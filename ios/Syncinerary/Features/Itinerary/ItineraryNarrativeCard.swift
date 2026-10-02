@@ -5,6 +5,7 @@ struct ItineraryNarrativeCard: View {
     let narrative: String
 
     @State private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isLong: Bool {
         narrative.count > 280
@@ -28,7 +29,7 @@ struct ItineraryNarrativeCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AppTheme.spacingL)
         .padding(.vertical, AppTheme.spacingM)
-        .animation(AppTheme.fade, value: isExpanded)
+        .animation(reduceMotion ? nil : AppTheme.surfaceChange, value: isExpanded)
     }
 
     private func toggle() {

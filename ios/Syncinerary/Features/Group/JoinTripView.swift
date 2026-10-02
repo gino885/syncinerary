@@ -123,7 +123,7 @@ struct JoinTripView: View {
                 code: code.trimmingCharacters(in: .whitespaces).uppercased(),
                 request: JoinTripRequest(
                     name: nil,
-                    preferenceTags: Array(interests.selected),
+                    preferenceTags: interests.values(in: PreferenceCatalog.interests),
                     homeCity: nil
                 )
             )

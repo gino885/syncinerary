@@ -11,6 +11,7 @@ struct SwipeView: View {
     @State private var reactionGeneration = 0
     @State private var isDeckAnimating = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(session: TripSession, onVotingComplete: @escaping (TripSession) -> Void) {
         self.onVotingComplete = onVotingComplete
@@ -149,7 +150,7 @@ struct SwipeView: View {
     }
 
     private func showPrevious() {
-        withAnimation(AppTheme.settle) {
+        withAnimation(reduceMotion ? AppTheme.fade : AppTheme.settle) {
             viewModel.showPrevious()
         }
         AccessibilityNotification.Announcement("Showing previous card").post()

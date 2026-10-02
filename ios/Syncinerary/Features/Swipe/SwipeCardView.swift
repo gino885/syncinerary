@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// A photo taped into a journal: the picture, a paper stub with the name in
-/// the display serif, one line of facts, where it came from, and what the
-/// post said. Everything else is one tap away in `CandidateDetailView`, so
+/// A place card: the photo, a rounded display title, useful facts, provenance
+/// and the original post description. Everything else is one tap away in `CandidateDetailView`, so
 /// the drag owns the card.
 struct SwipeCardView: View {
     let candidate: CandidateCard

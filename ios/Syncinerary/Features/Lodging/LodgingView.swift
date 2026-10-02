@@ -3,6 +3,7 @@ import SwiftUI
 struct LodgingView: View {
     let onPlanned: (TripSession) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel: LodgingViewModel
 
     init(session: TripSession, onPlanned: @escaping (TripSession) -> Void) {
@@ -18,33 +19,31 @@ struct LodgingView: View {
                 FunLoadingView(script: .stay)
             } else if viewModel.isPlanning {
                 FunLoadingView(script: .plan(city: viewModel.session.trip.cities.first ?? viewModel.session.trip.destination))
-            } else if viewModel.options.isEmpty {
-                ContentUnavailableView(
-                    "No stays found",
-                    systemImage: "bed.double",
-                    description: Text("Try another city.")
-                )
             } else {
                 List {
+                    BookedHotelForm(model: viewModel)
+
                     Section {
                         ForEach(viewModel.options) { option in
                             Button {
                                 viewModel.choose(option)
                             } label: {
-                                LodgingOptionRow(option: option, isSelected: viewModel.selectedID == option.id)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    LodgingOptionRow(option: option, isSelected: viewModel.selectedID == option.id)
+                                    if option.isBooked == true {
+                                        Text("Already booked").font(.caption.weight(.semibold)).foregroundStyle(AppTheme.accent)
+                                    }
+                                }
                             }
                             .buttonStyle(.plain)
+                            .disabled(viewModel.isSavingHotel)
                         }
                     } header: {
-                        EyebrowText("Stay · \(TripDate.range(viewModel.options[0].tripStartDate, viewModel.options[0].tripEndDate))")
+                        EyebrowText("Stay · \(TripDate.range(viewModel.session.trip.startDate, viewModel.session.trip.endDate))")
                     } footer: {
-                        Text(
-                            String(
-                                localized: String.LocalizationValue(
-                                    viewModel.options[0].availabilityNote
-                                )
-                            )
-                        )
+                        Text(viewModel.options.first(where: { $0.id == viewModel.selectedID })?.isBooked == true
+                             ? String(localized: "Saved as booked. Reservation details aren't verified.")
+                             : String(localized: "Room availability is not verified. Confirm dates with the hotel before booking."))
                             .font(.footnote)
                             .foregroundStyle(AppTheme.faded)
                     }
@@ -53,7 +52,7 @@ struct LodgingView: View {
                     Section {
                         Button("Choose and build the days", action: plan)
                             .buttonStyle(.stamp(ink: AppTheme.jade))
-                            .disabled(viewModel.selectedID == nil || viewModel.isPlanning)
+                            .disabled(viewModel.selectedID == nil || viewModel.isPlanning || viewModel.isSavingHotel || viewModel.isSearchingHotel)
                             .listRowInsets(ListRowInsets.stamp)
                             .listRowSeparator(.hidden)
                     }
@@ -61,7 +60,7 @@ struct LodgingView: View {
                 }
                 .listStyle(.plain)
                 .listRowSeparatorTint(AppTheme.rule)
-                .animation(AppTheme.stampDown, value: viewModel.selectedID)
+                .animation(reduceMotion ? nil : AppTheme.stampDown, value: viewModel.selectedID)
             }
         }
         .journalPage()

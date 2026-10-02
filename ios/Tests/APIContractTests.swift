@@ -684,11 +684,13 @@ enum APIContractTests {
         guard let baseURL = URL(string: "http://localhost:8000") else {
             throw failure("Invalid local backend URL")
         }
-        let url = try APIClient.replanWebSocketURL(
+        let request = try APIClient.replanWebSocketRequest(
             baseURL: baseURL,
             tripID: tripID,
-            travelerID: travelerID
+            travelerID: travelerID,
+            bearerToken: "session-secret"
         )
+        guard let url = request.url else { throw failure("WebSocket request needs a URL") }
         try require(url.scheme == "ws", "Local replan delivery must use ws")
         try require(
             url.path == "/trips/\(tripID)/replans/ws",
@@ -698,6 +700,10 @@ enum APIContractTests {
             URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
                 == travelerID.uuidString,
             "Replan delivery must identify the current traveler"
+        )
+        try require(
+            request.value(forHTTPHeaderField: "Authorization") == "Bearer session-secret",
+            "Replan delivery must authenticate the signed-in account"
         )
     }
 

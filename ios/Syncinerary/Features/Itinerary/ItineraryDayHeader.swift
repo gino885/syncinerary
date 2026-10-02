@@ -1,25 +1,21 @@
 import SwiftUI
 
-/// The day, stamped onto the page like an entry mark, with the date and
-/// stop count in the margin beside it.
 struct ItineraryDayHeader: View {
     let day: ItineraryDay
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(alignment: .center, spacing: AppTheme.spacingM) {
-            StampView(
-                mark: .stage("Day \(day.day + 1)", ink: AppTheme.jade),
-                scale: 0.75,
-                isDecorative: false
-            )
-            VStack(alignment: .leading, spacing: 0) {
-                Text(dateText)
-                    .font(AppType.dayDate)
-                    .foregroundStyle(AppTheme.ink)
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        layout {
+            DayMarker(day: day.day)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(dateText).font(AppType.dayDate).foregroundStyle(AppTheme.ink)
                 MetaLabel("\(day.stops.count) stops")
             }
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, AppTheme.spacingL)
         .padding(.bottom, AppTheme.spacingS)
         .textCase(nil)

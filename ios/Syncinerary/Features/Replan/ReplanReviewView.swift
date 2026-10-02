@@ -65,7 +65,7 @@ struct ReplanReviewView: View {
                             ReplanDiffRow(
                                 systemImage: "clock.arrow.circlepath",
                                 title: change.name,
-                                detail: "\(change.oldStartTime.prefix(5)) to \(change.newStartTime.prefix(5))",
+                                detail: "\(change.oldStartTime.prefix(5))–\(change.oldEndTime.prefix(5)) → \(change.newStartTime.prefix(5))–\(change.newEndTime.prefix(5))",
                                 tint: AppTheme.faded
                             )
                         }

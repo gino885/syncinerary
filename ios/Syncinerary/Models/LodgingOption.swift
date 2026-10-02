@@ -3,6 +3,9 @@ import Foundation
 struct LodgingOption: Decodable, Identifiable, Sendable {
     var id: UUID { candidateID }
 
+    var isBooked: Bool? = nil
+    var isSelected: Bool? = nil
+
     let candidateID: UUID
     let name: String
     let area: String?
@@ -13,6 +16,8 @@ struct LodgingOption: Decodable, Identifiable, Sendable {
     let availabilityNote: String
 
     enum CodingKeys: String, CodingKey {
+        case isBooked = "is_booked"
+        case isSelected = "is_selected"
         case candidateID = "candidate_id"
         case name
         case area

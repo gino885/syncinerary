@@ -29,6 +29,9 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
         return String(localized: String.LocalizationValue(mealSlot.capitalized))
     }
 
+    var socialTip: SocialTip? = nil
+    var fixed: Bool? = nil
+    var lockReason: String? = nil
     var directionsURL: URL? = nil
 
     let candidateID: UUID
@@ -45,6 +48,9 @@ struct ItineraryStop: Decodable, Identifiable, Sendable {
     let sourcePosts: [SourcePost]
 
     enum CodingKeys: String, CodingKey {
+        case socialTip = "social_tip"
+        case fixed
+        case lockReason = "lock_reason"
         case directionsURL = "directions_url"
         case candidateID = "candidate_id"
         case name

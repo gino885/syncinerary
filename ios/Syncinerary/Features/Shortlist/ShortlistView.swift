@@ -4,6 +4,7 @@ struct ShortlistView: View {
     let onConfirmed: (TripSession) -> Void
 
     @State private var viewModel: ShortlistViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(session: TripSession, onConfirmed: @escaping (TripSession) -> Void) {
         self.onConfirmed = onConfirmed
@@ -90,7 +91,7 @@ struct ShortlistView: View {
                 }
                 .listStyle(.plain)
                 .listRowSeparatorTint(AppTheme.rule)
-                .animation(AppTheme.settle, value: viewModel.selectedIDs)
+                .animation(reduceMotion ? nil : AppTheme.settle, value: viewModel.selectedIDs)
             }
         }
         .journalPage()

@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ItineraryView: View {
     @State private var viewModel: ItineraryViewModel
+    @State private var selectedDay: Int?
+    @State private var showingEditor = false
+    @State private var addingPlace = false
+    @State private var editingCandidateID: UUID?
 
     init(session: TripSession) {
         _viewModel = State(initialValue: ItineraryViewModel(session: session))
@@ -15,30 +19,41 @@ struct ItineraryView: View {
                 FunLoadingView(script: .itinerary)
             } else if let itinerary = viewModel.itinerary {
                 List {
-                    Section {
-                        if viewModel.liveUpdatesUnavailable {
-                            MetaLabel("Live updates reconnecting")
-                        }
+                    if viewModel.liveUpdatesUnavailable || viewModel.pendingProposal != nil
+                        || (selectedDay == nil && !(itinerary.narrative ?? "").isEmpty) {
+                        Section {
+                            if viewModel.liveUpdatesUnavailable {
+                                MetaLabel("Live updates reconnecting")
+                            }
 
-                        if viewModel.pendingProposal != nil {
-                            Button("Review the trip update", action: viewModel.showPendingReplan)
-                                .buttonStyle(.stamp)
-                                .listRowInsets(ListRowInsets.stamp)
-                                .listRowSeparator(.hidden)
-                        }
+                            if viewModel.pendingProposal != nil {
+                                Button("Review the trip update", action: viewModel.showPendingReplan)
+                                    .buttonStyle(.stamp)
+                                    .listRowInsets(ListRowInsets.stamp)
+                                    .listRowSeparator(.hidden)
+                            }
 
-                        if let narrative = itinerary.narrative, !narrative.isEmpty {
-                            ItineraryNarrativeCard(narrative: narrative)
-                                .listRowSeparator(.hidden)
+                            if selectedDay == nil, let narrative = itinerary.narrative, !narrative.isEmpty {
+                                ItineraryNarrativeCard(narrative: narrative)
+                                    .listRowSeparator(.hidden)
+                            }
                         }
+                        .journalRow()
                     }
-                    .journalRow()
 
-                    ForEach(itinerary.days) { day in
-                        ItineraryDaySection(day: day)
+                    ForEach(itinerary.days.filter { selectedDay == nil || $0.day == selectedDay }) { day in
+                        ItineraryDaySection(day: day, onAdd: {
+                            selectedDay = day.day
+                            openEditor(add: true)
+                        }, onEdit: { stop in
+                            selectedDay = day.day
+                            openEditor(candidateID: stop.candidateID)
+                        })
                     }
 
-                    WishlistSection(items: itinerary.wishlistNotPlaced)
+                    if selectedDay == nil {
+                        WishlistSection(items: itinerary.wishlistNotPlaced)
+                    }
 
                     if !itinerary.transitAttributions.isEmpty {
                         Section {
@@ -57,6 +72,8 @@ struct ItineraryView: View {
                 }
                 .listStyle(.plain)
                 .listRowSeparatorTint(AppTheme.rule)
+                .id(selectedDay)
+                .transition(.opacity)
                 .refreshable {
                     await viewModel.load()
                 }
@@ -68,7 +85,39 @@ struct ItineraryView: View {
                 )
             }
         }
+        .animation(AppTheme.fade, value: selectedDay)
+        // Keep the picker and its matched-geometry namespace outside the
+        // changing list identity so the highlight can travel between days.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let itinerary = viewModel.itinerary {
+                ItineraryDayPicker(days: itinerary.days, selection: $selectedDay)
+            }
+        }
         .journalPage()
+        .onChange(of: viewModel.itinerary?.days.map(\.day)) {
+            if let selectedDay, viewModel.itinerary?.days.contains(where: { $0.day == selectedDay }) != true {
+                self.selectedDay = nil
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { ChecklistView(session: viewModel.session) } label: {
+                    Label("Checklist", systemImage: "checklist")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit plan", systemImage: "square.and.pencil") { openEditor() }
+                    .disabled(viewModel.itinerary == nil || viewModel.pendingProposal != nil || viewModel.isDeciding)
+            }
+        }
+        .sheet(isPresented: $showingEditor, onDismiss: viewModel.finishEditing) {
+            if let itinerary = viewModel.itinerary {
+                ManualItineraryEditor(session: viewModel.session, itinerary: itinerary,
+                    day: selectedDay ?? 0, addPlace: addingPlace, editCandidateID: editingCandidateID) { proposal in
+                        viewModel.pendingProposal = proposal
+                    }
+            }
+        }
         .navigationTitle(viewModel.session.trip.destination)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -93,4 +142,15 @@ struct ItineraryView: View {
             Text(viewModel.errorMessage)
         }
     }
+    private func openEditor(add: Bool = false, candidateID: UUID? = nil) {
+        guard viewModel.pendingProposal == nil, viewModel.itinerary != nil, !viewModel.isDeciding else {
+            viewModel.showPendingReplan()
+            return
+        }
+        addingPlace = add
+        editingCandidateID = candidateID
+        viewModel.isEditing = true
+        showingEditor = true
+    }
+
 }
