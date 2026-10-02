@@ -1,0 +1,83 @@
+Gino Chen
+
+Software Engineer | AI Agents & Backend Systems | Cornell Tech
+
++1 646-744-7880 | pc763@cornell.edu | Linkedin.com/in/ginochen | GitHub.com/gino885
+
+EDUCATION
+
+Master of Science in Computer Information Systems | GPA: 4.03 / 4.3
+
+Expected June 2027
+
+Cornell University, Cornell Tech - New York, NY
+
+Bachelor of Science in Management Information Systems | GPA: 4.07 / 4.3 (WES 3.89 / 4.0)
+
+June 2025
+
+National Chengchi University - Taipei, Taiwan
+
+TECHNICAL SKILLS
+
+Languages & Backend: Java (OOP, Spring Boot), Kotlin, Python, TypeScript, Node.js, RESTful APIs, Microservices, WebSocket
+
+AI & LLM Systems: LangGraph, Multi-Agent Orchestration, Tool Calling, RAG, Vector Search (pgvector, ChromaDB), LLM Evaluation (DeepEval), OpenTelemetry, OpenAI SDKs, PyTorch, CUDA
+
+Data & Infra: MySQL, PostgreSQL, Redis, Git, GitHub, Docker, AWS, Azure, Maven, Grafana
+
+Frontend & Tools: React.js, React Native, SwiftUI, Android, HTML, CSS, Pydantic, pytest, JUnit, Postman, JIRA, Agile (Scrum)
+
+PROFESSIONAL EXPERIENCE
+
+Software Engineer Intern | Google
+
+June 2026 - August 2026
+
+Closed 100% of flagged unauthenticated bypass vulnerabilities in the upload path by deprecating a legacy proxy and refactoring the Kotlin backend to orchestrate authenticated gRPC calls to downstream services directly.
+
+Eliminated OOM failures on large log uploads by streaming zipped archives directly to storage with Kotlin Coroutine Flow, backpressure, and a bounded 2 MB upload buffer.
+
+Split Wi-Fi reports out of a shared connectivity triage queue, implementing a user opt-in consent flow with Android WorkManager background scheduling and telemetry tracking opt-in health.
+
+Migrated a legacy service integration to the official partner API with zero downtime, gating the cutover behind a config-driven feature flag that enabled staged rollout and instant rollback.
+
+Software Engineer Intern | Garmin
+
+July 2024 - January 2025
+
+Built an internal AI chatbot backend with Spring WebFlux, RAG-powered vector search, and streaming responses, automatically resolving 32% of all IT support tickets for an organization of 1,500 employees.
+
+Integrated an image-recognition API into the COO system to detect over 10,000 package origins, reducing manual verification from eight steps to three through Jaro-Winkler similarity.
+
+Implemented secure RESTful APIs with JWT-based role-based access control, and automated migration of 20 years of review data using Python and HTML parsing.
+
+TECHNICAL PROJECTS
+
+Syncinerary | Python, FastAPI, LangGraph, OR-Tools, PostgreSQL/pgvector, Redis, SwiftUI
+
+March 2026 - Present
+
+Built a LangGraph travel agent for social discovery and human-approved replanning; moved discovery to checkpointed PostgreSQL workers, completing a live 16-card run after client disconnect.
+
+Improved worst-case meal coverage from 62.5% to 100% across 12 storm-scenario test runs by modeling meal availability in a two-stage OR-Tools CP-SAT solver, with LLMs excluded from feasibility decisions.
+
+Hardened LLM tool calls with Pydantic validation, repair, loop detection, and cost caps; added OpenTelemetry traces and 10-scenario deterministic CI evaluations to detect constraint regressions.
+
+NCCUPass | Python, FastAPI, MySQL, Redis, Docker
+
+March 2025 - November 2025
+
+Google Developer Student Club, an NCCU campus assistant
+
+Developed a campus assistant platform for 2,000+ registered students by containerizing search microservices and deploying a FastAPI backend integrated with MySQL and Redis.
+
+Built a BM25-based search engine with jieba tokenization, and reduced Search API latency by 34% via Redis caching, monitoring P99 latency on Grafana.
+
+WellNest App | Java, Spring Boot, ChromaDB, BERT, XGBoost, OpenAI API
+
+September 2023 - December 2024
+
+Achieved third place among 16 teams in the NCCU Graduation Project Competition for an AI-based mental health companion integrating NLP and emotion recognition.
+
+Created a real-time chatbot using Spring WebFlux and Server-Sent Events with a fine-tuned GPT-4o mini model, backed by a RAG pipeline using ChromaDB and BERT & XGBoost for emotion classification.
