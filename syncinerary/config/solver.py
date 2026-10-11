@@ -113,6 +113,13 @@ TOPUP_MAX_DETOUR_KM = 12.0
 SOLVER_DETERMINISTIC_LIMIT = 4.0
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 
+# Rescue changes one day while a traveler waits. With one repair round it
+# needs at most five searches (two assignments, two routes, one capacity
+# probe). Reserve at most five seconds for search inside the ten-second
+# replan target, leaving room for model construction and persistence.
+REPLAN_SOLVER_DETERMINISTIC_LIMIT = 0.2
+REPLAN_SOLVER_TIME_LIMIT_SECONDS = 1.0
+
 
 # Routing-aware repair (M7k). Stage 1 cannot see what Stage 2 will refuse, so
 # a refusal is fed back as "not this candidate on that day" and Stage 1 is

@@ -329,8 +329,22 @@ async def test_each_main_trigger_creates_a_pending_proposal(session, trigger):
     assert (await ItineraryVersionRepository(session).get_active(trip.id)).id == active.id
 
 
-async def test_five_day_replan_finishes_under_ten_seconds_without_provider_latency(session):
-    trip, _active, nodes = await _seed_scheduled_trip(session, days=5)
+async def test_five_day_replan_finishes_under_ten_seconds_without_provider_latency(
+    session, monkeypatch,
+):
+    from ortools.sat.python import cp_model
+
+    # Observe the real searches as well as wall time: a fast laptop can finish
+    # inside ten seconds while allowing a slower CI runner to spend a minute.
+    search_limits = []
+    original_solve = cp_model.CpSolver.solve
+
+    def record_search_limit(solver, model, *args, **kwargs):
+        search_limits.append(solver.parameters.max_time_in_seconds)
+        return original_solve(solver, model, *args, **kwargs)
+
+    monkeypatch.setattr(cp_model.CpSolver, "solve", record_search_limit)
+    trip, active, nodes = await _seed_scheduled_trip(session, days=5)
 
     started = perf_counter()
     proposal = await create_replan_proposal(
@@ -344,7 +358,19 @@ async def test_five_day_replan_finishes_under_ten_seconds_without_provider_laten
     elapsed = perf_counter() - started
 
     assert proposal.version.status is ItineraryStatus.PROPOSED
+    assert search_limits and all(limit > 0 for limit in search_limits)
+    assert sum(search_limits) <= 5, "Leave time for proposal construction inside the 10s SLA"
     assert elapsed < 10
+    assert (await ItineraryVersionRepository(session).get_active(trip.id)).id == active.id
+    proposed = await ItineraryNodeRepository(session).list_for_version(proposal.version.id)
+    assert nodes[6].candidate_id not in {node.candidate_id for node in proposed}
+    assert len([node for node in proposed if node.day == 2]) >= 3
+    unchanged = {node.candidate_id: node for node in proposed if node.day != 2}
+    for node in nodes:
+        if node.day != 2:
+            assert unchanged[node.candidate_id].model_dump(exclude={"id", "version_id"}) == (
+                node.model_dump(exclude={"id", "version_id"})
+            )
 
 
 async def test_a_second_disruption_waits_for_the_pending_decision(session):
