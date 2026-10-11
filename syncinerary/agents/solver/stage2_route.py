@@ -95,12 +95,14 @@ from syncinerary.tools.weather import OpenMeteoClient, WeatherForecast
 
 
 class SolverOptions(BaseModel):
-    """Daily schedule bounds, explicit so a future user setting can override them."""
+    """Daily schedule bounds and per-search limits for planning or rescue."""
 
     day_start: time = time(DEFAULT_DAY_START_HOUR)
     day_end: time = time(DEFAULT_DAY_END_HOUR)
     day_duration_cap_hours: int = Field(default=DAY_DURATION_CAP_HOURS, gt=0, le=24)
     timezone: str = M1_DESTINATION_TIMEZONE
+    search_deterministic_limit: float = Field(default=SOLVER_DETERMINISTIC_LIMIT, gt=0)
+    search_time_limit_seconds: float = Field(default=SOLVER_TIME_LIMIT_SECONDS, gt=0)
 
     @model_validator(mode="after")
     def _window_has_positive_length(self) -> SolverOptions:
@@ -752,8 +754,8 @@ def solve_day(
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
-    solver.parameters.max_deterministic_time = SOLVER_DETERMINISTIC_LIMIT
-    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
+    solver.parameters.max_deterministic_time = options.search_deterministic_limit
+    solver.parameters.max_time_in_seconds = options.search_time_limit_seconds
     status = solver.solve(model)
     proven = status in (cp_model.OPTIMAL, cp_model.INFEASIBLE)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -1224,6 +1226,8 @@ async def solve_full_routes(
             replacement_budget=len(admitted_now),
             day_start=options.day_start,
             day_end=options.day_end,
+            search_deterministic_limit=options.search_deterministic_limit,
+            search_time_limit_seconds=options.search_time_limit_seconds,
         )
 
     async def _route(bucket: list[CandidatePlace], day: int) -> _DaySolve:

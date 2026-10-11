@@ -303,6 +303,8 @@ def assign_days(
     replacement_budget: int = 0,
     day_start: time = time(DEFAULT_DAY_START_HOUR),
     day_end: time = time(DEFAULT_DAY_END_HOUR),
+    search_deterministic_limit: float = SOLVER_DETERMINISTIC_LIMIT,
+    search_time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS,
 ) -> DayAssignment:
     """Assign each shortlisted candidate to a day or the wishlist.
 
@@ -641,8 +643,8 @@ def assign_days(
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
-    solver.parameters.max_deterministic_time = SOLVER_DETERMINISTIC_LIMIT
-    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
+    solver.parameters.max_deterministic_time = search_deterministic_limit
+    solver.parameters.max_time_in_seconds = search_time_limit_seconds
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError("Could not assign shortlist candidates to feasible days")

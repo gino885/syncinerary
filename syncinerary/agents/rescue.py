@@ -17,12 +17,18 @@ from syncinerary.agents.rescue_alternatives import (
     GooglePlacesAlternativeProvider,
     is_open_at,
 )
+from syncinerary.agents.solver.repair import RepairBudget
 from syncinerary.agents.solver.stage2_route import (
     SolverOptions,
     TransitProvider,
     solve_full_routes,
 )
-from syncinerary.config.solver import DEFAULT_DAY_END_HOUR, DEFAULT_DAY_START_HOUR
+from syncinerary.config.solver import (
+    DEFAULT_DAY_END_HOUR,
+    DEFAULT_DAY_START_HOUR,
+    REPLAN_SOLVER_DETERMINISTIC_LIMIT,
+    REPLAN_SOLVER_TIME_LIMIT_SECONDS,
+)
 from syncinerary.diff.itinerary_diff import ItineraryDiff, itinerary_diff
 from syncinerary.domain.models import (
     CandidatePlace,
@@ -376,9 +382,14 @@ async def _build_replan_proposal(
             day_start=cutoff,
             day_end=time(DEFAULT_DAY_END_HOUR),
             timezone=trip.timezone or "Asia/Tokyo",
+            search_deterministic_limit=REPLAN_SOLVER_DETERMINISTIC_LIMIT,
+            search_time_limit_seconds=REPLAN_SOLVER_TIME_LIMIT_SECONDS,
         ),
         must_go_ids=required,
         fixed_start_minutes=fixed_start_minutes,
+        # The affected day is already isolated. One repair can refine its
+        # capacity; a multi-day repair search would spend the latency budget.
+        budget=RepairBudget(max_rounds=1, max_day_solves=1, max_replacements=0),
     )
 
     locked_active = await versions.get_many_for_update([active.id])
