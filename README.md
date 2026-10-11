@@ -1,247 +1,199 @@
 # Syncinerary
 
-**From saved places and group preferences to a shared, editable travel plan.**
+**An AI travel agent that helps a group turn saved places into a trip they can agree on.**
 
-Syncinerary is a native iOS group travel planner with a Python agent backend.
-Friends share social posts, vote on places, and confirm a shortlist. A two-stage
-constraint solver turns those choices into daily schedules with opening hours,
-travel times, meals, and reservations. When plans change, the app previews the
-changes and asks for approval before replacing the active itinerary.
+Planning a group trip usually starts with a chat full of links. One person saves
+restaurants, another wants museums, and someone else just wants a relaxed day.
+Turning those ideas into a schedule means finding common ground and working out
+what actually fits.
 
-The central engineering decision: **language models interpret and explain;
-deterministic code scores preferences, validates constraints, and schedules visits.**
+Syncinerary brings that process into one iOS app. Friends share places, vote on
+what they want to do, and review a plan built around their choices. Behind the
+app, a stateful AI agent discovers places, interprets preferences, and explains
+the itinerary. A constraint solver handles the timing and routes, while the
+group stays involved at the points where a decision matters.
 
-Python 3.12 · FastAPI · LangGraph · OR-Tools CP-SAT · PostgreSQL · Redis · SwiftUI
+**Stack:** Python · LangGraph · Anthropic Claude · OR-Tools · FastAPI · PostgreSQL · Redis · SwiftUI
 
-[Product walkthrough](#product-walkthrough) · [Architecture](#architecture) ·
-[Engineering decisions](#engineering-decisions) · [Verification](#verification) ·
-[Run locally](#run-locally) · [Current status](#current-status)
+[The app](#the-app) · [The AI agent](#how-the-ai-agent-works) ·
+[Architecture](#architecture) · [Testing](#testing-and-evaluation) · [Local setup](#run-locally)
 
-## At a glance
+## The app
 
-| Area | What this repository demonstrates |
-|---|---|
-| Applied AI | Tool-based place discovery, structured extraction, traveler-specific annotations, and grounded explanations |
-| Backend systems | Durable background work, checkpoint recovery, concurrent request protection, authenticated APIs, and versioned data |
-| Optimization | Separate day assignment and within-day routing, with hard constraints and explicit reasons for unplaced stops |
-| Product engineering | Native iOS accounts, group chat, shared links, voting, lodging selection, checklists, and itinerary editing |
-| Evaluation | Automated regressions, deterministic scenario evaluation, failure injection, and traceable discovery experiments |
+Create a trip, choose the cities and dates, and invite friends into the group
+chat. Everyone can add interests and dietary preferences. Instagram, TikTok,
+and RedNote links shared in the conversation go into a shared collection for discovery.
 
-**Status:** a working local prototype with automated backend checks and an iOS
-Simulator build. OAuth provider activation, physical-device verification, and
-public deployment remain separate release work. See [current status](#current-status).
+When the group is ready, the agent gathers candidates and each traveler votes
+through a swipe deck. People can add a note to a vote or flag a place they really
+want to visit. The group then reviews the shortlist before the planner builds
+the itinerary, including lodging, travel time, and meal breaks.
 
-## Product walkthrough
-
-1. **Create a group.** Choose up to four cities in one country, dates, days per
-   city, interests, and dietary exclusions. Invite friends to the group chat.
-2. **Collect ideas.** Supported Instagram, TikTok, and RedNote links sent in
-   chat become shared saved links. Members can update their own preferences.
-3. **Discover places.** The leader starts a background job. Public social
-   metadata introduces candidates; Google Places verifies them and fills gaps.
-   The app shows progress and can reconnect after being closed.
-4. **Decide together.** Travelers swipe, add notes, and mark favorites.
-   Deterministic scoring builds a shortlist that the group reviews and confirms.
-5. **Build the itinerary.** Select lodging or record an already-booked hotel.
-   The planner assigns places to days, orders visits, and accounts for travel
-   and meal times. Unplaced choices keep an explanation.
-6. **Adapt the plan.** Add, remove, reorder, or retime stops. Manual edits and
-   disruption-driven replans create proposals with a diff. Approval activates
-   a new version; rejection keeps the existing one.
+The plan remains editable. Add a stop, move a visit, or report a disruption, then
+review the proposed changes before applying them. Shared checklists and saved
+links stay with the trip so the group can keep preparing together.
 
 <table>
   <tr>
-    <th>Vote on places</th>
-    <th>Read the daily plan</th>
-    <th>Approve changes</th>
+    <th>Choose places together</th>
+    <th>See the daily plan</th>
+    <th>Review a change</th>
   </tr>
   <tr>
     <td><img src="evidence/ui-refresh/screenshots/swipe-light.png" width="240" alt="Swipe card with dislike, note, like, and must-go controls"></td>
-    <td><img src="evidence/ui-refresh/screenshots/itinerary-light.png" width="240" alt="Daily itinerary with visit times, travel time, and an add-place action"></td>
-    <td><img src="evidence/ui-refresh/screenshots/review-light.png" width="240" alt="Itinerary change preview with approve and keep-current-plan actions"></td>
+    <td><img src="evidence/ui-refresh/screenshots/itinerary-light.png" width="240" alt="Daily itinerary showing visit times and travel between stops"></td>
+    <td><img src="evidence/ui-refresh/screenshots/review-light.png" width="240" alt="Proposed itinerary change with approve and keep-current-plan actions"></td>
   </tr>
 </table>
 
-These Simulator captures use fixture data to demonstrate real UI components,
-including placeholder imagery. They are interface examples, not a live trip
-benchmark. [Visual verification notes](evidence/ui-refresh/verification.md)
-include light, dark, larger-text, and motion checks.
+*Simulator screenshots of the app's components using sample trip data.*
+
+## How the AI agent works
+
+The backend uses LangGraph to carry a trip through discovery, traveler feedback,
+planning, and explanation. Its state includes the group's preferences, candidate
+places, votes, constraints, and planning results. PostgreSQL checkpoints let the
+workflow pause for people and resume with their decisions.
+
+### 1. Find places worth considering
+
+Discovery combines public social-post metadata, traveler-shared links, and
+Google Places. Claude extracts named places and useful context from the available
+text. Place lookups then check the location and details, and duplicate mentions
+are combined into one candidate with its source links intact.
+
+Search adapts to what has already been found. The search policy tracks which
+queries add useful places and whether the trip still needs restaurants,
+attractions, or less obvious local spots. It can try another query or platform
+when a search produces little, within a fixed budget. Google Places fills gaps
+when social sources do not provide enough candidates.
+
+The group's language follows the trip through discovery and explanation.
+For Chinese trips, automatic social posts need meaningful Chinese text in the
+original public metadata. Translating an English card alone does not satisfy
+that check.
+
+### 2. Understand each traveler
+
+A delegate step reads each traveler's profile and adds relevant hints to the
+candidate cards. A restaurant might receive a dietary warning, while a place
+that matches someone's interests can get a positive note.
+
+Travelers can also vote with a comment, such as “I can get my own lunch here”
+or “I'd go if we keep the visit short.” The model turns these comments into
+structured information that later stages can use.
+
+The group keeps the final say. Votes are scored by a reproducible function,
+and the shortlist waits for confirmation. Shared interests guide discovery:
+the five interests supported by the most members get priority, while individual
+profiles and hard dietary constraints are retained.
+
+### 3. Turn the choices into a schedule
+
+Once the shortlist is confirmed, a model translates stated soft preferences
+into bounded weights for the planner. OR-Tools then assigns places to days and
+works out the order and times within each day. The scheduling constraints cover
+opening hours, reservations, travel time, fatigue, and the available day window.
+
+This division gives each part a clear job. The model interprets what the group
+cares about; the solver checks what fits using the available place and travel
+data. The explanation step describes the resulting plan and why some requested
+places could not be included.
+
+### 4. Help when the plan changes
+
+A closed venue, a missed reservation, or a late start can affect the rest of a
+day. The replan workflow identifies the affected stops, protects fixed bookings,
+looks for suitable alternatives, and runs the scheduling logic again for that
+day.
+
+The result is a proposal with a record of the alternatives considered and a
+diff showing what would change. The group can accept it or keep the current
+plan. Manual edits use the same versioned approval flow, so reviewing a change
+does not overwrite the active itinerary.
+
+### 5. Keep the work recoverable and observable
+
+Discovery runs in a separate worker so it can continue after the app closes.
+Each job stores its input snapshot, progress, and heartbeat. Database locks
+coordinate workers, and checkpoints allow interrupted work to resume.
+
+Model and tool calls pass through a shared reliability harness. It validates
+inputs, limits repair attempts, detects repeated work, and enforces step and
+model-cost budgets. OpenTelemetry traces in Phoenix make it possible to follow
+a run and investigate where it slowed down or failed.
+
+The main entry points are the [agent graph](syncinerary/agents/graph.py),
+[discovery workflow](syncinerary/agents/gather/social.py),
+[reliability harness](syncinerary/harness/wrapper.py), and
+[replan workflow](syncinerary/agents/rescue.py).
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    App[SwiftUI iOS app] <-->|REST and WebSocket| API[FastAPI]
-    API --> Jobs[(PostgreSQL jobs and input snapshots)]
-    Jobs --> Worker[Separate discovery worker]
-    Worker --> Gather[Discover, verify, deduplicate, annotate]
-    Gather --> Vote[Human voting]
-    Vote --> Consensus[Deterministic consensus and shortlist]
-    Consensus --> Confirm[Human shortlist confirmation]
-    Confirm --> Solve[OR-Tools: assign days, then route each day]
-    Solve --> Explain[LLM explanation]
-    Explain --> Versions[(Versioned itinerary)]
-    Versions --> App
-    App --> Edit[Manual edit or disruption]
-    Edit --> Proposal[Validate and preview a proposed version]
-    Proposal --> Approval{Approve?}
-    Approval -->|Yes| Versions
-    Approval -->|No| Keep[Keep the active version]
-    Gather -.-> Harness[Validation, retry, loop and budget controls]
-    Explain -.-> Harness
-    Harness -.-> Traces[OpenTelemetry and Phoenix]
+    App[SwiftUI app] <-->|REST and WebSocket| API[FastAPI]
+    API --> Job[(Saved discovery job)]
+    Job --> Worker[Background worker]
+    Worker --> Gather[Discover places and generate traveler hints]
+    Gather --> Votes[Travelers vote]
+    Votes --> Shortlist[Score votes and confirm shortlist]
+    Shortlist --> Preferences[Model interprets soft preferences]
+    Preferences --> Solver[OR-Tools assigns days and routes visits]
+    Solver --> Explain[Model explains the itinerary]
+    Explain --> Plan[(Saved itinerary version)]
+    Plan --> App
+    App --> Change[Manual edit or reported disruption]
+    Change --> Review[Validate and preview changes]
+    Review --> Approval{Group approves?}
+    Approval -->|Yes| Plan
+    Approval -->|No| Keep[Keep current plan]
 ```
 
-[LangGraph](syncinerary/agents/graph.py) persists execution checkpoints and
-pauses at human decision boundaries. PostgreSQL owns trips, votes, jobs, and
-itinerary history. Redis supplies caches, rate limits, and messaging
-infrastructure. External integrations sit behind typed tool contracts; the
-[harness](syncinerary/harness/wrapper.py) accounts for model and tool activity.
+The SwiftUI app communicates with an async FastAPI backend. LangGraph manages
+the planning workflow, PostgreSQL stores shared trip data and checkpoints, and
+Redis supports caching, rate limits, and live updates. The API and discovery
+worker run as separate processes.
 
-| Layer | Implementation |
-|---|---|
-| Client | SwiftUI, Observation, async networking, Keychain sessions; iOS 17+ |
-| API | Async FastAPI, Pydantic request/response models, REST and WebSocket endpoints |
-| Orchestration | LangGraph with PostgreSQL checkpoints and a separate worker process |
-| Planning | OR-Tools CP-SAT for day assignment and within-day scheduling |
-| Persistence | PostgreSQL 16, SQLAlchemy, Alembic; pgvector extension in the schema |
-| AI and providers | Anthropic, Brave Search, Google Places/Routes, Open-Meteo; optional HERE transit fallback |
-| Observability and evaluation | OpenTelemetry, OpenInference, Phoenix, pytest; optional DeepEval judge path |
+Claude handles extraction, annotations, note interpretation, preference weights,
+and explanations. Brave Search provides social discovery; Google Places and
+Routes provide place and travel data; Open-Meteo supplies weather forecasts.
+The two scheduling stages use OR-Tools CP-SAT.
 
-## Engineering decisions
+## Testing and evaluation
 
-### Keep model judgment separate from feasibility
+The project has tests for the planning flow and the failures around it: duplicate
+job starts, interrupted workers, stale itinerary edits, invalid tool arguments,
+and access to another group's data.
 
-Models extract place names, interpret traveler notes, annotate candidate cards,
-suggest soft-preference weights, and explain results. Vote aggregation,
-shortlist selection, and scheduling use deterministic code. The solver checks
-the supplied opening hours, reservations, travel times, and daily constraints;
-the narrative cannot silently change its answer.
+The **October 2, 2026** verification run passed **914 backend tests**, **10 Swift
+contract and view-model test programs**, and the iOS Simulator build. Database
+migrations also passed an upgrade, downgrade, and upgrade cycle in a disposable
+database.
 
-The two-stage design separates **which day** a place belongs on from **when and
-in what order** it can be visited. It also lets a replan target affected days.
-Feasibility depends on the supplied data: unknown hours, estimated travel, and
-missing dietary details remain limitations rather than real-world guarantees.
-
-Read: [consensus](syncinerary/agents/aggregate.py),
-[day assignment](syncinerary/agents/solver/stage1_days.py),
-[routing](syncinerary/agents/solver/stage2_route.py),
-[SDK boundary tests](tests/test_m2_sdk_boundary.py).
-
-### Make long-running discovery recoverable
-
-Starting discovery stores an immutable snapshot of the trip, travelers,
-constraints, and attachments. A separate worker claims the job with a
-PostgreSQL advisory lock and maintains a heartbeat. Checkpoints allow interrupted
-work to resume without treating a closed app or dropped HTTP request as a lost
-trip. Duplicate start requests coalesce, and retries are bounded.
-
-PostgreSQL owns both the job and its inputs, avoiding a database/broker dual
-write at job creation. This supports recovery; it is not a claim of exactly-once
-execution for external provider calls.
-
-Read: [job repository](syncinerary/store/repositories/gather.py),
-[worker](syncinerary/workers/gather.py),
-[recovery tests](tests/test_gather_recovery.py).
-
-### Preserve evidence and report discovery shortfalls
-
-Candidates retain source URLs, public-text evidence, and contributor attribution
-after deduplication. Group interests are ranked by shared support and capped at
-five discovery interests; full individual profiles and hard dietary constraints
-remain available. Chinese trips require meaningful Chinese text in the original
-automatic social source, rather than treating translated card copy as evidence.
-
-Discovery targets 60% Reel-backed cards across the trip, while respecting city,
-food, and hidden-gem coverage. Search and verification are bounded at eight
-searches per city and 40 social place verifications per trip. A sparse destination
-can miss the target; the deck is not shrunk to manufacture a better percentage.
-
-Historical [discovery experiments](evidence/reels/README.md) retain misses as
-well as successes. Those samples predate the latest Chinese-source filter and
-are not a current coverage guarantee or a controlled A/B benchmark.
-
-Read: [admission checks](syncinerary/agents/gather/admission.py),
-[source metrics](syncinerary/agents/gather/source_mix.py),
-[Chinese-source regressions](tests/test_chinese_social_content.py).
-
-### Make consequential edits reviewable
-
-Manual edits and replans create append-only itinerary versions. Validation
-protects fixed reservations, rejects stale base versions, and checks changed
-days before presenting a proposal. The active itinerary stays unchanged until
-approval. A rejection preserves the current plan and records the decision.
-
-Read: [manual edit validation](syncinerary/agents/manual_itinerary.py),
-[replan API](syncinerary/api/routers/replans.py),
-[manual-edit regressions](tests/test_manual_itinerary.py).
-
-### Put credentials and failure controls at explicit boundaries
-
-Email accounts use Argon2id password hashes and opaque, revocable sessions.
-The app stores its session in Keychain. Google and Apple identities are verified
-by provider subject, with signature, audience, issuer, expiry, and single-use
-nonce checks; matching email addresses do not automatically link accounts.
-
-Account-owned trips use the creator's Anthropic key. It is encrypted using
-AES-256-GCM with account-bound authenticated data and a versioned keyring.
-Every member must grant AI data-sharing consent. The shared harness validates
-tool inputs, bounds repairs, detects repeated work, and enforces step and
-model-cost limits. Sensitive trace content is disabled by default.
-
-Read: [credential encryption](syncinerary/security/credentials.py),
-[provider identity verification](syncinerary/api/social_auth.py),
-[privacy and access tests](tests/test_app_store_readiness.py),
-[BYOK operations](docs/ANTHROPIC_BYOK.md).
-
-## Verification
-
-Local verification on **October 2, 2026**:
-
-| Check | Result |
-|---|---|
-| Python unit and integration suite | 914 passed, with PostgreSQL and Redis available |
-| Database migrations | Full upgrade, downgrade to base, then upgrade passed in a disposable database |
-| Python static checks | Ruff passed |
-| iOS | Debug Simulator build passed; all 10 Swift contract/view-model test executables passed |
-| Deterministic evaluations | 10/10 itinerary scenarios and 14/14 discovery admission cases passed |
-| Failure injection | Deliberately disabling the fatigue cap produced the expected failing evaluation |
-
-See the [verification record](docs/VERIFICATION.md) for commands, scope, and limits.
-
-The [CI workflow](.github/workflows/ci.yml) runs backend tests, lint, SDK-boundary
-checks, and deterministic itinerary evaluations. The evaluation suite includes
-10 itinerary scenarios, a deliberate fatigue-cap failure mode, and a separate
-14-case discovery admission gate. Default evaluation makes no model calls;
-the optional LLM judge is kept out of the normal CI path. Swift checks currently
-run locally on macOS.
+Agent evaluation includes **10 itinerary scenarios** and **14 place-admission
+cases**. The default evaluation runs without model calls so it can act as a
+repeatable CI check. A deliberately disabled fatigue cap makes the evaluation
+fail, confirming that the checks catch a broken planning constraint. An optional
+DeepEval judge path is available for model-based evaluation.
 
 ```bash
-# Start the real local services before testing; DB tests otherwise skip.
-docker compose up -d --wait
-.venv/bin/alembic upgrade head
+# With PostgreSQL and Redis running:
 .venv/bin/python -m pytest tests/ -q
 .venv/bin/ruff check syncinerary tests
-
-# Deterministic scenario and discovery checks.
 .venv/bin/python -m syncinerary.eval.runner --no-store
 .venv/bin/python -m syncinerary.eval.discovery
 
-# This deliberately broken run should exit nonzero.
+# Expected to fail: proves the evaluation catches a broken fatigue constraint.
 .venv/bin/python -m syncinerary.eval.runner --break fatigue-cap --no-store
 
-# macOS with Xcode: API contracts and view-model regressions.
+# On macOS with Xcode:
 bash scripts/test_ios.sh
 ```
 
-Automated provider tests use controlled responses. A passing suite does not
-establish OAuth provisioning, live social coverage, or physical-device behavior.
-
 ## Run locally
 
-### 1. Install and start infrastructure
-
-Prerequisites: Python 3.12 through `uv`, Docker Compose, and Xcode for the iOS app.
+You'll need `uv`, Docker Compose, and Xcode for the iOS app.
 
 ```bash
 uv venv --python 3.12
@@ -251,89 +203,41 @@ docker compose up -d --wait
 .venv/bin/alembic upgrade head
 ```
 
-For tests and deterministic evaluations, the development database and Redis
-defaults are sufficient. For live discovery, configure the following in the
-gitignored `.env`:
+For live discovery, set `GOOGLE_MAPS_API_KEY` and `BRAVE_SEARCH_API_KEY` in
+`.env`. Configure `SYNC_CREDENTIAL_ENCRYPTION_KEYS` with a versioned keyring of
+base64url-encoded 32-byte AES keys and select its active version with
+`SYNC_CREDENTIAL_ENCRYPTION_ACTIVE_VERSION`. The trip creator saves their
+Anthropic key through **AI access** in the app, and members grant consent
+before AI work starts.
 
-| Setting | Purpose |
-|---|---|
-| `GOOGLE_MAPS_API_KEY` | Place lookup/verification and the configured Google routing integration |
-| `BRAVE_SEARCH_API_KEY` | Public social-post discovery |
-| `SYNC_CREDENTIAL_ENCRYPTION_KEYS` | A real AES-256 keyring for encrypted creator credentials; replace the template value using the [BYOK guide](docs/ANTHROPIC_BYOK.md) |
-| `SYNC_CREDENTIAL_ENCRYPTION_ACTIVE_VERSION` | Selects the active encryption-key version |
-
-The trip creator saves their Anthropic key in the app's **AI access** settings.
-Each member grants consent before AI work starts. A server `ANTHROPIC_API_KEY`
-is only a local/legacy fallback and does not replace creator credentials for
-account-owned trips. Live discovery calls external services and may incur fees.
-
-Email signup does **not** require SMTP or a verification email. SMTP is needed
-for password recovery. Google and Apple registration require their own provider
-configuration. Details: [email access](docs/EMAIL_SIGN_IN.md),
-[social sign-in](docs/SOCIAL_SIGN_IN.md).
-
-### 2. Run both backend processes
+Start the API and worker in separate terminals:
 
 ```bash
-# Terminal 1: API, available to the Simulator and local network.
 .venv/bin/python -m syncinerary.api.server
 ```
 
 ```bash
-# Terminal 2: durable discovery worker, using the same environment/database.
 .venv/bin/python -m syncinerary.workers.gather
 ```
 
-Open [API documentation](http://localhost:8000/docs),
-[health](http://localhost:8000/health), and [Phoenix](http://localhost:6006).
-The worker is a separate process; starting the API alone does not process
-discovery jobs.
+Open `ios/Syncinerary.xcodeproj`, select the `Syncinerary` scheme, and run an
+iPhone Simulator. The app connects to `http://localhost:8000` by default.
+Phoenix traces are available at `http://localhost:6006`.
 
-### 3. Run the iOS app
-
-Open `ios/Syncinerary.xcodeproj`, select the shared `Syncinerary` scheme, and
-run an iPhone Simulator. The default API origin is `http://localhost:8000`.
-Create an account, start a group, configure AI access, and invite another member
-to exercise the full planning flow.
-
-See the [iOS guide](ios/README.md) for configuration and tests, and the
-[iPhone testing guide](docs/IPHONE_TESTING.md) for device networking and signing.
-A [Dockerfile](Dockerfile) is provided for the API and worker;
-[deployment notes](docs/PRODUCTION_DEPLOYMENT.md) describe their separate lifecycles.
-
-## Repository map
+## Finding your way around
 
 ```text
 syncinerary/
-  agents/       Graph, discovery, delegates, consensus, solver, explanation, replans
-  api/          Authentication, trip APIs, wire contracts, WebSocket handling
-  workers/      Durable discovery worker
-  harness/      Typed calls, repair limits, loop detection, budget accounting
-  domain/       Domain models and validation
-  store/        Repositories, SQLAlchemy tables, migrations, database connections
+  agents/       Planning graph, discovery, delegates, solver, and replans
+  harness/      Tool validation, retries, loop detection, and budgets
+  workers/      Background discovery and recovery
+  api/          Accounts, trip endpoints, and WebSocket handling
+  domain/       Typed trip state and validation
+  store/        Repositories, migrations, and database connections
   tools/        Places, social metadata, weather, and transit integrations
-  obs/          OpenTelemetry and Phoenix configuration
-  eval/         Deterministic fixtures, scorers, discovery regressions, runner
-ios/            SwiftUI app and Swift regression checks
-tests/          Backend acceptance and regression tests
-docs/           Account, deployment, privacy, and device-testing guides
-evidence/       Dated screenshots, validation notes, and discovery experiments
-scripts/        Local verification and explicitly invoked live diagnostics
+  obs/          Tracing and Phoenix configuration
+  eval/         Scenarios, scorers, and regression checks
+ios/            SwiftUI app and client tests
+tests/          Backend tests
+evidence/       Screenshots and dated discovery experiments
 ```
-
-## Current status
-
-| Area | Status and practical limit |
-|---|---|
-| Planning workflow | Implemented from group setup through voting, scheduling, and approved revisions; verified locally |
-| Discovery | Live integrations and bounded recovery exist; source availability and language evidence vary by destination |
-| Email accounts | Immediate signup and sign-in implemented; addresses are unverified at signup; recovery needs SMTP |
-| Google / Apple | Client flows and server verification implemented and tested with synthetic signed identities; real provider setup and device checks remain |
-| iPhone password saving | AutoFill field types are prepared; associated-domain configuration and device validation remain |
-| iOS accessibility | Larger-text and dark-mode screenshots, contrast checks, and Reduce Motion handling; physical VoiceOver and haptic review remain |
-| Deployment | Container and release guidance exist; this README does not claim a hosted service, App Store release, or production usage |
-| Data limitations | Dietary unknowns need confirmation; lodging records do not verify availability or make bookings; travel estimates are labeled |
-
-The [build brief](CLAUDE.md) records design decisions and scope. Dated files
-under `evidence/` preserve what was measured at that time, including earlier
-interfaces and behavior that later changed.
