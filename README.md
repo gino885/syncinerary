@@ -35,18 +35,34 @@ links stay with the trip so the group can keep preparing together.
 
 <table>
   <tr>
-    <th>Choose places together</th>
+    <th>Start a trip</th>
+    <th>Choose your preferences</th>
+    <th>Discover and vote</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/trip-setup.png" width="240" alt="New trip screen with destination search and travel dates"></td>
+    <td><img src="docs/images/traveler-preferences.png" width="240" alt="Traveler preferences with coffee, street food, hidden gems, museums, and hiking selected"></td>
+    <td><img src="docs/images/place-discovery.png" width="240" alt="Hase-dera in Kamakura, with a temple photo, Instagram Reel, personalized note, and voting controls"></td>
+  </tr>
+</table>
+
+<details>
+<summary>See the itinerary and change review</summary>
+
+<table>
+  <tr>
     <th>See the daily plan</th>
     <th>Review a change</th>
   </tr>
   <tr>
-    <td><img src="evidence/ui-refresh/screenshots/swipe-light.png" width="240" alt="Swipe card with dislike, note, like, and must-go controls"></td>
-    <td><img src="evidence/ui-refresh/screenshots/itinerary-light.png" width="240" alt="Daily itinerary showing visit times and travel between stops"></td>
+    <td><img src="docs/images/daily-itinerary.png" width="240" alt="Kamakura day four itinerary with visit times, walking estimates, and links to the original social posts"></td>
     <td><img src="evidence/ui-refresh/screenshots/review-light.png" width="240" alt="Proposed itinerary change with approve and keep-current-plan actions"></td>
   </tr>
 </table>
 
-*Simulator screenshots of the app's components using sample trip data.*
+*The change review screenshot uses sample trip data.*
+
+</details>
 
 ## How the AI agent works
 
