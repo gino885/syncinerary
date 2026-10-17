@@ -379,21 +379,47 @@ async def test_the_same_fixture_scores_the_same_twice():
     assert first.scores.quality_map() == second.scores.quality_map()
 
 
-async def test_the_deterministic_budget_is_what_binds_not_the_wall_clock():
-    """The wall clock is a backstop, and a backstop that fires routinely is
-    not a backstop: it is a second, machine-dependent limit. The hardest
-    fixture has to finish well inside it, with room for a slower runner.
-    """
-    from syncinerary.config.solver import SOLVER_TIME_LIMIT_SECONDS
+async def test_each_search_finishes_or_exhausts_its_deterministic_budget(monkeypatch):
+    """Check search termination directly, independent of total pipeline time."""
+    from types import SimpleNamespace
 
+    from ortools.sat.python import cp_model
+
+    from syncinerary.eval import cases
+
+    # Overall orchestration time can exceed a single search's backstop even
+    # when each search terminates normally. Simulate that without sleeping.
+    timestamps = iter((0.0, 120.0))
+    monkeypatch.setattr(cases, "_time", SimpleNamespace(perf_counter=lambda: next(timestamps)))
+    searches = []
+    original_solve = cp_model.CpSolver.solve
+
+    def record_search(solver, model, *args, **kwargs):
+        status = original_solve(solver, model, *args, **kwargs)
+        searches.append({
+            "status": status,
+            "deterministic_time": solver.response_proto.deterministic_time,
+            "deterministic_limit": solver.parameters.max_deterministic_time,
+            "wall_time": solver.wall_time,
+            "wall_limit": solver.parameters.max_time_in_seconds,
+        })
+        return status
+
+    monkeypatch.setattr(cp_model.CpSolver, "solve", record_search)
     outcome = await run_plan_case(load_by_name("clean_5day_hokkaido"))
     assert outcome.solver_result is not None
-    # Deliberately not a fraction of the backstop chosen to look demanding:
-    # that is a guess about how fast the machine is, and guessing that is the
-    # mistake this whole change exists to stop making. A solve that hit the
-    # backstop takes the full budget, so anything comfortably below it proves
-    # the deterministic limit is the one that fired.
-    assert outcome.seconds < SOLVER_TIME_LIMIT_SECONDS * 0.8
+    assert outcome.scores.passed
+    assert outcome.seconds == 120.0
+    assert searches
+    for search in searches:
+        assert search["deterministic_limit"] > 0 and search["wall_limit"] > 0, search
+        if search["status"] in (cp_model.OPTIMAL, cp_model.INFEASIBLE):
+            continue
+        # An unfinished search must have used its work budget. If the wall
+        # backstop cuts it short, report that specific search, not the sum of
+        # assignment, routing, repair, transit lookup, and scoring durations.
+        assert search["status"] in (cp_model.FEASIBLE, cp_model.UNKNOWN), search
+        assert search["deterministic_time"] + 1e-6 >= search["deterministic_limit"], search
 
 
 def test_the_eval_package_imports_no_llm_sdk():
