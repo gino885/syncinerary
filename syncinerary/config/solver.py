@@ -93,20 +93,15 @@ TOPUP_MAX_DETOUR_KM = 12.0
 # CP-SAT search ceilings, per solve. Two of them, because they do different
 # jobs.
 #
-# The deterministic limit is the one that binds. It is measured in the
-# solver's own work units rather than seconds, so the search stops at the
-# same point on a fast laptop and a slow CI runner and returns the same plan.
-# That matters more than it sounds: a wall-clock limit made the same fixture
-# score 0.8 meal coverage at ten seconds, 0.6 at two, and 0.8 again at half a
-# second, which would have turned every eval comparison across machines into
-# a coin flip. Four units is the smallest budget that still meets the eval's
-# quality floors, and costs about three seconds here.
+# The deterministic limit is the intended search budget, measured in the
+# solver's own work units rather than seconds. Four units meets the eval's
+# quality floors without making CPU speed decide how much search a plan gets.
+# Exact outcomes can still vary with the solver version and architecture.
 #
-# The wall-clock limit is only a backstop against a pathological model, so a
-# request a person is waiting on cannot hang forever. It should never be the
-# limit that fires: at four units even a much slower machine finishes well
-# inside it. Without either, the M7 eval harness found a five-day plan that
-# never returned at all, which would have hung POST /plan the same way.
+# The wall-clock limit is a backstop against a pathological model. Both
+# ceilings apply per search, not to the whole pipeline, which may solve day
+# assignments, routes, and repair probes separately. Without either, the M7
+# eval harness found a five-day plan that never returned at all.
 #
 # Every solve site already treats FEASIBLE as success, so both limits degrade
 # from "provably optimal" to "the best plan found in the budget".
